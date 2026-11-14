@@ -18,6 +18,8 @@ def log(event_type: str, actor: str, data: dict, **ids) -> dict:
 
 def _summary(ev: dict) -> str:
     d, t = ev["data"], ev["event_type"]
+    if t == "CLIENT_INQUIRY":
+        return f"{d.get('action', 'lookup')}: {d.get('text', '')}"
     if t == "SEARCH":
         return f"searched '{d.get('text', '')}' filters={d.get('filters')} -> {d.get('matches')} matches"
     if t == "OFFERS_CHECKED":
@@ -80,7 +82,7 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
                 ).fetchone()
                 prev_seq = prev_row["prev_seq"] if prev_row and prev_row["prev_seq"] is not None else 0
                 ctx_rows = conn.execute(
-                    f"{base} AND seq > ? AND seq < ? ORDER BY seq",
+                    f"{base} AND seq > ? AND seq < ? ORDER BY seq DESC LIMIT 30",
                     (buyer_id, prev_seq, upper_seq),
                 ).fetchall()
             else:
@@ -92,7 +94,7 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
                 prev_ts = prev_order["prev_ts"] if prev_order else None
                 cond = " AND ts > ? AND ts <= ?" if prev_ts else " AND ts <= ?"
                 params = (buyer_id, prev_ts, upper_ts) if prev_ts else (buyer_id, upper_ts)
-                ctx_rows = conn.execute(f"{base}{cond} ORDER BY seq", params).fetchall()
+                ctx_rows = conn.execute(f"{base}{cond} ORDER BY seq DESC LIMIT 30", params).fetchall()
 
         seen = {ev["seq"] for ev in evs}
         for r in ctx_rows:

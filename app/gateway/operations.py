@@ -84,10 +84,12 @@ def analytics(period: Period = "month"):
     sectors = defaultdict(lambda: {"inquiries": 0, "confirmed_orders": 0, "net_eur": 0.0, "kg_co2e": 0.0, "carbon_covered_lines": 0})
     buyers = defaultdict(lambda: {"orders": 0, "net_eur": 0.0})
     products = defaultdict(float)
+    product_names = {}
     categories = Counter()
     missing, covered = 0, 0
 
-    with store.transaction() as conn:
+    with store.connect() as conn:
+        conn.execute("BEGIN")
         events = conn.execute(
             "SELECT buyer_id, event_type, data_json FROM audit_events WHERE julianday(ts) BETWEEN julianday(?) AND julianday(?) "
             "AND event_type IN ('SEARCH','OFFERS_CHECKED')", window)
@@ -109,7 +111,8 @@ def analytics(period: Period = "month"):
             sector["confirmed_orders"] += 1
             sector["net_eur"] += order["total_net"]
             for line in json.loads(order["lines_json"]):
-                products[line["product_id"], line.get("name"), line["sales_unit"]] += line["quantity"]
+                products[line["product_id"], line["sales_unit"]] += line["quantity"]
+                product_names[line["product_id"]] = line.get("name")
                 emissions = line.get("estimated_kg_co2e")
                 if emissions is None:
                     missing += 1
@@ -127,6 +130,6 @@ def analytics(period: Period = "month"):
         "sectors": dict(sectors), "categories": dict(categories.most_common(8)),
         "buyers": sorted(({"buyer_id": key, **value} for key, value in buyers.items()),
                          key=lambda entry: (-entry["orders"], -entry["net_eur"]))[:8],
-        "products": [{"product_id": pid, "name": name, "sales_unit": unit, "quantity": round(qty, 4)}
-                     for (pid, name, unit), qty in sorted(products.items(), key=lambda entry: -entry[1])[:8]],
+        "products": [{"product_id": pid, "name": product_names[pid], "sales_unit": unit, "quantity": round(qty, 4)}
+                     for (pid, unit), qty in sorted(products.items(), key=lambda entry: -entry[1])[:8]],
     }

@@ -9,6 +9,7 @@ search -> offers -> plan -> quote -> order -> pending_approval -> approve -> con
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -19,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gateway import audit, service, store  # noqa: E402
 from gateway.agent import next_weekday  # noqa: E402
-from gateway.auth import Principal, principal_for_key  # noqa: E402
+from gateway.auth import Admin, Principal, admin_for_key, principal_for_key  # noqa: E402
 from gateway.models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest  # noqa: E402
 
 
@@ -27,7 +28,7 @@ def h(title: str) -> None:
     print(f"\n=== {title} " + "=" * max(0, 70 - len(title)))
 
 
-def _run_demo(a: argparse.Namespace, agent: Principal, approver: Principal) -> None:
+def _run_demo(a: argparse.Namespace, agent: Principal, approver: Admin | None) -> None:
     today = store.now()
     delivery = a.date or next_weekday(0, today.date())
     need = Need(item="lactose-free milk", quantity=a.quantity, unit="L", delivery_date=delivery,
@@ -90,14 +91,15 @@ def _run_demo(a: argparse.Namespace, agent: Principal, approver: Principal) -> N
 
     if order.status.value == "pending_approval":
         h("7. Human approval")
-        pending = service.list_approvals(approver)
-        print(f"{approver.name} sees {len(pending)} pending approval(s)")
+        if approver is None:
+            print("Aimo review is pending. Sign in at /admin or configure AIMO_ADMIN_API_KEY for this script.")
+            return
         try:
             service.decide_approval(agent, order.approval_id, "approve")
         except service.GatewayError as e:
             print(f"agent tries to approve its own order -> {e.status}: {e.message}")
         order = service.decide_approval(approver, order.approval_id, "approve", "OK, breakfast buffet for the conference week.")
-        print(f"approved by {approver.name} -> order status = {order.status.value}")
+        print(f"approved by {approver.actor} -> order status = {order.status.value}")
 
     h("8. Audit timeline")
     print(audit.render_text(order.order_id))
@@ -112,8 +114,8 @@ def main() -> None:
     a = ap.parse_args()
 
     agent = principal_for_key(f"demo-{a.buyer}-key")
-    approver = principal_for_key(f"demo-{a.buyer}-approver-key")
-    if agent is None or approver is None:
+    approver = admin_for_key(os.getenv("AIMO_ADMIN_API_KEY"))
+    if agent is None:
         raise SystemExit(f"Unknown buyer {a.buyer!r}; check buyers.json for valid keys")
     if a.reset:
         store.reset_db()

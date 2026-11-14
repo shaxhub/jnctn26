@@ -236,3 +236,23 @@ def test_expired_pending_order_leaves_queue_and_releases_spend(gateway):
     assert service.get_order(buyer, order.order_id).status == "expired"
     timeline = service.get_audit_log(buyer, order.order_id)
     assert sum(event["event_type"] == "ORDER_EXPIRED" for event in timeline["events"]) == 1
+
+
+def test_offer_lookup_checks_later_dates_only_when_requested(gateway, monkeypatch):
+    buyer = principal_for_key("demo-hotel-key")
+    monday = date(2026, 11, 16)
+    tuesday = date(2026, 11, 17)
+    dates = []
+    def offers(ids, day):
+        dates.append(day)
+        return [Offer(product_id=ids[0], sales_unit="ST", unit_price=2, available_date=tuesday,
+                      available_qty=20, orderable=day == tuesday,
+                      reason=OrderableReason.ok if day == tuesday else OrderableReason.later_date)], store.now()
+    monkeypatch.setattr(service, "get_offers", offers)
+    lookup = OffersRequest(product_ids=["milk"], delivery_date=monday)
+    assert "next_delivery_options" not in service.check_offers(buyer, lookup)
+    assert dates == [monday]
+    result = service.check_offers(buyer, lookup.model_copy(update={"include_next_delivery": True}))
+    assert result["delivery_date"] == monday.isoformat()
+    assert result["next_delivery_options"][0]["delivery_date"] == tuesday.isoformat()
+    assert dates == [monday, monday, tuesday]

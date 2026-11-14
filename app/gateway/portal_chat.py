@@ -106,6 +106,7 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
         "unit": need.unit, "include_substitutes": request.include_substitutes,
         "required_claims": need.free_from, "exclude_allergens": need.exclude_allergens,
         "postal_code": request.postal_code or postal_code_from_address(text),
+        "include_next_delivery": request.include_substitutes,
     }, p)
     plans = (result.get("plan") or {}).get("plans", [])
     response.update(result)

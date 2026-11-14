@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from . import audit, policy, quotes, store, substitutions
@@ -91,6 +92,18 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
                 (offer.category or "").startswith(category) for category in p.mandate.allowed_categories))
         ]
         result["plan"] = make_plans(need, safe_candidates, mandate=p.mandate).model_dump(mode="json")
+    if req.include_next_delivery:
+        by_date: dict[date, list[str]] = defaultdict(list)
+        for offer in offers:
+            if offer.reason == OrderableReason.later_date and offer.available_date:
+                by_date[offer.available_date].append(offer.product_id)
+        later = []
+        # Restrict follow-up traffic to the three soonest dates Valio reported.
+        for day in sorted(by_date)[:3]:
+            checked, _ = get_offers(by_date[day], day)
+            later.extend({"delivery_date": day.isoformat(), "offer": offer.model_dump(mode="json")}
+                         for offer in checked if offer.orderable and offer.available_date)
+        result["next_delivery_options"] = later
     if req.postal_code:
         result["delivery_estimate"] = estimate(req.postal_code)
     result["sources"] = {"price_and_availability": "Valio Aimo mock API",

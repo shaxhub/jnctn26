@@ -74,6 +74,12 @@
       ],
       "default": null,
       "title": "Postal Code"
+    },
+    "include_next_delivery": {
+      "default": false,
+      "description": "Check the earliest later date reported by Valio.",
+      "title": "Include Next Delivery",
+      "type": "boolean"
     }
   },
   "required": [

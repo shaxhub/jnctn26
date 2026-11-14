@@ -102,6 +102,10 @@ function showResults(result, requestData) {
   }
   const headings = ["Product", "Net price / unit", "Availability", "Earliest date", "kg CO₂e/kg", "Reliability"];
   target.append(node("h3", "Live offers", "results"), table(headings, offerRows(result.offers)));
+  if (result.next_delivery_options?.length) {
+    target.append(node("h3", "Available on a later date", "results"),
+      table(headings, offerRows(result.next_delivery_options.map(option => option.offer))));
+  }
   for (const [productId, alternatives] of Object.entries(result.alternatives ?? {})) {
     if (alternatives.length) {
       target.append(node("h3", "Alternatives for " + productId, "results"),

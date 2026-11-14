@@ -142,7 +142,7 @@ async def search_products(text: str = "", free_from: list[str] | None = None, ex
 async def check_offers(product_ids: list[str], delivery_date: str, quantity: float | None = None,
                        unit: str | None = None, ctx: Context = None, include_substitutes: bool = False,
                        required_claims: list[str] | None = None, exclude_allergens: list[str] | None = None,
-                       postal_code: str | None = None) -> dict:
+                       postal_code: str | None = None, include_next_delivery: bool = False) -> dict:
     """Live price and availability for specific products (max 1000) and one delivery date (YYYY-MM-DD).
 
     Each offer has: unit_price (EUR per sales unit, without VAT), price_per_content_unit (EUR per L or KG),
@@ -156,12 +156,14 @@ async def check_offers(product_ids: list[str], delivery_date: str, quantity: flo
     Set include_substitutes to fetch live replacements for unavailable or insufficient stock.
     Catalog ingredient matches may be returned for selected produce when no Valio replacement is listed.
     Use required_claims and exclude_allergens for dietary constraints. Postal code adds a travel estimate.
+    Set include_next_delivery to check later dates reported by Valio without changing the requested date.
     """
     p = _principal(ctx)
     req = _parse_args(lambda: OffersRequest(
         product_ids=product_ids, delivery_date=delivery_date, quantity=quantity, unit=unit,
         include_substitutes=include_substitutes, required_claims=required_claims or [],
-        exclude_allergens=exclude_allergens or [], postal_code=postal_code))
+        exclude_allergens=exclude_allergens or [], postal_code=postal_code,
+        include_next_delivery=include_next_delivery))
     return compact_offers(await _run(service.check_offers, p, req))
 
 

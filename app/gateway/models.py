@@ -174,6 +174,7 @@ class OffersRequest(BaseModel):
     required_claims: list[str] = Field(default_factory=list, max_length=30)
     exclude_allergens: list[str] = Field(default_factory=list, max_length=30)
     postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
+    include_next_delivery: bool = Field(False, description="Check the earliest later date reported by Valio.")
 
 
 # --- need / plan ------------------------------------------------------------------------------

@@ -31,8 +31,16 @@ The sidebar includes **EN** and **FI**, help and FAQs, and demo sign-out. Finnis
 
    The guided parser accepts `g`, `kg`, `ml`, `dl`, `l`, and `pcs`. Put a blank line between recipes. Gemini 4 Hydrogen can interpret less structured input when configured. Review the interpreted quantities and units.
 
-3. Choose **Check offers**. Check net prices, sales units, stock, earliest dates, and alternatives. Where available, the offers include origin, delivery reliability, and a carbon intensity estimate. The postcode can add an estimated travel time from Rautatientori for supported Helsinki-area districts.
+3. Choose **Check offers**. Check net prices, sales units, stock, earliest dates, and alternatives. Where available, the offers include origin, delivery reliability, and a carbon intensity estimate. Enter a Finnish postcode to include an estimated travel time from Rautatientori.
 4. Choose **Create ticket draft**, or **Draft this plan** on a ranked product plan. A recipe draft needs all ingredients sourced for the selected date. Review proposed culinary substitutions before using them in the recipe.
+
+### How the travel estimate works
+
+The estimator takes a five-digit postcode or extracts one from an address. It looks up a point in that postcode area, computes the straight-line distance from Rautatientori in Helsinki, and multiplies by 1.3 to approximate road distance. It assumes 30 km/h, adds 10–20 minutes for stops, and rounds both ends of the range up to the next five minutes.
+
+The estimate is independent of Aimo's price and stock data. It ignores actual routes, traffic and ferry schedules. Delivery coverage and the exact address require separate verification. When a postcode has no geographic area in the dataset, the estimator returns `estimate_unavailable`.
+
+The bundled [postcode coordinates](../app/gateway/finnish_postcode_areas.csv) are derived from Statistics Finland's [Paavo 2026 postcode areas](https://stat.fi/en/services/statistical-data-services/geographic-data/geographic-data-by-postal-code-area), downloaded on 15 November 2026 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). To refresh them, export `postialue:pno_2026` or its replacement from the [Paavo WFS](https://geo.stat.fi/geoserver/postialue/wfs) as EPSG:4326 GeoJSON. For each `posti_alue`, use the polygon centroid if it lies within the area, or an interior representative point otherwise. Save the results in postcode order as `postcode,latitude,longitude` with coordinates rounded to five decimal places.
 
 ### Review and submit a draft
 

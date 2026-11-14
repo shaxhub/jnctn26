@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from httpx import ASGITransport, AsyncClient
 import pytest
@@ -40,7 +41,23 @@ def test_mcp_initialize_and_tool_validation(gateway):
             assert {"check_offers", "create_quote", "source_ingredients"} <= {tool["name"] for tool in tools["tools"]}
             mandate = await rpc("tools/call", {"name": "get_my_mandate", "arguments": {}})
             assert not mandate.get("isError")
+            for postcode, arguments in (
+                ("00580", {"address": "00580 Helsinki"}),
+                ("22100", {"postal_code": "22100"}),
+                ("99990", {"postal_code": "99990"}),
+            ):
+                estimate = await rpc("tools/call", {"name": "estimate_delivery", "arguments": arguments})
+                assert not estimate.get("isError")
+                eta = json.loads(estimate["content"][0]["text"])
+                assert eta["postal_code"] == postcode
+                assert eta["status"] == "estimated"
+                assert eta["distance_km"] > 0
+                assert eta["travel_minutes_max"] > eta["travel_minutes_min"]
+            missing = await rpc("tools/call", {"name": "estimate_delivery", "arguments": {"postal_code": "00000"}})
+            assert not missing.get("isError")
+            assert json.loads(missing["content"][0]["text"])["status"] == "estimate_unavailable"
             for name, args, expected in (
+                ("estimate_delivery", {"postal_code": "580"}, "five-digit Finnish postal code"),
                 ("check_offers", {"product_ids": ["milk"], "delivery_date": "2026-11-16",
                                   "quantity": 1_000_001, "unit": "ST"}, "1000000"),
                 ("create_quote", {"delivery_date": "2026-11-16",
@@ -60,7 +77,6 @@ def test_mcp_initialize_and_tool_validation(gateway):
 
 
 def test_readonly_bearer_key_and_mcp_cors(gateway, monkeypatch):
-    import json
     from datetime import date
     from gateway import service
     from gateway.api import app

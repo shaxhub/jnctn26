@@ -123,13 +123,35 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     if school_meal:
         sourcing, meal = school_meal
         result = await _read_tool("source_ingredients", sourcing.model_dump(mode="json"), p)
+        complete = all(row["status"] == "available" for row in result["ingredients"])
+        if request.action == "shop" and not complete and request.include_substitutes:
+            alternative, alternate_meal = meal_planning.school_lunch(
+                text, today, request.delivery_date, parsed=parsed, stock_menu=True)
+            alternate = await _read_tool("source_ingredients", alternative.model_dump(mode="json"), p)
+            if all(row["status"] == "available" for row in alternate["ingredients"]):
+                sourcing, meal, result = alternative, alternate_meal, alternate
+                meal["alternative"] = True
+                complete, catalog_gap = True, None
         partial_total = round(sum(row["sourcing"]["plan"]["total_net"] for row in result["ingredients"]
                                   if row.get("sourcing")), 2)
         meal["matched_total_net"] = partial_total
-        meal["complete"] = all(row["status"] == "available" for row in result["ingredients"])
-        return {"recipe": result, "meal": meal, "draft": None,
+        meal["complete"] = complete
+        draft = None
+        if complete and request.action == "shop":
+            basket = kitchen.basket_request(result)
+            basket.exclude_allergens = sourcing.exclude_allergens
+            try:
+                quote = await anyio.to_thread.run_sync(lambda: service.create_quote(
+                    p, basket, max_total_gross=meal["budgets"].get("hard")))
+                draft = quote.model_dump(mode="json")
+            except service.GatewayError as exc:
+                if exc.status not in (409, 422):
+                    raise
+                catalog_gap = exc.message
+        return {"recipe": result, "meal": meal, "draft": draft,
                 "mode": gemini.MODEL if meal["generated"] else "guided_meal",
-                "message": catalog_gap or "School lunch proposal and purchasing list ready for kitchen review."}
+                "message": catalog_gap or ("School lunch draft ready. Verify labels, cross-contact controls and school meal standards before submitting."
+                                           if draft else "School lunch proposal and purchasing list ready for kitchen review.")}
     recipes = parsed.recipes if parsed else []
     if not recipes and "\n" in text:
         recipe_rows = sum(bool(kitchen.LINE.fullmatch(line.strip().removeprefix("- "))) for line in text.splitlines())

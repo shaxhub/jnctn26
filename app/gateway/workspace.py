@@ -224,7 +224,11 @@ def analytics(p: Principal = Depends(require_client), year: int | None = Query(N
             point["checked"] += 1
             point["available"] += sku in available_ids
     ranked_skus = sorted(availability, key=lambda sku: (-sum(point["checked"] for point in availability[sku]), sku))
+    sku_names = {sku: name for (sku, name, _) in products if name}
+    for sku, entry in service.get_products(ranked_skus[:20]).items():
+        sku_names[sku] = entry.name_en or entry.name_fi or sku_names.get(sku)
     return {"year": year, "months": timeline, "availability_by_sku": {sku: availability[sku] for sku in ranked_skus[:20]},
+            "availability_product_names": {sku: sku_names.get(sku) for sku in ranked_skus[:20]},
             "stage_hours": {stage: {"average": round(sum(values)/len(values), 2), "samples": len(values)}
                             for stage, values in durations.items()},
             "products": [{"id": sku, "name": name, "unit": unit, "quantity": count}

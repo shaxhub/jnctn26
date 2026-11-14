@@ -137,6 +137,38 @@ function showResults(result, requestData) {
   }
 }
 
+function repeatForm(order, current, key, dialog) {
+  const form = node("form", "", "form-row");
+  const label = node("label", "New delivery date");
+  const day = node("input");
+  day.type = "date";
+  day.required = true;
+  label.append(day);
+  const submit = node("button", "Create repeat draft");
+  submit.type = "submit";
+  const notice = node("p", "", "feedback");
+  notice.hidden = true;
+  notice.setAttribute("role", "status");
+  form.append(label, submit, notice);
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    submit.disabled = true;
+    feedback(notice, "Checking current price and stock…");
+    try {
+      await request("/client/tickets/" + encodeURIComponent(order.order_id) +
+        "/repeat?delivery_date=" + encodeURIComponent(day.value), key, {});
+      if (current !== scope || !dialog.open) return;
+      dialog.close();
+      location.hash = "drafts";
+    } catch (error) {
+      feedback(notice, error.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
 export async function inspectTicket(id) {
   const dialog = $("ticket-details");
   const target = $("ticket-detail-body");
@@ -178,6 +210,7 @@ function showRecipe(recipe, meal) {
     if (budget.hard != null) summary.push("Hard budget " + money.format(budget.hard));
     target.append(heading, node("p", meal.dietary_note), methods, node("p", meal.serving_note),
       node("p", summary.join(" · "), "feedback"));
+    if (meal.alternative) target.append(node("p", "This alternative menu was selected using stock for your delivery date.", "cell-note"));
     if (budget.hard != null && cost > budget.hard) target.append(node("p", "Matched items already exceed the hard budget.", "feedback error"));
     else if (budget.soft != null && cost > budget.soft) target.append(node("p", "Matched items already exceed the soft budget.", "feedback"));
     if (!meal.complete) target.append(node("p", "Some ingredients could not be sourced. The price shown is a subtotal.", "feedback"));
@@ -210,7 +243,7 @@ async function sendChat(requestData) {
     if (current !== queryVersion) return;
     feedback($("chat-status"), result.message);
     $("assistant-mode").textContent = result.mode === "guided_meal" ? "School meal planning with catalog sourcing." :
-      result.mode === "gemini-4-hydrogen" ? "Interpreted by Gemini 4 Hydrogen (Medium)." :
+      result.mode === "gemini-4-hydrogen" ? "Interpreted by Agent Dairy" :
       result.mode === "guided_fallback" ? "Gemini was unavailable. Guided search handled this request." :
       "Guided search handled this request.";
     if (result.recipe) showRecipe(result.recipe, result.meal);
@@ -233,10 +266,6 @@ $("chat").addEventListener("submit", event => {
     include_substitutes: $("substitutes").checked});
 });
 
-document.querySelectorAll("[data-example]").forEach(button => button.addEventListener("click", () => {
-  $("message").value = button.dataset.example;
-  $("message").focus();
-}));
 $("seasonal-pick").addEventListener("click", async () => {
   const button = $("seasonal-pick");
   const target = $("seasonal-results");
@@ -277,9 +306,4 @@ buyer.addEventListener("change", () => {
   showDraft(null);
   $("results").replaceChildren();
   feedback($("chat-status"), "");
-});
-
-document.querySelector("[data-recipe]").addEventListener("click", () => {
-  $("message").value = "Tomato salad (4)\n500 g tomato\n80 g red onion\n12 g basil";
-  $("message").focus();
 });

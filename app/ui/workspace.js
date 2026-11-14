@@ -262,9 +262,10 @@ async function analytics() {
     const select = node("select");
     const label = node("label", "Most checked product codes");
     label.append(select);
-    for (const [sku] of availability) select.append(new Option(sku, sku));
+    const labelFor = sku => data.availability_product_names?.[sku] || ("Product " + sku);
+    for (const [sku] of availability) select.append(new Option(labelFor(sku) + " · " + sku, sku));
     const graph = node("div");
-    const draw = () => graph.replaceChildren(chart(select.value, data.availability_by_sku[select.value].map(month =>
+    const draw = () => graph.replaceChildren(chart(labelFor(select.value), data.availability_by_sku[select.value].map(month =>
       [months.format(new Date(Date.UTC(year, month.month-1, 1))), month.checked ? 100*month.available/month.checked : null]),
       v => number.format(v)+"%", 100));
     select.addEventListener("change", draw);

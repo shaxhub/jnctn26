@@ -11,7 +11,7 @@ BUDGET = re.compile(r"\b(soft|hard)\s+budget\s+(?:is\s+|of\s+)?(?:€\s*)?([\d,]
 GUIDANCE = "https://www.ruokavirasto.fi/en/foodstuffs/healthy-diet/nutrition-and-food-recommendations/school-age-children-and-teenagers/"
 
 
-def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=None):
+def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=None, stock_menu=False):
     if not SCHOOL.search(text) or not re.search(r"\b(?:feed|lunch|meal|recipe|menu|ruokailu)\b", text, re.I):
         return None
     headcount = SERVINGS.search(text)
@@ -37,16 +37,26 @@ def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=N
         ("Wholegrain bread", [("wholegrain bread", 30, "g")],
          "Portion the bread separately after checking the exact product label."),
     )
+    if stock_menu:
+        proposal = (
+            ("Lentil, potato and carrot stew", [("punainen linssi", 45, "g"), ("potato", 125, "g"),
+              ("carrot", 55, "g"), ("tomaattimurska", 50, "g"), ("rapeseed oil", 5, "ml")],
+             "Rinse the lentils. Simmer with diced vegetables and tomato until tender, then stir in the oil."),
+            ("Cabbage, cucumber and apple salad", [("keräkaali", 25, "g"), ("cucumber", 40, "g"), ("apple", 45, "g")],
+             "Wash, slice and toss. Keep chilled until service."),
+            ("Oat drink", [("kaurajuoma", 200, "ml")],
+             "Verify that the kitchen approves this beverage and check the exact product label."),
+        )
     recipes = [kitchen.Recipe(name=name, servings=1, ingredients=[
         kitchen.Ingredient(name=item, amount=quantity, unit=unit) for item, quantity, unit in ingredients
     ]) for name, ingredients, _ in proposal]
     budgets = {match[1].lower(): float(match[2].replace(",", "")) for match in BUDGET.finditer(text)}
     if budgets.get("soft", 0) > budgets.get("hard", float("inf")):
         raise service.GatewayError(422, "The soft budget must be at or below the hard budget.")
-    generated = bool(parsed and parsed.recipes)
+    generated = bool(parsed and parsed.recipes and not stock_menu)
     if generated:
         recipes = parsed.recipes
-    excluded = list(parsed.exclude_allergens) if generated else []
+    excluded = list(parsed.exclude_allergens) if parsed else []
     if peanut:
         excluded.append("peanuts")
     if lactose or re.search(r"\b(?:milk allergy|dairy.free|no dairy|without milk)\b", lower):

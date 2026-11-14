@@ -208,7 +208,8 @@ def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[s
             or not required.issubset(offer.claims)]
 
 
-def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None) -> Quote:
+def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None,
+                 max_total_gross: float | None = None) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
@@ -263,6 +264,8 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
 
     total = round(sum(l.line_total for l in lines), 2)
     gross = round(sum(l.quantity * (l.unit_price_with_tax or l.unit_price) for l in lines), 2)
+    if max_total_gross is not None and gross > max_total_gross:
+        raise GatewayError(409, f"The checked basket costs €{gross:,.2f} incl. VAT and exceeds the hard budget of €{max_total_gross:,.2f}.")
     preview = _evaluate(p, lines, offers, total, req.need, delivery=req.delivery_date)
     expires = quotes.expiry([offers[l.product_id].price_valid_to for l in lines],
                             [l.closing_time for l in lines], now + QUOTE_FALLBACK_TTL)

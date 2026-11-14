@@ -11,7 +11,9 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from . import audit, policy, quotes, recurring, store, substitutions
+import httpx
+
+from . import audit, fulfillment, gemini, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ, demo_catalog_enabled
 from .delivery import estimate
@@ -404,6 +406,20 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
     offers, stale = _recheck_stock(lines, delivery)
     stale.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
         list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
+    check_fulfillment = fulfillment.enabled()
+    advice = None
+    reviewed_evidence = None
+    review_source = "rules_only"
+    if check_fulfillment and gemini.enabled() and not stale:
+        evidence, operational_rules = fulfillment.assess(lines, delivery, store.now())
+        preliminary = _evaluate(p, lines, offers, payload["total_net"], need, delivery=delivery)
+        if preliminary.decision == Decision.auto and not operational_rules:
+            try:
+                advice = gemini.review_approval(evidence)
+                reviewed_evidence = evidence
+                review_source = "gemini"
+            except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+                review_source = "rules_fallback"
     order_id = _id("ord")
     ids = dict(buyer_id=p.buyer_id, order_id=order_id, quote_id=quote_id)
     with store.transaction() as conn:
@@ -426,6 +442,24 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                                   fired_rules=result.fired_rules + [
                                       FiredRule(rule_id="quote_invalid", effect=Decision.reject, message=message)],
                                   reasons=[r for r in result.reasons if r != "All mandate rules passed."] + [message])
+        if check_fulfillment:
+            snapshot, rules = fulfillment.assess(lines, delivery, now, conn=conn)
+            revised = ("lines", "dispatch_by", "deliver_by")
+            if (reviewed_evidence and snapshot["source"] == "warehouse" and
+                    any(reviewed_evidence.get(field) != snapshot.get(field) for field in revised)):
+                advice = None
+                review_source = "rules_after_evidence_change"
+                rules.append(FiredRule(rule_id="warehouse_evidence_changed", effect=Decision.needs_approval,
+                                       message="Warehouse evidence changed during model review. Review the updated facts."))
+            if advice and advice.recommendation == "needs_review":
+                rules.append(FiredRule(rule_id="gemini_" + advice.concern, effect=Decision.needs_approval,
+                                       message=fulfillment.GEMINI_CONCERNS[advice.concern]))
+            if rules:
+                enforced = {result.decision, *(rule.effect for rule in rules)}
+                result.decision = Decision.reject if Decision.reject in enforced else Decision.needs_approval
+                result.fired_rules.extend(rules)
+                result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."]
+                result.reasons.extend(rule.message for rule in rules)
         status = {Decision.auto: "confirmed", Decision.needs_approval: "pending_approval",
                   Decision.reject: "rejected"}[result.decision]
         approval_id = _id("apr") if status == "pending_approval" else None
@@ -439,6 +473,14 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                                     {"agent_rationale": agent_rationale, "total_net": payload["total_net"],
                                      "channel": p.role}, **ids)
         store.append_in_transaction(conn, "POLICY_EVALUATED", "gateway:policy", result.model_dump(mode="json"), **ids)
+        if check_fulfillment:
+            store.append_in_transaction(conn, "AIMO_APPROVAL_EVALUATED", "aimo:approval-agent", {
+                "decision": result.decision.value, "method": review_source,
+                "model": gemini.MODEL if advice else None, "thinking_level": "medium" if advice else None,
+                "advice": advice.model_dump() if advice else None,
+                "checks": [rule.model_dump(mode="json") for rule in rules],
+                "evidence": snapshot,
+            }, **ids)
         if approval_id:
             conn.execute("INSERT INTO approvals (approval_id,order_id,buyer_id,status,reasons_json,created_at)"
                          " VALUES (?,?,?,?,?,?)", (approval_id, order_id, p.buyer_id, "pending",
@@ -510,9 +552,9 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
     if decision not in ("approve", "reject"):
         raise GatewayError(400, "Decision must be 'approve' or 'reject'")
     row = _pending_approval(p, store.fetchone(_APPROVAL_QUERY, (approval_id,)), approval_id)
+    lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
     problems = []
     if decision == "approve" and store.now() < _aware(datetime.fromisoformat(row["expires_at"])):
-        lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
         offers, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
         payload = json.loads(row["payload_json"])
         problems.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
@@ -527,6 +569,15 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         row = _pending_approval(p, conn.execute(_APPROVAL_QUERY, (approval_id,)).fetchone(), approval_id)
         now = store.now()
         expired = decision == "approve" and now >= _aware(datetime.fromisoformat(row["expires_at"]))
+        if decision == "approve" and not expired and fulfillment.enabled():
+            snapshot, warehouse_rules = fulfillment.assess(lines, date.fromisoformat(row["delivery_date"]), now, conn=conn)
+            unresolved = {"warehouse_evidence_missing", "warehouse_unit_mismatch", "warehouse_capacity"}
+            if any(rule.rule_id in unresolved for rule in warehouse_rules) and not problems:
+                raise GatewayError(409, "Record current warehouse evidence and confirm handling and capacity before approving.")
+            problems.extend(rule.message for rule in warehouse_rules if rule.effect == Decision.reject)
+            store.append_in_transaction(conn, "AIMO_APPROVAL_RECHECKED", p.actor, {
+                "evidence": snapshot, "checks": [rule.model_dump(mode="json") for rule in warehouse_rules],
+            }, buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
         approved = decision == "approve" and not expired and not problems
         status = "expired" if expired else "confirmed" if approved else "rejected"
         if expired:
@@ -552,5 +603,6 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
 # --- audit -------------------------------------------------------------------------------------
 def get_audit_log(p: Principal | Admin, order_id: str) -> dict:
     get_order(p, order_id)  # ownership check
-    return {"order_id": order_id, "events": audit.timeline(order_id), "text": audit.render_text(order_id),
-            "chain": store.verify_chain()}
+    events, chain = audit.timeline(order_id), store.verify_chain()
+    return {"order_id": order_id, "events": events, "text": audit.render_text(order_id, events=events, chain=chain),
+            "chain": chain}

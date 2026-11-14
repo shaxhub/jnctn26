@@ -108,6 +108,11 @@ def request_detail(order_id: str, p: Principal = Depends(require_client)):
     return {"order": order, **ticket_activity(order)}
 
 
+@router.get("/requests/{order_id}/audit")
+def request_audit(order_id: str, p: Principal = Depends(require_client)):
+    return service.get_audit_log(p, order_id)
+
+
 @router.post("/requests/{order_id}/messages")
 def post_message(order_id: str, body: Message, p: Principal = Depends(require_client)):
     return send_message(p, order_id, body)

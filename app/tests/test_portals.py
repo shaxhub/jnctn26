@@ -10,6 +10,8 @@ from gateway.models import Offer, OffersRequest, OrderableReason, QuoteRequest
 
 @pytest.fixture
 def gateway(monkeypatch, tmp_path):
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "0")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.setattr(store, "settings", replace(store.settings, db_path=tmp_path / "orders.db"))
     monkeypatch.setenv("AIMO_ADMIN_API_KEY", "test-admin-credential")
     store.set_demo_now(datetime.fromisoformat("2026-11-14T10:00:00+02:00"))

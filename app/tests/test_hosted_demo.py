@@ -15,6 +15,7 @@ def test_hosted_accounts_and_synthetic_purchase(gateway, monkeypatch, tmp_path):
 
     monkeypatch.setenv("REQUIRE_PORTAL_LOGIN", "1")
     monkeypatch.setenv("OFFLINE_DEMO", "1")
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(service, "get_offers", offers.get_offers)
     catalog = replace(demo_catalog.settings, catalog_db_path=tmp_path / "synthetic.db")

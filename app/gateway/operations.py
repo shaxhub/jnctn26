@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 
-from . import audit, service, store
+from . import audit, fulfillment, service, store
 from .auth import Admin, require_admin
 from .config import TZ
 from .workspace import Message, ShipmentUpdate, advance, send_message, ticket_activity
@@ -17,11 +17,20 @@ from .models import ApprovalDecisionRequest
 router = APIRouter(prefix="/operations", dependencies=[Depends(require_admin)])
 SECTORS = {"hotel": "Hospitality", "hospital": "Healthcare"}
 INQUIRIES = ("CLIENT_INQUIRY", "SEARCH", "OFFERS_CHECKED", "AGENT_RUN", "KITCHEN_PLAN", "SEASONAL_DISCOVERY")
-DECISIONS = ("POLICY_EVALUATED", "APPROVAL_GRANTED", "APPROVAL_DENIED",
+DECISIONS = ("POLICY_EVALUATED", "AIMO_APPROVAL_EVALUATED", "AIMO_APPROVAL_RECHECKED", "APPROVAL_GRANTED", "APPROVAL_DENIED",
              "ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED", "FULFILLMENT_STAGE")
 EVENT_TYPES = {"all": INQUIRIES + DECISIONS + ("ORDER_RECEIVED", "APPROVAL_REQUESTED", "QUOTE_REJECTED", "QUOTE_INVALID", "ORDER_MESSAGE"),
                "inquiries": INQUIRIES, "decisions": DECISIONS}
 Period = Literal["month", "quarter", "year", "all"]
+
+
+@router.put("/fulfillment-evidence/{delivery_date}/{product_id}", status_code=204)
+def record_fulfillment_evidence(delivery_date: date, evidence: fulfillment.Evidence,
+                                product_id: str = Path(min_length=1, max_length=80)):
+    try:
+        fulfillment.save(product_id, delivery_date, evidence)
+    except ValueError as exc:
+        raise service.GatewayError(422, str(exc)) from exc
 
 
 @router.get("/activity")

@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS portal_login_attempts (
 CREATE TABLE IF NOT EXISTS workspace_preferences (
     buyer_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS fulfillment_evidence (
+    delivery_date TEXT NOT NULL, product_id TEXT NOT NULL, evidence_json TEXT NOT NULL,
+    PRIMARY KEY (delivery_date, product_id)
+);
 CREATE TABLE IF NOT EXISTS quotes (
     quote_id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open',            -- open | used

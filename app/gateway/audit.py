@@ -3,7 +3,7 @@
 Event types (data payloads are small and human-meaningful, never secrets):
   SEARCH, OFFERS_CHECKED, QUOTE_CREATED, QUOTE_REJECTED, QUOTE_INVALID, ORDER_RECEIVED, POLICY_EVALUATED,
   APPROVAL_REQUESTED, APPROVAL_GRANTED, APPROVAL_DENIED, ORDER_CONFIRMED, ORDER_REJECTED, ORDER_EXPIRED,
-  AGENT_RUN
+  AIMO_APPROVAL_EVALUATED, AIMO_APPROVAL_RECHECKED, AGENT_RUN
 """
 from __future__ import annotations
 
@@ -57,6 +57,22 @@ def _summary(ev: dict) -> str:
         return f"mandate {d.get('mandate_id')} -> {decision} (rules fired: {rules}). " + " ".join(d.get("reasons", []))
     if t == "APPROVAL_REQUESTED":
         return f"waiting for a human approver ({d.get('approval_id')})"
+    if t in ("AIMO_APPROVAL_EVALUATED", "AIMO_APPROVAL_RECHECKED"):
+        evidence = d["evidence"]
+        subject = "Aimo fulfillment review"
+        if d.get("decision"):
+            subject += " → " + d["decision"].replace("_", " ")
+        if d.get("method") == "gemini":
+            subject += " with Gemini 4 Hydrogen"
+        elif d.get("method") == "rules_fallback":
+            subject += " using verified rules after Gemini was unavailable"
+        elif d.get("method") == "rules_after_evidence_change":
+            subject += " after warehouse evidence changed during model review"
+        if "preparation_minutes" in evidence:
+            subject += (f". {evidence['preparation_minutes']} min picking and loading, "
+                        f"{evidence['transit_minutes']} min transit, {evidence['margin_minutes']:g} min slack")
+        checks = " ".join(rule["message"] for rule in d["checks"])
+        return f"{subject} ({evidence['source']} evidence)." + (f" {checks}" if checks else "")
     if t in ("APPROVAL_GRANTED", "APPROVAL_DENIED"):
         return f"{'approved' if t == 'APPROVAL_GRANTED' else 'rejected'} by {ev['actor']}" + (f": \"{d.get('comment')}\"" if d.get("comment") else "")
     if t in ("ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED"):
@@ -130,11 +146,11 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
     return evs
 
 
-def render_text(order_id: str) -> str:
+def render_text(order_id: str, *, events: list[dict] | None = None, chain: dict | None = None) -> str:
     out = [f"Audit timeline for order {order_id}"]
-    for ev in timeline(order_id):
+    for ev in timeline(order_id) if events is None else events:
         ts = datetime.fromisoformat(ev["ts"]).strftime("%Y-%m-%d %H:%M:%S")
         out.append(f"  #{ev['seq']:<4} {ts}  {ev['event_type']:<19} {ev['actor']}\n         {ev['summary']}")
-    chain = store.verify_chain()
+    chain = store.verify_chain() if chain is None else chain
     out.append(f"  hash chain: {'OK' if chain['ok'] else 'BROKEN at #' + str(chain['first_bad_seq'])} ({chain['events']} events)")
     return "\n".join(out)

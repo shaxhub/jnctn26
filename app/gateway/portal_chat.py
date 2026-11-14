@@ -25,7 +25,6 @@ router = APIRouter(prefix="/client")
 class ChatRequest(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
     delivery_date: date | None = None
-    model: Literal["gemini-4-carbon"] = "gemini-4-carbon"
     action: Literal["lookup", "draft"] = "lookup"
     postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
     include_substitutes: bool = True

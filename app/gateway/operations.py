@@ -16,8 +16,9 @@ from .models import ApprovalDecisionRequest
 router = APIRouter(prefix="/operations", dependencies=[Depends(require_admin)])
 SECTORS = {"hotel": "Hospitality", "hospital": "Healthcare"}
 INQUIRIES = ("CLIENT_INQUIRY", "SEARCH", "OFFERS_CHECKED", "AGENT_RUN")
-DECISIONS = ("POLICY_EVALUATED", "APPROVAL_GRANTED", "APPROVAL_DENIED", "ORDER_EXPIRED")
-EVENT_TYPES = {"all": INQUIRIES + DECISIONS + ("ORDER_RECEIVED", "APPROVAL_REQUESTED"),
+DECISIONS = ("POLICY_EVALUATED", "APPROVAL_GRANTED", "APPROVAL_DENIED",
+             "ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED")
+EVENT_TYPES = {"all": INQUIRIES + DECISIONS + ("ORDER_RECEIVED", "APPROVAL_REQUESTED", "QUOTE_REJECTED", "QUOTE_INVALID"),
                "inquiries": INQUIRIES, "decisions": DECISIONS}
 Period = Literal["month", "quarter", "year", "all"]
 

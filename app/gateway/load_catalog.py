@@ -38,7 +38,7 @@ CREATE TABLE products (
     claims TEXT,                        -- nutritionalClaim ids, e.g. ' FREE_FROM_LACTOSE VEGAN '
     labels TEXT,                        -- packagingMarkedLabel ids
     reliability REAL,                   -- 0..1 from delivery reliability CSV
-    co2_per_kg REAL,                    -- category average kg CO2e/kg from carbon CSV
+    co2_per_kg REAL,                    -- product average kg CO2e/kg from carbon CSV
     substitutes TEXT,                   -- JSON list of product ids
     key_ingredients_fi TEXT
 );

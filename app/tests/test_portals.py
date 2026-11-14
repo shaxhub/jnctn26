@@ -106,6 +106,8 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             analytics = (await http.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10
+            decisions = (await http.get("/operations/activity?kind=decisions", headers=admin)).json()["events"]
+            assert "ORDER_CONFIRMED" in {event["event_type"] for event in decisions}
             assert (await http.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]
 
     asyncio.run(verify())

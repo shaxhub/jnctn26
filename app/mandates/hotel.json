@@ -14,5 +14,5 @@
   "substitution_policy": "same_category",
   "unknown_availability": "needs_approval",
   "partial_coverage": "needs_approval",
-  "notes": "Kitchen agent may buy anything up to EUR 1000 per order and EUR 5000 per week (net). Substitutes within the same category are fine; anything else goes to the F&B manager."
+  "notes": "Kitchen agent may buy anything up to EUR 1000 per order and EUR 5000 per week (net). Substitutes within the same category are fine; exceptions go to Aimo operations for review."
 }

@@ -88,7 +88,7 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
         result["delivery_estimate"] = estimate(req.postal_code)
     result["sources"] = {"price_and_availability": "Valio Aimo mock API",
                          "product_attributes": "Valio Aimo challenge catalog",
-                         "co2_per_kg": "Challenge carbon data, category estimate",
+                         "co2_per_kg": "Challenge product-level average kg CO2e per kg",
                          "reliability": "Challenge delivery reliability data"}
     excluded = [f"{o.product_id}:{o.reason.value}" for o in offers if not o.orderable]
     audit.log("OFFERS_CHECKED", p.actor, {"count": len(offers), "delivery_date": req.delivery_date.isoformat(),

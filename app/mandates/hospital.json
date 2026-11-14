@@ -14,5 +14,5 @@
   "substitution_policy": "always_approval",
   "unknown_availability": "needs_approval",
   "partial_coverage": "needs_approval",
-  "notes": "Ward serves milk-allergic and coeliac patients: products that CONTAIN milk or gluten are always rejected, trace warnings need the dietitian. Every substitution needs the dietitian's approval."
+  "notes": "Ward serves milk-allergic and coeliac patients: products that CONTAIN milk or gluten are always rejected, trace warnings and substitutions require Aimo operations review."
 }

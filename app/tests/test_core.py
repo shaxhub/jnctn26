@@ -262,7 +262,7 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
         closing = datetime.fromisoformat("2026-11-15T17:00:00+02:00")
         valid_to = datetime.fromisoformat("2026-12-31T00:00:00+02:00")
 
-        def fake_offers(ids, delivery_date):
+        def fake_offers(ids, delivery_date, *, fresh=False):
             out = []
             for pid in dict.fromkeys(ids):
                 if pid == "464306":

@@ -61,13 +61,13 @@ class ValioClient:
                 time.sleep(_RETRY_DELAYS[attempt])
         raise RuntimeError("unreachable")  # pragma: no cover
 
-    def _fetch(self, kind: str, ids: list[str], day: str, customer: str) -> dict[str, dict]:
+    def _fetch(self, kind: str, ids: list[str], day: str, customer: str, *, fresh: bool) -> dict[str, dict]:
         now = time.monotonic()
         out, missing = {}, []
         with self._lock:
             for pid in ids:
                 hit = self._cache.get((customer, kind, day, pid))
-                if hit and hit[0] > now:
+                if not fresh and hit and hit[0] > now:
                     out[pid] = hit[1]
                 else:
                     missing.append(pid)
@@ -77,7 +77,7 @@ class ValioClient:
                 data = self._post(f"/{kind}", customer, day, chunk)
             except httpx.HTTPError:
                 with self._lock:
-                    if all((customer, kind, day, pid) in self._cache for pid in chunk):
+                    if not fresh and all((customer, kind, day, pid) in self._cache for pid in chunk):
                         for pid in chunk:
                             out[pid] = self._cache[(customer, kind, day, pid)][1]
                         continue
@@ -95,12 +95,12 @@ class ValioClient:
                     out[pid] = item
         return out
 
-    def get_offers_raw(self, product_ids: list[str], delivery_date: date, customer: str | None = None) -> RawOffers:
+    def get_offers_raw(self, product_ids: list[str], delivery_date: date, customer: str | None = None, *, fresh: bool = False) -> RawOffers:
         ids = list(dict.fromkeys(str(p) for p in product_ids))
         day = delivery_date.isoformat()
         customer = customer or settings.valio_customer_id
-        prices = self._fetch("price", ids, day, customer)
-        avail = self._fetch("availability", ids, day, customer)
+        prices = self._fetch("price", ids, day, customer, fresh=fresh)
+        avail = self._fetch("availability", ids, day, customer, fresh=fresh)
         with self._lock:
             tn = self._time_now.get((customer, day))
         time_now = tn[1] if tn and tn[0] > time.monotonic() else None

@@ -15,7 +15,7 @@ def gateway(monkeypatch, tmp_path):
     store.set_demo_now(datetime.fromisoformat("2026-11-14T10:00:00+02:00"))
     offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, available_qty=2000,
                   category="10400", orderable=True, reason=OrderableReason.ok)
-    monkeypatch.setattr(service, "get_offers", lambda *_: ([offer], store.now()))
+    monkeypatch.setattr(service, "get_offers", lambda *_, **_options: ([offer], store.now()))
     yield
     store.set_demo_now(None)
 
@@ -42,7 +42,7 @@ def test_aimo_reviews_external_orders_and_upstream_failure_preserves_quote(gatew
     quote = service.create_quote(agent, QuoteRequest(delivery_date=date(2026, 11, 16),
                                   lines=[{"product_id": "milk", "quantity": 1000}]))
     with monkeypatch.context() as patch:
-        def unavailable(*_):
+        def unavailable(*_, **_options):
             raise RuntimeError("upstream unavailable")
         patch.setattr(service, "get_offers", unavailable)
         with pytest.raises(RuntimeError):
@@ -64,7 +64,7 @@ def test_live_alternatives_filter_trace_allergens(gateway, monkeypatch):
                  orderable=True, reason=OrderableReason.ok, claims=["FREE_FROM_GLUTEN"])
     trace = safe.model_copy(update={"product_id": "c", "allergens_may_contain": ["AW"]})
     offers = {"a": original, "b": safe, "c": trace}
-    monkeypatch.setattr(service, "get_offers", lambda ids, _: ([offers[pid] for pid in ids], store.now()))
+    monkeypatch.setattr(service, "get_offers", lambda ids, _, **_options: ([offers[pid] for pid in ids], store.now()))
     result = service.check_offers(buyer, OffersRequest(
         product_ids=["a"], delivery_date=date(2026, 11, 16), quantity=2, unit="ST",
         include_substitutes=True, required_claims=["FREE_FROM_GLUTEN"], exclude_allergens=["gluten"],
@@ -83,7 +83,7 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
     monkeypatch.setattr(service, "search", lambda _: SearchResult(results=[
         ProductSummary(id="milk", sales_unit="ST", base_unit="ST", category="10400")
     ], total_matches=1, category_counts={"10400": 1}))
-    monkeypatch.setattr(service, "get_offers", lambda *_: ([Offer(
+    monkeypatch.setattr(service, "get_offers", lambda *_, **_options: ([Offer(
         product_id="milk", sales_unit="ST", unit_price=2, available_qty=2000, net_weight_kg=1,
         co2_per_kg=2, volume_l=1, claims=["FREE_FROM_LACTOSE"], category="10400",
         orderable=True, reason=OrderableReason.ok)], store.now()))
@@ -126,7 +126,7 @@ def test_unlisted_ingredient_match_is_live_and_requires_aimo_review(gateway, mon
     offers = {"a": original, "b": alternative}
     monkeypatch.setattr(substitutions, "search", lambda _: SearchResult(results=list(catalog.values()), total_matches=2))
     monkeypatch.setattr(service, "get_products", lambda ids: {pid: catalog[pid] for pid in ids})
-    monkeypatch.setattr(service, "get_offers", lambda ids, _: ([offers[pid] for pid in ids], store.now()))
+    monkeypatch.setattr(service, "get_offers", lambda ids, _, **_options: ([offers[pid] for pid in ids], store.now()))
     delivery = date(2026, 11, 16)
     response = service.check_offers(agent, OffersRequest(product_ids=["a"], delivery_date=delivery,
                                     include_substitutes=True, quantity=2, unit="KG"))
@@ -150,10 +150,55 @@ def test_unverified_supplier_quantities_need_aimo_review(gateway, monkeypatch):
     buyer = principal_for_key("demo-hotel-key")
     offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, orderable=True, unlimited=True,
                   logistic_model="Terminal", reason=OrderableReason.ok)
-    monkeypatch.setattr(service, "get_offers", lambda *_: ([offer], store.now()))
+    monkeypatch.setattr(service, "get_offers", lambda *_, **_options: ([offer], store.now()))
     quote = service.create_quote(buyer, QuoteRequest(delivery_date=date(2026, 11, 16),
                                                     lines=[{"product_id": "milk", "quantity": 5}]))
     assert quote.policy_preview.decision == "needs_approval"
     order = service.place_order(buyer, quote.quote_id)
     assert order.status == "pending_approval"
     assert "supplier_stock_unverified" in {rule.rule_id for rule in order.policy.fired_rules}
+
+
+def test_human_approval_rechecks_stock_before_confirming(gateway, monkeypatch):
+    buyer = principal_for_key("demo-hotel-key")
+    admin = admin_for_key("test-admin-credential")
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=date(2026, 11, 16),
+                                                    lines=[{"product_id": "milk", "quantity": 1000}]))
+    order = service.place_order(buyer, quote.quote_id)
+    assert order.status == "pending_approval"
+
+    def new_stock(ids, delivery, *, fresh=False):
+        assert fresh
+        return [Offer(product_id="milk", sales_unit="ST", unit_price=2, available_qty=1,
+                      category="10400", orderable=True, reason=OrderableReason.ok)], store.now()
+
+    monkeypatch.setattr(service, "get_offers", new_stock)
+    reviewed = service.decide_approval(admin, order.approval_id, "approve", "Reviewed")
+    assert reviewed.status == "rejected"
+    assert "insufficient_stock" in service.get_audit_log(admin, order.order_id)["text"]
+
+
+def test_fresh_valio_reads_bypass_cache_and_propagate_failure(monkeypatch):
+    import httpx
+    from gateway.valio_client import ValioClient
+
+    client = ValioClient(api_key="test-only")
+    calls = []
+    def upstream(path, customer, day, ids):
+        calls.append(path)
+        return {"products": [{"productId": ids[0], "revision": len(calls)}]}
+
+    monkeypatch.setattr(client, "_post", upstream)
+    delivery = date(2026, 11, 16)
+    try:
+        first = client.get_offers_raw(["milk"], delivery)
+        assert first == client.get_offers_raw(["milk"], delivery)
+        refreshed = client.get_offers_raw(["milk"], delivery, fresh=True)
+        assert first.products != refreshed.products
+        def down(*args):
+            raise httpx.ConnectError("unavailable")
+        monkeypatch.setattr(client, "_post", down)
+        with pytest.raises(httpx.ConnectError):
+            client.get_offers_raw(["milk"], delivery, fresh=True)
+    finally:
+        client._http.close()

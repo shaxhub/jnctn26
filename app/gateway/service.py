@@ -249,6 +249,41 @@ def _quote_invalid(p: Principal, quote_id: str, status: int, msg: str) -> Gatewa
     return GatewayError(status, f"quote_invalid: {msg}")
 
 
+def _recheck_stock(lines: list[QuoteLine], delivery: date) -> tuple[dict[str, Offer], list[str]]:
+    quantities: dict[str, float] = {}
+    for line in lines:
+        quantities[line.product_id] = quantities.get(line.product_id, 0) + line.quantity
+    live, _ = get_offers(list(quantities), delivery, fresh=True)
+    offers = {offer.product_id: offer for offer in live}
+    problems = []
+    for pid, quantity in quantities.items():
+        offer = offers.get(pid)
+        if offer is None:
+            problems.append(f"{pid}:unknown_product")
+        elif offer.reason in _BLOCKING:
+            problems.append(f"{pid}:{offer.reason.value}")
+        elif offer.available_qty is not None and quantity > offer.available_qty:
+            problems.append(f"{pid}:insufficient_stock")
+    return offers, problems
+
+
+_APPROVAL_QUERY = (
+    "SELECT a.*, o.quote_id, o.delivery_date, o.lines_json, q.expires_at, "
+    "json_extract(q.payload_json, '$.order_channel') AS channel "
+    "FROM approvals a JOIN orders o USING(order_id) JOIN quotes q USING(quote_id) WHERE a.approval_id=?"
+)
+
+
+def _pending_approval(p: Principal | Admin, row, approval_id: str):
+    if row is None or (isinstance(p, Principal) and row["buyer_id"] != p.buyer_id):
+        raise GatewayError(404, f"Approval {approval_id} not found")
+    if isinstance(p, Principal) and row["channel"]:
+        raise GatewayError(403, "This request requires Aimo operations review")
+    if row["status"] != "pending":
+        raise GatewayError(409, f"Approval {approval_id} is already {row['status']}")
+    return row
+
+
 def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
@@ -271,17 +306,7 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order
     lines = [QuoteLine(**line) for line in payload["lines"]]
     need = Need(**payload["need"]) if payload.get("need") else None
     delivery = date.fromisoformat(payload["delivery_date"])
-    # Re-check live availability: something may have changed since the quote (cutoff, sales block, stock drop).
-    offers_list, _ = get_offers([l.product_id for l in lines], delivery)
-    offers = {o.product_id: o for o in offers_list}
-    stale = [f"{o.product_id}:{o.reason.value}" for o in offers_list if o.reason in _BLOCKING]
-    qty_by_pid: dict[str, float] = {}
-    for l in lines:
-        qty_by_pid[l.product_id] = qty_by_pid.get(l.product_id, 0.0) + l.quantity
-    for pid, total_qty in qty_by_pid.items():
-        o = offers.get(pid)
-        if o is not None and o.reason not in _BLOCKING and o.available_qty is not None and total_qty > o.available_qty:
-            stale.append(f"{pid}:insufficient_stock")
+    offers, stale = _recheck_stock(lines, delivery)
     order_id = _id("ord")
     ids = dict(buyer_id=p.buyer_id, order_id=order_id, quote_id=quote_id)
     with store.transaction() as conn:
@@ -357,33 +382,33 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         raise GatewayError(403, "Only a human approver can decide approvals")
     if decision not in ("approve", "reject"):
         raise GatewayError(400, "Decision must be 'approve' or 'reject'")
+    row = _pending_approval(p, store.fetchone(_APPROVAL_QUERY, (approval_id,)), approval_id)
+    problems = []
+    if decision == "approve" and store.now() < _aware(datetime.fromisoformat(row["expires_at"])):
+        lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
+        _, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
     with store.transaction() as conn:
-        row = conn.execute(
-            "SELECT a.*, o.quote_id, q.expires_at, json_extract(q.payload_json, '$.order_channel') AS channel "
-            "FROM approvals a JOIN orders o USING(order_id) JOIN quotes q USING(quote_id) "
-            "WHERE a.approval_id=?", (approval_id,)).fetchone()
-        if row is None or (isinstance(p, Principal) and row["buyer_id"] != p.buyer_id):
-            raise GatewayError(404, f"Approval {approval_id} not found")
-        if isinstance(p, Principal) and row["channel"]:
-            raise GatewayError(403, "This request requires Aimo operations review")
-        if row["status"] != "pending":
-            raise GatewayError(409, f"Approval {approval_id} is already {row['status']}")
+        row = _pending_approval(p, conn.execute(_APPROVAL_QUERY, (approval_id,)).fetchone(), approval_id)
         now = store.now()
         expired = decision == "approve" and now >= _aware(datetime.fromisoformat(row["expires_at"]))
-        approved = decision == "approve" and not expired
+        approved = decision == "approve" and not expired and not problems
         status = "expired" if expired else "confirmed" if approved else "rejected"
-        if expired and not comment:
-            comment = f"Quote expired at {row['expires_at']}"
+        if expired:
+            reason = f"Quote expired at {row['expires_at']}"
+        elif problems:
+            reason = f"No longer orderable at review: {', '.join(problems)}"
+        else:
+            reason = "approved by human" if approved else "rejected by approver"
         conn.execute("UPDATE approvals SET status=?, decided_at=?, decided_by=?, comment=? WHERE approval_id=?",
-                     ("approved" if approved else "rejected", now.isoformat(), p.actor, comment, approval_id))
+                     ("approved" if approved else "rejected", now.isoformat(), p.actor, comment or reason, approval_id))
         conn.execute("UPDATE orders SET status=?, updated_at=? WHERE order_id=?",
                      (status, now.isoformat(), row["order_id"]))
         ids = dict(buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
         if not expired:
             store.append_in_transaction(conn, "APPROVAL_GRANTED" if approved else "APPROVAL_DENIED",
-                                        p.actor, {"approval_id": approval_id, "comment": comment}, **ids)
+                                        p.actor, {"approval_id": approval_id, "comment": comment, "reason": reason}, **ids)
         store.append_in_transaction(conn, f"ORDER_{status.upper()}", p.actor,
-                                    {"reason": comment or ("approved by human" if approved else "rejected by approver")},
+                                    {"reason": reason},
                                     **ids)
     return get_order(p, row["order_id"])
 

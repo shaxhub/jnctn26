@@ -133,9 +133,9 @@ def effective_now(raw: RawOffers) -> datetime:
     return max(server, current) if server else current
 
 
-def get_offers(product_ids: list[str], delivery_date: date) -> tuple[list[Offer], datetime]:
+def get_offers(product_ids: list[str], delivery_date: date, *, fresh: bool = False) -> tuple[list[Offer], datetime]:
     products = get_products(product_ids)
-    raw = get_client().get_offers_raw(list(products), delivery_date)
+    raw = get_client().get_offers_raw(list(products), delivery_date, fresh=fresh)
     now = effective_now(raw)
     offers = [build_offer(products[pid], raw.products.get(pid, {}), delivery_date, now) for pid in products]
     return offers, now

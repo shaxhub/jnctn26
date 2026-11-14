@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS portal_sessions (
 CREATE TABLE IF NOT EXISTS portal_login_attempts (
     source TEXT NOT NULL, username TEXT NOT NULL, at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mcp_oauth_pending (
+    request_hash TEXT PRIMARY KEY, params TEXT NOT NULL, expires_at INTEGER NOT NULL,
+    code_hash TEXT UNIQUE, username TEXT REFERENCES portal_accounts(username)
+);
+CREATE TABLE IF NOT EXISTS mcp_oauth_grants (
+    id TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES portal_accounts(username), resource TEXT NOT NULL,
+    access_hash TEXT NOT NULL UNIQUE, refresh_hash TEXT NOT NULL UNIQUE,
+    access_expires INTEGER NOT NULL, refresh_expires INTEGER NOT NULL,
+    created_at TEXT NOT NULL, last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_oauth_grants_user ON mcp_oauth_grants(username);
 CREATE TABLE IF NOT EXISTS workspace_preferences (
     buyer_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL
 );

@@ -8,7 +8,6 @@ request headers).
 Accepted headers: `X-API-Key: <key>` or `Authorization: Bearer <key>` (the Claude MCP connector
 sends `authorization_token` as a Bearer token).
 
-TODO(C): real identity (OAuth 2.1 client credentials for agents, SSO for approvers), hashed keys.
 """
 from __future__ import annotations
 
@@ -27,6 +26,7 @@ from . import store
 
 from .config import APP_DIR
 from .models import Mandate
+from .mcp_oauth import ACCESS_PREFIX, SCOPE, oauth
 from .policy import load_mandate
 
 
@@ -38,6 +38,7 @@ class Principal:
     mandate: Mandate
     can_order: bool = True
     credential_id: str | None = None
+    oauth_read_only: bool = False
 
     @property
     def actor(self) -> str:
@@ -103,6 +104,18 @@ def principal_for_mcp_key(key: str | None) -> Principal | None:
                      bool(row["can_order"]) and preferences(row["buyer_id"]).agent_self_order, row["id"])
 
 
+def principal_for_mcp_request(headers: Mapping[str, str]) -> Principal | None:
+    authz = headers.get("authorization", "")
+    if authz.lower().startswith("bearer ") and (key := authz[7:].strip()).startswith(ACCESS_PREFIX):
+        provider = oauth()
+        row = provider.access_grant(key) if provider and hosted() else None
+        if row:
+            return Principal(row["buyer_id"], "agent", "ChatGPT " + row["username"], load_mandate(row["buyer_id"]),
+                             can_order=False, credential_id=row["id"], oauth_read_only=True)
+        return None
+    return principal_for_mcp_key(key_from_headers(headers))
+
+
 def key_from_headers(headers: Mapping[str, str] | None) -> str | None:
     if not headers:
         return None
@@ -165,11 +178,14 @@ class McpAuthMiddleware:
             await send({"type": "http.response.start", "status": 403, "headers": []})
             return await send({"type": "http.response.body", "body": b"Origin forbidden"})
         import anyio
-        p = await anyio.to_thread.run_sync(principal_for_mcp_key, key_from_headers(headers))
+        p = await anyio.to_thread.run_sync(principal_for_mcp_request, headers)
         if p is None or p.role not in {"agent", "client"}:
-            body = json.dumps({"error": "Missing or unknown API key"}).encode()
+            provider = oauth()
+            challenge = f'Bearer resource_metadata="{provider.metadata}", scope="{SCOPE}"' if provider and hosted() else "Bearer"
+            body = json.dumps({"error": "Missing or invalid MCP credentials"}).encode()
             await send({"type": "http.response.start", "status": 401,
-                        "headers": [(b"content-type", b"application/json"), (b"www-authenticate", b"Bearer")]})
+                        "headers": [(b"content-type", b"application/json"), (b"www-authenticate", challenge.encode()),
+                                    (b"cache-control", b"no-store")]})
             return await send({"type": "http.response.body", "body": body})
         token = current_principal.set(p)
         try:
@@ -182,6 +198,7 @@ class McpAuthMiddleware:
 
 def _record_mcp_request(p: Principal, method: str) -> None:
     with store.transaction() as conn:
-        conn.execute("UPDATE agent_credentials SET last_used_at=? WHERE id=?", (store.now().isoformat(), p.credential_id))
+        table = "mcp_oauth_grants" if p.oauth_read_only else "agent_credentials"
+        conn.execute(f"UPDATE {table} SET last_used_at=? WHERE id=?", (store.now().isoformat(), p.credential_id))
         store.append_in_transaction(conn, "MCP_REQUEST", p.actor,
                                     {"credential_id": p.credential_id, "method": method}, buyer_id=p.buyer_id)

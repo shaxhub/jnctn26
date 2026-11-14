@@ -431,10 +431,35 @@ function agentIntegration() {
   const section = panel("Agent integration");
   section.classList.add("settings-integration");
   const local = (en, fi) => language() === "fi" ? fi : en;
-  const hosted = buyer.dataset.hosted === "true";
-  const url = hosted ? "https://agent-dairy-mcp.kienlebox.stream/mcp" : portalUrl("/mcp");
-  section.append(node("p", local("Create a separate key for each agent. Use Streamable HTTP and an Authorization Bearer header.",
-    "Luo jokaiselle agentille oma avain. Käytä Streamable HTTP -yhteyttä ja Authorization Bearer -otsaketta."), "muted"), node("pre", url));
+  let url = portalUrl("/mcp");
+  const status = node("p", "", "feedback");
+  status.hidden = true;
+  status.setAttribute("role", "status");
+  function copyButton(label, value) {
+    const button = node("button", label);
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(value());
+        feedback(status, local("Copied.", "Kopioitu."));
+      } catch {
+        feedback(status, local("Select and copy the value manually.", "Valitse ja kopioi arvo käsin."), true);
+      }
+    });
+    return button;
+  }
+  const endpoint = node("pre", url);
+  section.append(node("h3", local("MCP server URL", "MCP-palvelimen osoite")), endpoint,
+    copyButton(local("Copy MCP URL", "Kopioi MCP-osoite"), () => url));
+  const chatGPT = node("div", "", "agent-connect");
+  chatGPT.hidden = true;
+  const connections = node("ul");
+  chatGPT.append(node("h3", "ChatGPT"), node("p", local(
+    "Add the MCP URL in ChatGPT, choose OAuth, then sign in with your Agent Dairy account to grant read-only access.",
+    "Lisää MCP-osoite ChatGPT:hen, valitse OAuth ja myönnä lukuoikeus kirjautumalla Agent Dairy -tilillesi."), "muted"), connections);
+  section.append(chatGPT, node("h3", local("Connect with a bearer key", "Yhdistä Bearer-avaimella")),
+    node("p", local("Add the URL in your AI’s MCP settings using Streamable HTTP, then create a key for that agent.",
+      "Lisää osoite tekoälysi MCP-asetuksiin Streamable HTTP -yhteytenä ja luo agentille avain."), "muted"));
   const form = node("form", "", "workspace-form");
   const label = node("label", local("Agent name", "Agentin nimi"));
   const name = node("input");
@@ -447,13 +472,39 @@ function agentIntegration() {
   permission.prepend(canOrder);
   const create = node("button", local("Create agent key", "Luo agenttiavain"), "primary");
   form.append(label, permission, create);
-  const secret = node("pre");
+  const secret = node("div", "", "agent-connect");
+  const header = node("pre");
+  let token = "";
+  let issuedId = "";
   secret.hidden = true;
+  secret.append(node("p", local(
+    "In a bearer token field, paste just the key. In custom headers, use the full Authorization header below. The key is shown once.",
+    "Liitä Bearer-tunnistekenttään pelkkä avain. Käytä mukautetuissa otsakkeissa alla olevaa Authorization-otsaketta. Avain näytetään kerran.")),
+    header, copyButton(local("Copy key", "Kopioi avain"), () => token),
+    copyButton(local("Copy Authorization header", "Kopioi Authorization-otsake"), () => header.textContent));
   const list = node("ul");
-  const status = node("p", "", "feedback");
-  status.hidden = true;
-  status.setAttribute("role", "status");
   const key = buyerKey();
+  async function loadConnections() {
+    const result = await request("/client/agent-connections", key);
+    connections.replaceChildren();
+    for (const item of result) {
+      const row = node("li", local("Connected", "Yhdistetty") + " " + date(item.created_at) +
+        (item.last_used_at ? " · " + local("Last used", "Viimeksi käytetty") + " " + date(item.last_used_at) : ""));
+      const disconnect = node("button", local("Disconnect", "Katkaise yhteys"));
+      disconnect.type = "button";
+      disconnect.addEventListener("click", async () => {
+        disconnect.disabled = true;
+        try {
+          await request("/client/agent-connections/" + encodeURIComponent(item.id) + "/disconnect", key, {});
+          await loadConnections();
+          feedback(status, local("ChatGPT disconnected.", "ChatGPT-yhteys katkaistu."));
+        } catch (error) { feedback(status, error.message, true); }
+        finally { disconnect.disabled = false; }
+      });
+      row.append(" ", disconnect);
+      connections.append(row);
+    }
+  }
   async function loadKeys() {
     try {
       const keys = await request("/client/agent-credentials", key);
@@ -469,8 +520,12 @@ function agentIntegration() {
           revoke.disabled = true;
           try {
             await request("/client/agent-credentials/" + encodeURIComponent(item.id) + "/revoke", key, {});
-            secret.hidden = true;
-            secret.textContent = "";
+            if (item.id === issuedId) {
+              secret.hidden = true;
+              header.textContent = "";
+              token = "";
+              issuedId = "";
+            }
             await loadKeys();
           } catch (error) { feedback(status, error.message, true); }
           finally { revoke.disabled = false; }
@@ -485,7 +540,9 @@ function agentIntegration() {
     create.disabled = true;
     try {
       const result = await request("/client/agent-credentials", key, {label:name.value, can_order:canOrder.checked});
-      secret.textContent = "Authorization: Bearer " + result.secret;
+      token = result.secret;
+      issuedId = result.id;
+      header.textContent = "Authorization: Bearer " + token;
       secret.hidden = false;
       form.reset();
       feedback(status, local("Copy this key now. It is shown once.", "Kopioi avain nyt. Se näytetään vain kerran."));
@@ -493,12 +550,12 @@ function agentIntegration() {
     } catch (error) { feedback(status, error.message, true); }
     finally { create.disabled = false; }
   });
-  if (hosted) {
-    const fallback = node("p", local("Funnel endpoint", "Funnel-osoite") +
-      " · https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp", "cell-note");
-    section.append(fallback);
-    }
   section.append(form, status, secret, list);
+  request("/client/agent-integration", key).then(async integration => {
+    if (integration.url) endpoint.textContent = url = integration.url;
+    chatGPT.hidden = !integration.chatgpt_oauth;
+    if (integration.chatgpt_oauth) await loadConnections();
+  }).catch(error => feedback(status, error.message, true));
   loadKeys();
   return section;
 }

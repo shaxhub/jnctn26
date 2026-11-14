@@ -16,6 +16,8 @@ from . import gemini, quotes, service, store
 from .agent import compact_offers, run_agent
 from .auth import McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
 from .config import demo_catalog_enabled, settings
+from .mcp_connect import oauth_routes, router as agent_integration_router
+from .mcp_oauth import oauth
 from .mcp_server import mcp
 from .workspace import router as workspace_router
 from .web_common import configure_errors, mount_assets, portal_page
@@ -27,11 +29,12 @@ from .models import (AgentRunRequest, ApprovalDecisionRequest, Need, OffersReque
 # McpAuthMiddleware enforces the configured browser Origin allowlist.
 mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp", stateless_http=True, json_response=True,
                                   transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
+mcp_session_manager = mcp.session_manager
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with mcp.session_manager.run():   # the MCP session manager must run inside the app's lifespan
+    async with mcp_session_manager.run():
         yield
 
 
@@ -39,9 +42,12 @@ app = FastAPI(title="Agent Dairy — Valio Aimo Trade Gateway", version="0.1.0",
               description="Search, offers, signed quotes, mandate-governed orders, human approvals and a "
                           "hash-chained audit log. Auth: X-API-Key (demo keys in buyers.json).")
 app.router.routes.extend(mcp_app.routes)    # serves POST/GET /mcp from the same process and port
+if provider := oauth():
+    app.router.routes.extend(oauth_routes(provider))
 app.add_middleware(McpAuthMiddleware)
 app.include_router(client_router)
 app.include_router(workspace_router)
+app.include_router(agent_integration_router)
 configure_errors(app)
 app.include_router(session_router('client'))
 mount_assets(app, {"client.js", "common.js", "portal.css", "workspace.js", "workspace.css", "order_thread.js"})

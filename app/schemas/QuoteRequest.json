@@ -118,6 +118,7 @@
       "items": {
         "$ref": "#/$defs/LineRequest"
       },
+      "maxItems": 1000,
       "minItems": 1,
       "title": "Lines",
       "type": "array"

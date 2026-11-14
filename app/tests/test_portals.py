@@ -109,3 +109,36 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             assert (await http.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]
 
     asyncio.run(verify())
+
+
+def test_unlisted_ingredient_match_is_live_and_requires_aimo_review(gateway, monkeypatch):
+    from gateway import substitutions
+    from gateway.models import ProductSummary, SearchResult
+
+    agent = principal_for_key("demo-hotel-key")
+    original = Offer(product_id="a", name="peruna 5 kg", category="10400", sales_unit="KG", unit_price=2,
+                     orderable=False, reason=OrderableReason.insufficient_stock)
+    alternative = original.model_copy(update={"product_id": "b", "available_qty": 20, "net_weight_kg": 1,
+                                              "orderable": True, "reason": OrderableReason.ok})
+    catalog = {pid: ProductSummary(id=pid, category="10400", sales_unit="KG", base_unit="KG") for pid in ("a", "b")}
+    offers = {"a": original, "b": alternative}
+    monkeypatch.setattr(substitutions, "search", lambda _: SearchResult(results=list(catalog.values()), total_matches=2))
+    monkeypatch.setattr(service, "get_products", lambda ids: {pid: catalog[pid] for pid in ids})
+    monkeypatch.setattr(service, "get_offers", lambda ids, _: ([offers[pid] for pid in ids], store.now()))
+    delivery = date(2026, 11, 16)
+    response = service.check_offers(agent, OffersRequest(product_ids=["a"], delivery_date=delivery,
+                                    include_substitutes=True, quantity=2, unit="KG"))
+    assert response["alternatives"]["a"][0]["substitution_source"] == "catalog_ingredient_match"
+    quote = service.create_quote(agent, QuoteRequest(delivery_date=delivery, lines=[{"product_id": "b", "quantity": 2}],
+        need={"item": "potatoes", "quantity": 2, "unit": "KG", "delivery_date": delivery, "preferred_product_ids": ["a"]}))
+    assert quote.policy_preview.decision == "needs_approval"
+    assert service.place_order(agent, quote.quote_id).status == "pending_approval"
+
+
+def test_lookup_only_credential_cannot_order(gateway):
+    agent = principal_for_key("demo-hotel-lookup-key")
+    with pytest.raises(service.GatewayError, match="workspace key"):
+        service.create_quote(agent, QuoteRequest(delivery_date=date(2026, 11, 16),
+                                                 lines=[{"product_id": "milk", "quantity": 5}]))
+    with pytest.raises(service.GatewayError):
+        service.place_order(agent, "any")

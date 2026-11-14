@@ -10,6 +10,7 @@
     },
     "comment": {
       "default": "",
+      "maxLength": 1000,
       "title": "Comment",
       "type": "string"
     }

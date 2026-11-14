@@ -1,4 +1,5 @@
 """Approximate road travel from Rautatientori to selected Helsinki-region postal districts."""
+import re
 from math import asin, ceil, cos, radians, sin, sqrt
 
 # Representative points for the challenge demo, in latitude/longitude.
@@ -11,6 +12,10 @@ _DISTRICTS = {
     "01300": (60.294, 25.039), "01510": (60.303, 24.972),
 }
 _ORIGIN = (60.1717, 24.9416)
+
+
+def postal_code_from_address(address: str) -> str | None:
+    return next(iter(re.findall(r"(?<![0-9])[0-9]{5}(?![0-9])", address)), None)
 
 
 def estimate(postal_code: str) -> dict:

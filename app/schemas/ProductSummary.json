@@ -52,6 +52,18 @@
       "default": null,
       "title": "Vendor"
     },
+    "country": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Country"
+    },
     "category": {
       "anyOf": [
         {

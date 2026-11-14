@@ -61,7 +61,8 @@ function showDraft(quote, outcome) {
 function offerRows(offers) {
   return offers.map(item => {
     const product = node("span", item.name || item.product_id);
-    product.append(node("small", item.product_id + " · " + item.sales_unit, "cell-note"));
+    const provenance = item.substitution_source === "catalog_ingredient_match" ? " · Catalog suggestion" : "";
+    product.append(node("small", item.product_id + " · " + item.sales_unit + provenance, "cell-note"));
     const availability = item.orderable
       ? item.unlimited ? "Supplier stock unverified" : number.format(item.available_qty) + " " + item.sales_unit
       : item.reason.replaceAll("_", " ");
@@ -93,7 +94,7 @@ function showResults(result) {
   target.append(node("h3", "Live offers", "results"), table(headings, offerRows(result.offers)));
   for (const [productId, alternatives] of Object.entries(result.alternatives ?? {})) {
     if (alternatives.length) {
-      target.append(node("h3", "Listed alternatives for " + productId, "results"),
+      target.append(node("h3", "Alternatives for " + productId, "results"),
         table(headings, offerRows(alternatives)));
     }
   }

@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from . import service, store
 from .agent import compact_offers
 from .auth import Principal, current_principal, key_from_headers, principal_for_key
-from .delivery import estimate
+from .delivery import estimate, postal_code_from_address
 from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
 
@@ -48,7 +48,7 @@ def _principal(ctx: Context | None, *, write: bool = False) -> Principal:
             p = None
     if p is None:
         raise ToolError("Unauthenticated: send X-API-Key or Authorization: Bearer <key>")
-    if p.role not in {"agent", "client"} or (write and p.role != "agent"):
+    if p.role not in {"agent", "client"} or (write and (p.role != "agent" or not p.can_order)):
         raise ToolError("This credential does not have permission to perform this action")
     return p
 
@@ -83,11 +83,13 @@ async def ping(ctx: Context = None) -> dict:
 
 
 @mcp.tool()
-async def estimate_delivery(postal_code: str, ctx: Context = None) -> dict:
-    """Estimate dispatch-to-door travel time from Rautatientori to a supported Finnish postal district."""
+async def estimate_delivery(postal_code: str | None = None, ctx: Context = None, address: str | None = None) -> dict:
+    """Estimate dispatch-to-door travel from Rautatientori. Provide a Finnish postcode or an address containing one."""
     _principal(ctx)
-    if len(postal_code) != 5 or not postal_code.isascii() or not postal_code.isdecimal():
-        raise ToolError("Enter a five-digit Finnish postal code")
+    if postal_code is None and address and len(address) <= 300:
+        postal_code = postal_code_from_address(address)
+    if postal_code is None or len(postal_code) != 5 or not postal_code.isascii() or not postal_code.isdecimal():
+        raise ToolError("Provide a five-digit Finnish postal code")
     return estimate(postal_code)
 
 
@@ -103,7 +105,7 @@ async def get_my_mandate(ctx: Context = None) -> dict:
         "name": p.name,
         "mandate": p.mandate.model_dump(mode="json"),
         "weekly_spent": spent,
-        "allowed_tools": list(READ_TOOLS) + (["create_quote", "place_order"] if p.role == "agent" else []),
+        "allowed_tools": list(READ_TOOLS) + (["create_quote", "place_order"] if p.role == "agent" and p.can_order else []),
     }
 
 
@@ -151,7 +153,8 @@ async def check_offers(product_ids: list[str], delivery_date: str, quantity: flo
     Only orderable offers can be quoted (no_availability_data can be quoted but needs human approval).
     If you pass quantity and unit (L, KG, PCS or a sales unit code), the result also contains `plan`:
     up to three ranked plans (best, better, good) in sales units, split across products when stock is limited.
-    Set include_substitutes to fetch live listed replacements for unavailable or insufficient stock.
+    Set include_substitutes to fetch live replacements for unavailable or insufficient stock.
+    Catalog ingredient matches may be returned for selected produce when no Valio replacement is listed.
     Use required_claims and exclude_allergens for dietary constraints. Postal code adds a travel estimate.
     """
     p = _principal(ctx)

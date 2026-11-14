@@ -40,6 +40,40 @@
       "default": null,
       "description": "Unit of quantity: L, KG, PCS or a sales unit code.",
       "title": "Unit"
+    },
+    "include_substitutes": {
+      "default": false,
+      "title": "Include Substitutes",
+      "type": "boolean"
+    },
+    "required_claims": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Required Claims",
+      "type": "array"
+    },
+    "exclude_allergens": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Exclude Allergens",
+      "type": "array"
+    },
+    "postal_code": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9]{5}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Postal Code"
     }
   },
   "required": [

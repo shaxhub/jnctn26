@@ -275,6 +275,7 @@ class QuoteLine(BaseModel):
     substitute_for: str | None = None
     substitute_for_category: str | None = None
     estimated_kg_co2e: float | None = None
+    substitution_source: Literal["valio_listed", "catalog_ingredient_match"] | None = None
 
 
 class Quote(BaseModel):

@@ -29,5 +29,11 @@
     "buyer_id": "hospital",
     "role": "client",
     "name": "Hospital purchasing desk"
+  },
+  "demo-hotel-lookup-key": {
+    "buyer_id": "hotel",
+    "role": "agent",
+    "name": "Hotel catalog agent",
+    "can_order": false
   }
 }

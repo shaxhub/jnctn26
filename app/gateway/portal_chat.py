@@ -14,6 +14,7 @@ from . import audit, service, store
 from .agent import parse_need_heuristic, parse_need_llm
 from .auth import Principal, current_principal, require_client
 from .config import settings
+from .delivery import postal_code_from_address
 from .mcp_server import mcp
 from .models import Need, OrderRequest, QuoteRequest
 
@@ -70,6 +71,8 @@ async def _read_tool(name: Literal["search_products", "check_offers"], args: dic
 @router.post("/chat")
 async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     text = request.text.strip()
+    if not text:
+        raise service.GatewayError(422, "Enter a product request")
     draft_requested = request.action == "draft" or bool(DRAFT_COMMAND.match(text))
     need, mode = await _lookup(p, text)
     need.exclude_allergens = sorted(set(need.exclude_allergens + p.mandate.forbidden_allergens))
@@ -87,7 +90,7 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         "product_ids": ids, "delivery_date": need.delivery_date.isoformat(), "quantity": need.quantity,
         "unit": need.unit, "include_substitutes": request.include_substitutes,
         "required_claims": need.free_from, "exclude_allergens": need.exclude_allergens,
-        "postal_code": request.postal_code,
+        "postal_code": request.postal_code or postal_code_from_address(text),
     }, p)
     plans = (result.get("plan") or {}).get("plans", [])
     response.update(result)
@@ -97,6 +100,11 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         return response
     if draft_requested:
         best = plans[0]
+        if not need.preferred_product_ids:
+            fallback_ids = {offer["product_id"] for group in result.get("alternatives", {}).values()
+                            for offer in group if offer["substitution_source"] == "catalog_ingredient_match"}
+            if any(line["product_id"] in fallback_ids for line in best["lines"]):
+                need.preferred_product_ids = ids
         quote_request = QuoteRequest(delivery_date=need.delivery_date, need=need,
                                      lines=[{"product_id": line["product_id"], "quantity": line["quantity"]}
                                             for line in best["lines"]])

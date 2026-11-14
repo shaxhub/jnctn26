@@ -10,7 +10,7 @@ import json
 import uuid
 from datetime import date, datetime, timedelta
 
-from . import audit, policy, quotes, store
+from . import audit, policy, quotes, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ
 from .delivery import estimate
@@ -62,17 +62,23 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
         result["substitution_hints"] = hints
     candidates = offers
     if req.include_substitutes:
-        candidates = _with_listed_substitutes(offers, hints, need)
+        catalog_hints = {
+            offer.product_id: substitutions.candidates(offer, req.required_claims, req.exclude_allergens)
+            for offer in offers[:20] if not offer.substitutes and _needs_alternatives(offer, need)
+        }
+        candidates = _with_substitutes(offers, hints | catalog_hints, need)
         requested = set(req.product_ids)
         alternatives = {offer.product_id: offer for offer in candidates if offer.orderable and offer.product_id not in requested}
         forbidden = set(expand_allergens(req.exclude_allergens + p.mandate.forbidden_allergens))
         result["alternatives"] = {
-            pid: [alternatives[sid].model_dump(mode="json") for sid in ids if sid in alternatives
+            pid: [{**alternatives[sid].model_dump(mode="json"),
+                   "substitution_source": "valio_listed" if pid in hints else "catalog_ingredient_match"}
+                  for sid in ids if sid in alternatives
                   and not constraint_violations(alternatives[sid], need)
                   and not forbidden.intersection(alternatives[sid].allergens_contains + alternatives[sid].allergens_may_contain)
                   and (p.mandate.allowed_categories is None or any(
                       (alternatives[sid].category or "").startswith(category) for category in p.mandate.allowed_categories))]
-            for pid, ids in hints.items()
+            for pid, ids in (hints | catalog_hints).items() if ids
         }
         allowed_alternatives = {item["product_id"] for group in result["alternatives"].values() for item in group}
         candidates = offers + [offer for pid, offer in alternatives.items() if pid in allowed_alternatives]
@@ -99,7 +105,7 @@ def _needs_alternatives(offer: Offer, need: Need) -> bool:
                                        and offer.available_qty * per < need.quantity)
 
 
-def _with_listed_substitutes(offers: list[Offer], hints: dict[str, list[str]], need: Need) -> list[Offer]:
+def _with_substitutes(offers: list[Offer], hints: dict[str, list[str]], need: Need) -> list[Offer]:
     seen = {offer.product_id for offer in offers}
     missing = list(dict.fromkeys(sid for ids in hints.values() for sid in ids if sid not in seen))
     if missing:
@@ -111,7 +117,7 @@ def _with_listed_substitutes(offers: list[Offer], hints: dict[str, list[str]], n
 def plan_need(p: Principal, need: Need, product_ids: list[str]) -> tuple[PlanResult, list[Offer]]:
     offers, _ = get_offers(product_ids, need.delivery_date)
     hints = {offer.product_id: offer.substitutes for offer in offers if _needs_alternatives(offer, need)}
-    offers = _with_listed_substitutes(offers, hints, need)
+    offers = _with_substitutes(offers, hints, need)
     return make_plans(need, offers, mandate=p.mandate), offers
 
 
@@ -130,12 +136,18 @@ def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], to
     if need is not None:
         covered = sum(l.covers or 0 for l in lines)
         coverage = min(covered / need.quantity, 1.0)
-    return policy.evaluate(p.mandate, lines, offers, total_net=total, weekly_spent=weekly_spent(p.buyer_id, conn=conn),
-                           need=need, coverage=coverage, today=store.now().date())
+    result = policy.evaluate(p.mandate, lines, offers, total_net=total, weekly_spent=weekly_spent(p.buyer_id, conn=conn),
+                             need=need, coverage=coverage, today=store.now().date())
+    if result.decision != Decision.reject and any(line.substitution_source == "catalog_ingredient_match" for line in lines):
+        message = "Aimo review is required for a catalog-suggested substitute."
+        result.decision = Decision.needs_approval
+        result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."] + [message]
+        result.fired_rules.append(FiredRule(rule_id="catalog_substitution", effect=Decision.needs_approval, message=message))
+    return result
 
 
 def create_quote(p: Principal, req: QuoteRequest) -> Quote:
-    if p.role not in {"agent", "client"}:
+    if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
     offers_list, now = get_offers(ids, req.delivery_date)
@@ -164,6 +176,10 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
         need = req.need
         pref = need.preferred_product_ids if need else []
         is_sub = bool(pref) and o.product_id not in pref
+        source = None
+        if is_sub:
+            source = ("valio_listed" if any(o.product_id in catalog[pid].substitutes for pid in pref if pid in catalog)
+                      else "catalog_ingredient_match")
         per = amount_per_sales_unit(o, need.unit) if need else None
         kg = amount_per_sales_unit(o, "KG")
         emissions = round(qty * kg * o.co2_per_kg, 3) if kg is not None and o.co2_per_kg is not None else None
@@ -172,7 +188,7 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
             unit_price=o.unit_price, unit_price_with_tax=o.unit_price_with_tax,
             line_total=round(qty * o.unit_price, 2), closing_time=o.closing_time,
             covers=round(qty * per, 3) if per else None, is_substitute=is_sub, estimated_kg_co2e=emissions,
-            substitute_for=pref[0] if is_sub else None,
+            substitute_for=pref[0] if is_sub else None, substitution_source=source,
             substitute_for_category=catalog[pref[0]].category if is_sub and pref[0] in catalog else None))
     if errors:
         audit.log("QUOTE_REJECTED", p.actor, {"errors": errors, "lines": [l.model_dump() for l in req.lines]},
@@ -216,7 +232,7 @@ def _quote_invalid(p: Principal, quote_id: str, status: int, msg: str) -> Gatewa
 
 
 def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order:
-    if p.role not in {"agent", "client"}:
+    if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     row = store.fetchone("SELECT * FROM quotes WHERE quote_id=?", (quote_id,))
     if row is None or row["buyer_id"] != p.buyer_id:
@@ -291,7 +307,7 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order
 
 def get_order(p: Principal | Admin, order_id: str) -> Order:
     r = store.fetchone("SELECT * FROM orders WHERE order_id=?", (order_id,))
-    if r is None or (isinstance(p, Principal) and r["buyer_id"] != p.buyer_id):
+    if r is None or r["status"] == "received" or (isinstance(p, Principal) and r["buyer_id"] != p.buyer_id):
         raise GatewayError(404, f"Order {order_id} not found for this buyer")
     return _order_from_row(r)
 

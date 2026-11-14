@@ -33,6 +33,7 @@ class Principal:
     role: str          # agent | client | approver
     name: str
     mandate: Mandate
+    can_order: bool = True
 
     @property
     def actor(self) -> str:
@@ -72,7 +73,7 @@ def principal_for_key(key: str | None) -> Principal | None:
     if not entry:
         return None
     return Principal(buyer_id=entry["buyer_id"], role=entry["role"], name=entry.get("name", entry["buyer_id"]),
-                     mandate=load_mandate(entry["buyer_id"]))
+                     mandate=load_mandate(entry["buyer_id"]), can_order=entry.get("can_order", True))
 
 
 def key_from_headers(headers: Mapping[str, str] | None) -> str | None:

@@ -193,6 +193,34 @@
           ],
           "default": null,
           "title": "Substitute For Category"
+        },
+        "estimated_kg_co2e": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Kg Co2E"
+        },
+        "substitution_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "valio_listed",
+                "catalog_ingredient_match"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Substitution Source"
         }
       },
       "required": [

@@ -2,18 +2,18 @@
   <defs>
     <!-- flat baseline: everything is cut at the bottom edge of the D -->
     <clipPath id="baseline" clipPathUnits="userSpaceOnUse">
-      <rect x="0" y="0" width="2048" height="1500"/>
+      <rect x="0" y="0" width="2048" height="1508"/>
     </clipPath>
-    <g id="mark" fill="none" stroke-width="80" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" clip-path="url(#baseline)">
+    <g id="mark" fill="none" stroke-width="96" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" clip-path="url(#baseline)">
       <!-- A (left leg, apex, right leg) flowing into the D: bottom edge, bowl, top end -->
       <path d="M355.2 1580 L693 689.2 L965 1460 L1100 1460 C1400 1460 1610 1330 1610 1080 C1610 820 1350 615 930 615"/>
       <!-- crossbar / arrow shaft -->
-      <path d="M300 1042 L1800 1042" stroke-width="48"/>
+      <path d="M300 1042 L1800 1042" stroke-width="58"/>
       <!-- arrowhead -->
-      <path d="M1880 1042 L1785 990 L1785 1094 Z" stroke="none" fill="currentColor"/>
+      <path d="M1892 1042 L1785 983 L1785 1101 Z" stroke="none" fill="currentColor"/>
     </g>
   </defs>
-  <rect id="background" width="2048" height="2048" fill="#F0E78C"/>
-  <use id="shadow" href="#mark" stroke="#C6CE96" color="#C6CE96" transform="translate(5 22)"/>
-  <use id="logo" href="#mark" stroke="#4682B4" color="#4682B4"/>
+  <rect id="background" width="2048" height="2048" fill="#FFD700"/>
+  <use id="shadow" href="#mark" stroke="#E6C200" color="#E6C200" transform="translate(5 22)"/>
+  <use id="logo" href="#mark" stroke="#0B2440" color="#0B2440"/>
 </svg>

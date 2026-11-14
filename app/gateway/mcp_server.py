@@ -171,7 +171,9 @@ async def source_ingredients(servings: int, delivery_date: str, dishes: list[str
 
 @mcp.tool()
 async def estimate_delivery(postal_code: str | None = None, ctx: Context = None, address: str | None = None) -> dict:
-    """Estimate dispatch-to-door travel from Rautatientori. Provide a Finnish postcode or an address containing one."""
+    """Estimate travel from Rautatientori to a Finnish postcode area. Provide a postcode or an address containing one.
+    Returns estimate_unavailable if the postcode has no area in the bundled dataset.
+    """
     _principal(ctx)
     if postal_code is None and address and len(address) <= 300:
         postal_code = postal_code_from_address(address)

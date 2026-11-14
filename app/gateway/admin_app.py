@@ -2,15 +2,14 @@
 from datetime import datetime
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 
 from .accounts import router as session_router
 from . import store
 from .auth import Admin, require_admin
-from .config import APP_DIR, TZ
+from .config import TZ
 from .operations import router
-from .web_common import configure_errors, mount_assets
+from .web_common import configure_errors, mount_assets, portal_page
 
 app = FastAPI(title="Agent Dairy | Aimo operations")
 configure_errors(app)
@@ -20,8 +19,8 @@ mount_assets(app, {"admin.js", "common.js", "portal.css", "order_thread.js"})
 
 
 @app.get("/", include_in_schema=False)
-def home():
-    return FileResponse(APP_DIR / "ui" / "admin.html")
+def home(request: Request):
+    return portal_page(request, "admin.html")
 
 
 @app.post("/demo/reset", include_in_schema=False)

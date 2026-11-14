@@ -79,3 +79,15 @@ DB_PATH=data/hosted-gateway.db .venv/bin/python -m gateway.manage_accounts aimo 
 These commands prompt for passwords. Running the command again with the same account role and buyer changes its password and revokes existing sessions. Check status with `systemctl --user status agent-dairy-client agent-dairy-admin` and stop both with `systemctl --user stop agent-dairy-client agent-dairy-admin`.
 
 In Ask Agent Dairy, try `I need 20 litres of lactose-free milk` and choose a future delivery date. Create and submit a draft from the result. Repeat with 1,000 litres to exercise the Aimo approval queue. You can also paste a recipe with a quantity and ingredient on each line, such as `2 kg tomato` and `1 kg red onion`.
+
+### Public HTTPS demo with Tailscale Funnel
+
+To add the demo to a host that already uses Funnel on ports 443 and 8443, start the two loopback services and add path routes on those public ports. Check that both paths are free and use ports that already have public Funnel enabled. Path routes share a browser origin with other apps on the same HTTPS port, so use only origins where you trust the other apps.
+
+```sh
+FUNNEL_PORTALS=1 bash scripts/deploy_private.sh PRIVATE_BIND_IP
+tailscale funnel --bg --https=443 --set-path=/agent-dairy http://127.0.0.1:18200
+tailscale funnel --bg --https=8443 --set-path=/agent-dairy-admin http://127.0.0.1:18201
+```
+
+Open `/agent-dairy/` on port 443 for the client and `/agent-dairy-admin/` on 8443 for Aimo operations. Both use the same accounts and synthetic orders as the private deployment. Remove either route by running the same Funnel command with `off` at the end.

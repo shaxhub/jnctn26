@@ -1,4 +1,5 @@
 export const $ = id => document.getElementById(id);
+export const portalUrl = path => new URL(path.replace(/^\//, ""), document.baseURI).href;
 export const number = new Intl.NumberFormat("en-FI", {maximumFractionDigits: 2});
 export const money = new Intl.NumberFormat("en-FI", {style: "currency", currency: "EUR"});
 const dateFormat = new Intl.DateTimeFormat("en-FI", {dateStyle: "medium", timeZone: "Europe/Helsinki"});
@@ -46,7 +47,7 @@ export function feedback(target, text, error = false) {
 export async function request(path, key, payload) {
   const headers = key ? {"X-API-Key": key} : {};
   if (payload !== undefined) headers["Content-Type"] = "application/json";
-  const response = await fetch(path, {method: payload === undefined ? "GET" : "POST", headers,
+  const response = await fetch(portalUrl(path), {method: payload === undefined ? "GET" : "POST", headers,
     body: payload === undefined ? undefined : JSON.stringify(payload)});
   const data = await response.json();
   if (!response.ok) {

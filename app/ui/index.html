@@ -2,18 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#10233c">
   <title>Agent Dairy | Purchasing workspace</title>
-  <link rel="stylesheet" href="/assets/portal.css">
-  <link rel="stylesheet" href="/assets/workspace.css">
-  <script type="module" src="/assets/client.js"></script>
-  <script type="module" src="/assets/workspace.js"></script>
+  <link rel="stylesheet" href="assets/portal.css">
+  <link rel="stylesheet" href="assets/workspace.css">
+  <script type="module" src="assets/client.js"></script>
+  <script type="module" src="assets/workspace.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <aside class="rail">
-    <a class="brand" href="/"><span class="mark" aria-hidden="true">AD</span><span>Agent Dairy<small>Valio Aimo®</small></span></a>
+    <a class="brand" href="./"><span class="mark" aria-hidden="true">AD</span><span>Agent Dairy<small>Valio Aimo®</small></span></a>
     <nav aria-label="Purchasing">
       <a href="#dashboard" data-view="dashboard" data-en="Dashboard" data-fi="Etusivu">Dashboard</a>
       <a href="#products" data-view="products" data-en="Product Search" data-fi="Tuotehaku">Product Search</a>
@@ -66,7 +67,7 @@
         </section>
         <aside class="side">
           <section class="panel" aria-labelledby="draft-title"><div class="panel-head"><h2 id="draft-title">Ticket review</h2></div><div id="draft" class="empty">Create a ticket draft to review quantities, prices and the delivery date.</div></section>
-          <section class="panel" aria-labelledby="connect-title"><div class="panel-head"><h2 id="connect-title">Connect your agent</h2><span class="tag">MCP</span></div><p class="muted">Use Streamable HTTP with your workspace’s demo agent key.</p><pre id="mcp-command"></pre><div class="actions"><button type="button" id="copy">Copy configuration</button><a href="/docs">API reference</a></div><p id="copy-status" class="feedback" role="status" hidden></p></section>
+          <section class="panel" aria-labelledby="connect-title"><div class="panel-head"><h2 id="connect-title">Connect your agent</h2><span class="tag">MCP</span></div><p class="muted">Use Streamable HTTP with your workspace’s demo agent key.</p><pre id="mcp-command"></pre><div class="actions"><button type="button" id="copy">Copy configuration</button><a href="docs">API reference</a></div><p id="copy-status" class="feedback" role="status" hidden></p></section>
         </aside>
       </div>
       <section class="panel seasonal-panel" aria-labelledby="seasonal-title">

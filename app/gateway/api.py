@@ -8,18 +8,17 @@ from __future__ import annotations
 import contextlib
 
 import anyio
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .accounts import router as session_router
 from . import gemini, quotes, service, store
 from .agent import compact_offers, run_agent
 from .auth import McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
-from .config import APP_DIR, demo_catalog_enabled, settings
+from .config import demo_catalog_enabled, settings
 from .mcp_server import mcp
 from .workspace import router as workspace_router
-from .web_common import configure_errors, mount_assets
+from .web_common import configure_errors, mount_assets, portal_page
 from .portal_chat import router as client_router
 from .models import (AgentRunRequest, ApprovalDecisionRequest, Need, OffersRequest, OrderRequest, QuoteRequest,
                      SearchRequest)
@@ -55,8 +54,8 @@ async def _thread(fn, *args):
 
 # --- UI and meta ------------------------------------------------------------------------------
 @app.get("/", include_in_schema=False)
-def ui():
-    return FileResponse(APP_DIR / "ui" / "index.html")
+def ui(request: Request):
+    return portal_page(request, "index.html")
 
 
 @app.get("/health")

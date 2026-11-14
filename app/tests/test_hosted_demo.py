@@ -60,6 +60,20 @@ def test_hosted_accounts_and_synthetic_purchase(gateway, monkeypatch, tmp_path):
             await kitchen.post("/session/logout", headers={"Origin": buyer_origin}, json={})
             assert (await kitchen.get("/client/dashboard")).status_code == 401
 
+        async with AsyncClient(transport=ASGITransport(app=admin, root_path="/agent-dairy-admin"),
+                               base_url=admin_origin) as proxied_admin:
+            prefix = "/agent-dairy-admin"
+            assert f'<base href="{prefix}/">' in (await proxied_admin.get(prefix + "/")).text
+            assert (await proxied_admin.get(prefix + "/assets/portal.css")).status_code == 200
+            login = await proxied_admin.post(prefix + "/session/login", headers={"Origin": admin_origin},
+                                             json={"username": "review-test", "password": password})
+            assert login.status_code == 200, login.text
+            assert f"Path={prefix}" in login.headers["set-cookie"]
+            assert (await proxied_admin.get(prefix + "/operations/activity")).status_code == 200
+            assert (await proxied_admin.get("/operations/activity")).status_code == 401
+            await proxied_admin.post(prefix + "/session/logout", headers={"Origin": admin_origin})
+            assert (await proxied_admin.get(prefix + "/operations/activity")).status_code == 401
+
     try:
         asyncio.run(exercise())
     finally:

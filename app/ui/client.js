@@ -1,5 +1,5 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, date, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
+import {$, date, feedback, lineItems, money, node, number, pill, portalUrl, request, table} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
@@ -8,8 +8,8 @@ let queryVersion = 0;
 let seasonalVersion = 0;
 
 function connection() {
-  $("mcp-command").textContent = 'claude mcp add --transport http agent-dairy ' + location.origin +
-    '/mcp --header "Authorization: Bearer demo-' + buyer.value + '-key"';
+  $("mcp-command").textContent = 'claude mcp add --transport http agent-dairy ' + portalUrl("/mcp") +
+    ' --header "Authorization: Bearer demo-' + buyer.value + '-key"';
   feedback($("copy-status"), "");
 }
 
@@ -30,7 +30,7 @@ export function showDraft(quote, outcome, target = $("draft")) {
     lineItems(quote.lines), node("p", money.format(quote.total_net) + " excl. VAT", "ticket-total"));
   const proof = node("details", "", "plan-option");
   const key = node("a", "Quote verification keys");
-  key.href = "/.well-known/jwks.json";
+  key.href = portalUrl("/.well-known/jwks.json");
   proof.append(node("summary", "Signed quote"), key, node("pre", quote.signature));
   target.append(proof);
   const history = node("details", "", "plan-option");

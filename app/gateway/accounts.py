@@ -55,7 +55,8 @@ def token_hash(token: str) -> str:
 
 def same_origin(request: Request) -> None:
     # Comparing Origin prevents cookie-authenticated writes from a sibling port.
-    if request.headers.get("origin") != str(request.base_url).rstrip("/"):
+    url = request.url
+    if request.headers.get("origin") != f"{url.scheme}://{url.netloc}":
         raise HTTPException(403, "Use the portal to make this request.")
 
 
@@ -118,6 +119,7 @@ def router(role: str) -> APIRouter:
                          (token_hash(token), username, (now+timedelta(seconds=SESSION_SECONDS)).isoformat()))
         response.headers["Cache-Control"] = "no-store"
         response.set_cookie(cookie, token, max_age=SESSION_SECONDS, httponly=True,
+                            path=request.scope.get("root_path") or "/",
                             secure=request.url.scheme == "https", samesite="strict")
         return {"username": username, "buyer_id": row["buyer_id"]}
 
@@ -127,7 +129,8 @@ def router(role: str) -> APIRouter:
         token = request.cookies.get(cookie)
         if token and len(token) <= 100:
             store.execute("DELETE FROM portal_sessions WHERE token_hash=?", (token_hash(token),))
-        response.delete_cookie(cookie, httponly=True, secure=request.url.scheme == "https", samesite="strict")
+        response.delete_cookie(cookie, httponly=True, secure=request.url.scheme == "https", samesite="strict",
+                               path=request.scope.get("root_path") or "/")
         return {"ok": True}
 
     return routes

@@ -73,6 +73,8 @@ th,td { border-bottom:1px solid var(--line); padding:.65rem .55rem; vertical-ali
 th { color:var(--muted); white-space:nowrap; font-weight:600 }
 td button { min-height:2rem; padding:.2rem .55rem }
 .cell-note { display:block; font-size:.78rem; color:var(--muted); margin-top:.2rem }
+.plan-option { border:1px solid var(--line); padding:.75rem; border-radius:.4rem; margin-top:.5rem }
+.plan-option summary { cursor:pointer; font-weight:600 }
 .ticket-total { border-top:1px solid var(--line); padding-top:.6rem; font-weight:700 }
 .login { max-width:30rem }
 .login form { display:grid; gap:.6rem; margin-top:1rem }

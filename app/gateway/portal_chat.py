@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
     action: Literal["lookup", "draft"] = "lookup"
     postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
     include_substitutes: bool = True
+    plan_lines: list[tuple[str, float]] | None = Field(None, min_length=1, max_length=100)
 
 
 # A typed command or the explicit draft button can opt in to drafting.
@@ -114,6 +115,11 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
         return response
     if draft_requested:
         best = plans[0]
+        if request.plan_lines is not None:
+            best = next((plan for plan in plans if request.plan_lines == [
+                (line["product_id"], line["quantity"]) for line in plan["lines"]]), None)
+            if best is None:
+                return {**response, "message": "That plan changed. Review the refreshed options before drafting."}
         if not need.preferred_product_ids:
             fallback_ids = {offer["product_id"] for group in result.get("alternatives", {}).values()
                             for offer in group if offer["substitution_source"] == "catalog_ingredient_match"}

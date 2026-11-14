@@ -73,7 +73,7 @@ function offerRows(offers) {
   });
 }
 
-function showResults(result) {
+function showResults(result, requestData) {
   const target = $("results");
   target.replaceChildren();
   if (!result.offers?.length) return;
@@ -84,11 +84,17 @@ function showResults(result) {
       : "Travel estimate is unavailable for this postcode.", "feedback"));
   }
   const plans = result.plan?.plans ?? [];
-  if (plans.length) {
-    const plan = plans[0];
-    target.append(node("h3", "Best available plan", "results"), lineItems(plan.lines),
-      node("p", number.format(plan.coverage * 100) + "% of requested quantity · " +
-        money.format(plan.total_net) + " excl. VAT", "cell-note"));
+  if (plans.length) target.append(node("h3", "Order plans", "results"));
+  for (const plan of plans) {
+    const details = node("details", "", "plan-option");
+    details.open = plan.label === "best";
+    const summary = node("summary", plan.label[0].toUpperCase() + plan.label.slice(1) + " · " +
+      money.format(plan.total_net) + " excl. VAT · " + number.format(plan.coverage * 100) + "% coverage");
+    const draftButton = node("button", "Draft this plan");
+    draftButton.addEventListener("click", () => sendChat({...requestData, action: "draft",
+      plan_lines: plan.lines.map(line => [line.product_id, line.quantity])}));
+    details.append(summary, node("p", plan.strategy, "cell-note"), lineItems(plan.lines), draftButton);
+    target.append(details);
   }
   const headings = ["Product", "Net price / unit", "Availability", "Earliest date", "kg CO₂e/kg", "Reliability"];
   target.append(node("h3", "Live offers", "results"), table(headings, offerRows(result.offers)));
@@ -115,30 +121,33 @@ async function loadOrders() {
   }
 }
 
-$("chat").addEventListener("submit", async event => {
-  event.preventDefault();
-  const text = $("message").value.trim();
-  if (!text) return;
+async function sendChat(requestData) {
   const current = ++queryVersion;
-  const buttons = Array.from(event.currentTarget.querySelectorAll("[type=submit]"));
+  const buttons = Array.from($("chat").querySelectorAll("[type=submit]"));
   buttons.forEach(button => { button.disabled = true; });
-  const action = event.submitter?.value || "lookup";
-  if (action === "draft") showDraft(null);
+  if (requestData.action === "draft") showDraft(null);
   feedback($("chat-status"), "Checking the Valio catalog and live offers…");
   $("results").replaceChildren();
   try {
-    const result = await request("/client/chat", buyerKey(), {text, action,
-      postal_code: $("postcode").value || null, include_substitutes: $("substitutes").checked});
+    const result = await request("/client/chat", buyerKey(), requestData);
     if (current !== queryVersion) return;
     feedback($("chat-status"), result.message);
     $("assistant-mode").textContent = result.mode === "ai" ? "AI-assisted" : "Guided search";
-    showResults(result);
+    showResults(result, requestData);
     if (result.draft) showDraft(result.draft);
   } catch (error) {
     if (current === queryVersion) feedback($("chat-status"), error.message, true);
   } finally {
     if (current === queryVersion) buttons.forEach(button => { button.disabled = false; });
   }
+}
+
+$("chat").addEventListener("submit", event => {
+  event.preventDefault();
+  const text = $("message").value.trim();
+  if (!text) return;
+  sendChat({text, action: event.submitter?.value || "lookup",
+    postal_code: $("postcode").value || null, include_substitutes: $("substitutes").checked});
 });
 
 document.querySelectorAll("[data-example]").forEach(button => button.addEventListener("click", () => {

@@ -1,4 +1,4 @@
-# Open Counter — Valio Aimo Trade Gateway (Junction 2026, "Trusted Trade Agents")
+# Agent Dairy — Valio Aimo Trade Gateway (Junction 2026, "Trusted Trade Agents")
 
 A gateway that lets an external AI purchasing agent **search** Valio Aimo products, get **live price and
 availability**, get a **signed fixed-price quote** and **place an order**. A buyer-specific **mandate**
@@ -45,15 +45,9 @@ earliest of price `validTo` and line order cutoffs with a 2 h cap when cutoff is
 `place_order` (re-checks availability, evaluates the mandate) → `confirmed` | `pending_approval` | `rejected` →
 human approves/rejects → `confirmed` | `rejected` | `expired`.
 
-## Run it (3-command quickstart)
+## Local setup
 
-Requires [uv](https://docs.astral.sh/uv/). Python is pinned to 3.12 (`.python-version`); uv downloads it if needed.
-
-```bash
-cd app && cp .env.example .env && uv sync   # put VALIO_API_KEY (and optional ANTHROPIC_API_KEY / DEMO_NOW) in .env
-uv run python -m gateway.load_catalog       # builds data/catalog.db from ../external/valio-aimo (about 2 s)
-uv run uvicorn gateway.api:app --reload --port 8000
-```
+Follow the [local setup in the root README](../README.md#local-setup) to configure the Valio key, import the challenge catalog, and start the app. Set `ANTHROPIC_API_KEY` in `.env` to enable the reference LLM agent, or set `DEMO_NOW` to fix the demo clock.
 
 Endpoints when running:
 - **UI:** `http://localhost:8000/`
@@ -82,7 +76,7 @@ Demo state helpers: `POST /demo/reset` (or the **Reset demo state** button in th
 optionally sets `DEMO_NOW` (e.g., `{"demo_now": "2026-11-14T10:00:00+02:00"}`) for reproducible cutoff demos.
 
 Connect an MCP client, e.g. Claude Code:
-`claude mcp add --transport http open-counter http://localhost:8000/mcp --header "Authorization: Bearer demo-hotel-key"`.
+`claude mcp add --transport http agent-dairy http://localhost:8000/mcp --header "Authorization: Bearer demo-hotel-key"`.
 
 ## Policy rule ids (mandate engine, `gateway/policy.py`)
 

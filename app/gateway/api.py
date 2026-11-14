@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Valio Aimo Trade Gateway (Junction 2026 demo)", version="0.1.0", lifespan=lifespan,
+app = FastAPI(title="Agent Dairy — Valio Aimo Trade Gateway", version="0.1.0", lifespan=lifespan,
               description="Search, offers, signed quotes, mandate-governed orders, human approvals and a "
                           "hash-chained audit log. Auth: X-API-Key (demo keys in buyers.json).")
 app.router.routes.extend(mcp_app.routes)    # serves POST/GET /mcp from the same process and port

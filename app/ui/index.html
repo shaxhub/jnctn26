@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Open Counter — Valio Aimo Trade Gateway</title>
+<title>Agent Dairy — Valio Aimo Trade Gateway</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2433; --muted:#667085; --line:#e4e7ec; --brand:#0b4f9c;
           --ok:#127a3d; --warn:#b54708; --bad:#b42318; }
@@ -40,7 +40,7 @@
 </style>
 </head>
 <body>
-<header><h1>Open Counter — Valio Aimo Trade Gateway</h1><span>agent requests → offers → signed quote → mandate → human approval → audit</span></header>
+<header><h1>Agent Dairy — Valio Aimo Trade Gateway</h1><span>agent requests → offers → signed quote → mandate → human approval → audit</span></header>
 <nav>
   <button data-tab="request" class="active">Request</button>
   <button data-tab="approvals">Approvals</button>
@@ -153,7 +153,7 @@ function syncKeys() {
   $("#approver").value = buyerKey === "demo-hospital-key" ? "demo-hospital-approver-key" : "demo-hotel-approver-key";
   $("#auditkey").value = buyerKey;
   const origin = window.location.origin.startsWith("http") ? window.location.origin : "http://localhost:8000";
-  $("#mcpcmd").textContent = `claude mcp add --transport http open-counter ${origin}/mcp --header "Authorization: Bearer ${buyerKey}"`;
+  $("#mcpcmd").textContent = `claude mcp add --transport http agent-dairy ${origin}/mcp --header "Authorization: Bearer ${buyerKey}"`;
 }
 async function showMandate() {
   try {

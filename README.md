@@ -1,18 +1,26 @@
-# Open Counter — Valio Aimo Trade Gateway
+# Agent Dairy — Valio Aimo Trade Gateway
 
 > **Open to any AI agent. On the buyer's terms.**  
 > Built for the **Junction 2026 — Valio Aimo "Trusted Trade Agents"** challenge.
 
-**Open Counter** is an open, verifiable trade gateway in front of Valio Aimo's catalogue, pricing, and availability APIs. Any buyer's AI purchasing agent (over **MCP** or **REST/OpenAPI**) can search 17,546 products, compare cutoff-aware live offers, plan orders in sales units, receive **Ed25519-signed quotes**, and place orders governed by **gateway-enforced buyer mandates** and **out-of-band human approvals** — with every decision recorded in a **SHA-256 hash-chained audit log**.
+**Agent Dairy** is an open, verifiable trade gateway in front of Valio Aimo's catalogue, pricing, and availability APIs. Any buyer's AI purchasing agent (over **MCP** or **REST/OpenAPI**) can search 17,546 products, compare cutoff-aware live offers, plan orders in sales units, receive **Ed25519-signed quotes**, and place orders governed by **gateway-enforced buyer mandates** and **out-of-band human approvals** — with every decision recorded in a **SHA-256 hash-chained audit log**.
 
 ---
 
-## 3-command quickstart
+## Local setup
 
-Prerequisite: put your `VALIO_API_KEY` in `app/.env` and ensure the challenge dataset (`valio_aimo_junction26_product_data.json` and the two CSVs) is in `external/valio-aimo/` (gitignored; never commit challenge data).
+Install [uv](https://docs.astral.sh/uv/). The app uses Python 3.12, which uv can install if needed.
 
-```bash
-cd app && cp .env.example .env && uv sync
+1. Put the three Valio Aimo challenge files in `external/valio-aimo/` at the repository root.
+   - `valio_aimo_junction26_product_data.json`
+   - `valio_aimo_junction26_delivery_reliability.csv`
+   - `valio_aimo_junction26_carbon_footprint.csv`
+2. Copy `app/.env.example` to `app/.env` and set `VALIO_API_KEY` to your challenge key. Git ignores the dataset directory and `app/.env`.
+3. Run these commands from the repository root.
+
+```sh
+cd app
+uv sync --locked
 uv run python -m gateway.load_catalog
 uv run uvicorn gateway.api:app --reload --port 8000
 ```
@@ -60,7 +68,7 @@ cd app && uv run pytest -q && uv run python evals/run_evals.py
 
 ## Judging criteria mapping
 
-| Criterion | Weight | How Open Counter addresses it |
+| Criterion | Weight | How Agent Dairy addresses it |
 |---|---:|---|
 | **Working end-to-end demo** | 30% | Web UI with 4 interactive scenarios (hotel 1,000 L approval, hotel 200 L auto, hospital gluten stock-out reject, manipulated 10,000 L prompt injection), `Reset demo state`, live tool trace, signed quote card, out-of-band Approvals tab, hash-chained Audit timeline, plus `scripts/demo_flow.py` and `scripts/mcp_smoke.py`. |
 | **Solving user need** | 20% | Structured `FREE_FROM_*` + `nonAllergen` filtering (avoids cocoa drinks/cooking cream), Synkka + CASE + multipack unit conversions (`L`/`KG`/`PCS`/sales units), `allowedLotSize` rounding, stock splitting, CO2 & delivery reliability scoring, and **10/10** deterministic eval pass rate (`app/evals/cases.jsonl`). |
@@ -72,6 +80,7 @@ cd app && uv run pytest -q && uv run python evals/run_evals.py
 
 ## Documentation
 
+- [Junction 2026 challenge brief](PROBLEM-STATEMENT.md)
 - **Application guide:** [app/README.md](app/README.md)
 - **Assumptions & mock-API behaviour:** [app/ASSUMPTIONS.md](app/ASSUMPTIONS.md)
 - **Production roadmap:** [docs/roadmap.md](docs/roadmap.md)

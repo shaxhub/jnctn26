@@ -30,7 +30,7 @@ Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+u
 Quantities in quotes and orders are in SALES units (see sales_unit).
 Your buyer's mandate is enforced server-side; orders may be confirmed, wait for human approval, or be rejected."""
 
-mcp = MCPServer(name="valio-aimo-gateway", title="Valio Aimo Trade Gateway (Junction 2026 demo)",
+mcp = MCPServer(name="valio-aimo-gateway", title="Agent Dairy — Valio Aimo Trade Gateway",
                 instructions=INSTRUCTIONS, version="0.1.0")
 
 

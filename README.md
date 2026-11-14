@@ -20,15 +20,23 @@ Agent Dairy is a Junction 2026 prototype for the Valio Aimo Trusted Trade Agents
    uv run --locked python -m gateway.load_catalog
    ```
 
-5. From `app/`, run each server in its own terminal. Both read the same configuration and local databases.
+## Start and stop both apps
 
-   ```sh
-   uv run --locked uvicorn gateway.api:app --host 127.0.0.1 --port 8000
-   ```
+After setup, run this from the repository root in **PowerShell (Windows)** or a **terminal (macOS or Linux)**.
 
-   ```sh
-   uv run --locked uvicorn gateway.admin_app:app --host 127.0.0.1 --port 8001
-   ```
+```sh
+uv run --locked --project app python app/scripts/run_local.py
+```
+
+Wait for both Uvicorn startup messages, then open the two links below. Press **Ctrl+C in that terminal** to stop both servers. If one server exits during startup or while running, the launcher stops the other and exits with an error.
+
+If a default port is already taken, choose a different pair.
+
+```sh
+uv run --locked --project app python app/scripts/run_local.py --client-port 8010 --admin-port 8011
+```
+
+If you use a browser-based MCP client, add its origin to `MCP_ALLOWED_ORIGINS` in `app/.env` when it differs from the defaults.
 
 Keep challenge data, local databases, signing keys, and `app/.env` out of Git. The default paths are ignored.
 

@@ -2,6 +2,10 @@
 
 Start with the [root quickstart](../README.md#run-locally), [user guide](../docs/user-guide.md) and [architecture](../docs/architecture.md). Run commands from `app/`.
 
+## Start and stop
+
+From this directory, run `uv run --locked python scripts/run_local.py` to start the client on port 8000 and Aimo operations on port 8001. Press **Ctrl+C** in the same terminal to stop both. See the [root README](../README.md#start-and-stop-both-apps) for alternate ports.
+
 ## Developer commands
 
 ```sh

@@ -109,6 +109,10 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
                 "text": "5 litres of lactose-free milk by Monday", "action": "draft",
                 "plan_lines": [["milk", 99]]})
             assert changed.status_code == 200 and changed.json()["draft"] is None
+            incomplete = await http.post("/client/chat", headers=buyer,
+                json={"text": "Create a ticket for lactose-free milk by Monday"})
+            assert incomplete.status_code == 200 and incomplete.json()["draft"] is None
+            assert "quantity and unit" in incomplete.json()["message"]
             unrelated = await http.post("/client/chat", headers=buyer, json={"text": "Unrelated milk lookup"})
             assert unrelated.status_code == 200
             result = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
@@ -119,7 +123,7 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             analytics = (await http.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10
-            assert analytics["inquiries"] == 4
+            assert analytics["inquiries"] == 5
             detail = (await http.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
             history = detail["audit"]["events"]
             assert [event["data"]["text"] for event in history if event["event_type"] == "CLIENT_INQUIRY"] == [

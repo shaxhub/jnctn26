@@ -11,7 +11,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 from . import audit, service, store
-from .agent import parse_need_heuristic, parse_need_llm
+from .agent import explicit_quantity, parse_need_heuristic, parse_need_llm
 from .auth import Principal, current_principal, require_client
 from .config import settings
 from .delivery import postal_code_from_address
@@ -115,6 +115,8 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
         response["message"] += " No orderable plan meets this request."
         return response
     if draft_requested:
+        if mode == "guided" and not explicit_quantity(text):
+            return {**response, "message": "Include a quantity and unit before drafting, such as 5 litres or 2 boxes."}
         best = plans[0]
         if request.plan_lines is not None:
             best = next((plan for plan in plans if request.plan_lines == [

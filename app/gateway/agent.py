@@ -92,6 +92,11 @@ def next_weekday(weekday: int, today: date) -> date:
 
 
 # --- need parsing ------------------------------------------------------------------------------
+def explicit_quantity(text: str) -> bool:
+    """The guided parser understands amounts with units, such as 5 litres or 2 boxes."""
+    return _UNIT_RE.search(text.lower()) is not None
+
+
 def parse_need_heuristic(text: str, today: date | None = None) -> Need:
     """Deterministic fallback parser. Good enough for the demo scenarios, not for real users."""
     today = today or store_now().date()

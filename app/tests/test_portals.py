@@ -103,8 +103,12 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             assert lookup.status_code == 200, lookup.text
             assert lookup.json()["draft"] is None
             shopping = await http.post("/client/chat", headers=buyer,
-                                       json={"text": "5 litres of lactose-free milk by Monday", "action": "shop"})
+                                       json={"text": "5 litres of lactose-free milk by Monday, postcode 00100", "action": "shop"})
             assert shopping.status_code == 200 and shopping.json()["draft"]
+            missing_delivery = await http.post("/client/chat", headers=buyer,
+                                              json={"text": "5 litres of lactose-free milk", "action": "shop"})
+            assert missing_delivery.status_code == 422
+            assert "delivery date and five-digit delivery postcode" in missing_delivery.json()["detail"]
             assert (await http.get("/orders", headers=buyer)).json() == []
             response = await http.post("/client/chat", headers=buyer,
                                  json={"text": "Create a ticket for 5 litres of lactose-free milk by Monday"})

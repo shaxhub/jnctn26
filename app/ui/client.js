@@ -1,5 +1,5 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, parseInputDate, pill, portalUrl, request, table} from "./common.js";
+import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, pill, portalUrl, request, table} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
@@ -184,7 +184,7 @@ function showRecipe(recipe, meal) {
     target.append(node("p", meal.verification, "feedback"), guidance);
   }
   const data = recipe.ingredients.map(row => [
-    row.ingredient, number.format(row.quantity) + " " + row.unit, row.dishes.join(", "),
+    row.product_name || row.ingredient, number.format(row.quantity) + " " + row.unit, row.dishes.join(", "),
     row.status ?? "Add a delivery date to check stock",
     row.sourcing ? lineItems(row.sourcing.plan.lines) : "—"
   ]);
@@ -227,13 +227,7 @@ $("chat").addEventListener("submit", event => {
   event.preventDefault();
   const text = $("message").value.trim();
   if (!text) return;
-  const rawDate = $("chat-delivery-date").value.trim();
-  const delivery = rawDate ? parseInputDate(rawDate) : null;
-  if (rawDate && !delivery) {
-    feedback($("chat-status"), "Enter the delivery date as dd.mm.yyyy.", true);
-    $("chat-delivery-date").focus();
-    return;
-  }
+  const delivery = $("chat-delivery-date").value || null;
   sendChat({text, action: event.submitter?.value || "shop",
     postal_code: $("postcode").value || null, delivery_date: delivery,
     include_substitutes: $("substitutes").checked});
@@ -246,8 +240,7 @@ document.querySelectorAll("[data-example]").forEach(button => button.addEventLis
 $("seasonal-pick").addEventListener("click", async () => {
   const button = $("seasonal-pick");
   const target = $("seasonal-results");
-  const raw = $("chat-delivery-date").value.trim();
-  const delivery = raw ? parseInputDate(raw) : new Intl.DateTimeFormat("sv-SE", {
+  const delivery = $("chat-delivery-date").value || new Intl.DateTimeFormat("sv-SE", {
     timeZone:"Europe/Helsinki", year:"numeric", month:"2-digit", day:"2-digit",
   }).format(new Date());
   if (!delivery) {

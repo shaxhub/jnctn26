@@ -97,17 +97,8 @@ def explicit_quantity(text: str) -> bool:
     return _UNIT_RE.search(text.lower()) is not None
 
 
-def parse_need_heuristic(text: str, today: date | None = None) -> Need:
-    """Deterministic fallback parser. Good enough for the demo scenarios, not for real users."""
-    today = today or store_now().date()
+def requested_date(text: str, today: date) -> date | None:
     t = text.lower()
-    m = _UNIT_RE.search(t)
-    if m:
-        raw_unit = m.group(2)
-        qty = round(_parse_number(m.group(1)) * UNIT_SCALE.get(raw_unit, 1.0), 6)
-        unit = UNIT_WORDS.get(raw_unit, "PCS")
-    else:
-        qty, unit = 1.0, "PCS"
     m_date = re.search(r"\d{4}-\d{2}-\d{2}", t)
     delivery: date | None = None
     if m_date:
@@ -125,8 +116,21 @@ def parse_need_heuristic(text: str, today: date | None = None) -> Need:
             delivery = today + timedelta(days=1)
         elif re.search(r"\b(today|tänään)\b", t):
             delivery = today
-        else:
-            delivery = today + timedelta(days=2)
+    return delivery
+
+
+def parse_need_heuristic(text: str, today: date | None = None) -> Need:
+    """Deterministic fallback parser for direct product requests."""
+    today = today or store_now().date()
+    t = text.lower()
+    m = _UNIT_RE.search(t)
+    if m:
+        raw_unit = m.group(2)
+        qty = round(_parse_number(m.group(1)) * UNIT_SCALE.get(raw_unit, 1.0), 6)
+        unit = UNIT_WORDS.get(raw_unit, "PCS")
+    else:
+        qty, unit = 1.0, "PCS"
+    delivery = requested_date(text, today) or today + timedelta(days=2)
     free_from = sorted({v for k, v in CLAIM_WORDS.items() if k in t})
     keys_desc = sorted(ITEM_HINTS, key=len, reverse=True)
     item_key = next((k for k in keys_desc if re.search(rf"\b{re.escape(k)}\b", t)), None)

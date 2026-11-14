@@ -96,6 +96,15 @@ async def extract(text: str, today):
     ), _interpretation())
 
 
+async def ground_recipes(text: str, recipes, candidates: list[dict]):
+    return await _structured(json.dumps({"request": text, "proposal": [recipe.model_dump() for recipe in recipes],
+                                        "catalog": candidates}),
+        "Revise this inferred meal using only the provided catalog. In each ingredient name return the exact "
+        "catalog product id. Keep the requested meal components, diet and headcount. Preserve meaningful staple "
+        "and protein roles. If the catalog cannot cover the request, return an empty recipes list. "
+        "Do not replace explicitly named ingredients or invent items.", _interpretation())
+
+
 async def suggest_edit(text: str, draft: dict):
     from .workspace import DraftEdit
 

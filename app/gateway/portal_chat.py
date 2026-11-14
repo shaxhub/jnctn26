@@ -13,11 +13,12 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field, ValidationError
 
 from . import audit, gemini, kitchen, meal_planning, service, store
-from .agent import explicit_quantity, parse_need_heuristic
+from .agent import explicit_quantity, parse_need_heuristic, requested_date
 from .auth import Principal, current_principal, require_client
 from .delivery import postal_code_from_address
 from .mcp_server import mcp
 from .models import Need, OrderRequest, QuoteRequest
+from .search import get_products
 
 router = APIRouter(prefix="/client")
 
@@ -34,6 +35,29 @@ class ChatRequest(BaseModel):
 # A typed command or the explicit draft button can opt in to drafting.
 DRAFT_COMMAND = re.compile(r"^(?:please\s+)?(?:create|draft|prepare)\s+(?:an?\s+)?(?:order\s+)?(?:ticket|draft)\b", re.I)
 ALLERGY = re.compile(r"\b(?:allergy to|allergic to|exclude allergen)\s+([\w -]+?)(?=[,.;]|\s+(?:by|for|on)\b|$)", re.I)
+CATALOG_STAPLES = ("potato", "carrot", "tomato", "apple", "rapeseed oil", "red lentils",
+                   "wholegrain bread", "oats", "salmon", "pasta", "rice", "beans", "cabbage")
+
+
+async def _ground_inferred_recipes(text: str, parsed, excluded: list[str]) -> str | None:
+    names = list(dict.fromkeys(ingredient.name for recipe in parsed.recipes for ingredient in recipe.ingredients))
+    matches = {name: await anyio.to_thread.run_sync(kitchen.catalog_candidates, name, excluded) for name in names}
+    if all(matches.values()):
+        return None
+    for name in CATALOG_STAPLES:
+        if name not in matches:
+            matches[name] = await anyio.to_thread.run_sync(kitchen.catalog_candidates, name, excluded)
+    candidates = {row["id"]: {**row, "ingredient": name} for name, rows in matches.items() for row in rows[:3]}
+    if candidates:
+        try:
+            revised = await gemini.ground_recipes(text, parsed.recipes, list(candidates.values()))
+            ids = [ingredient.name for recipe in revised.recipes for ingredient in recipe.ingredients]
+            if ids and all(product_id in candidates for product_id in ids):
+                parsed.recipes = revised.recipes
+                return None
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+            pass
+    return "The catalog could not support the full recipe. Review the matched items and any ingredients still needed."
 
 
 def _lookup(text: str, today: date) -> Need:
@@ -71,6 +95,15 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         raise service.GatewayError(422, "Enter a product request")
     draft_requested = request.action == "draft" or bool(DRAFT_COMMAND.match(text))
     today = store.now().date()
+    if request.action == "shop":
+        postcode = request.postal_code or postal_code_from_address(text)
+        delivery = request.delivery_date or requested_date(text, today)
+        if not postcode or not delivery:
+            missing = [label for label, value in (("delivery date", delivery), ("five-digit delivery postcode", postcode)) if not value]
+            raise service.GatewayError(422, "Add " + " and ".join(missing) + " in your request or in the fields below it.")
+        if delivery < today:
+            raise service.GatewayError(422, "Choose today or a future delivery date.")
+        request = request.model_copy(update={"postal_code": postcode, "delivery_date": delivery})
     mode = "guided"
     parsed = None
     if gemini.enabled():
@@ -80,6 +113,13 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
             mode = "guided_fallback"
     school_meal = meal_planning.school_lunch(text, today, request.delivery_date, parsed=parsed)
+    catalog_gap = None
+    if request.action == "shop" and parsed and parsed.recipes and not any(
+            kitchen.LINE.fullmatch(line.strip().removeprefix("- ")) for line in text.splitlines()):
+        excluded = school_meal[0].exclude_allergens if school_meal else parsed.exclude_allergens
+        catalog_gap = await _ground_inferred_recipes(text, parsed, excluded + p.mandate.forbidden_allergens)
+        if school_meal:
+            school_meal = meal_planning.school_lunch(text, today, request.delivery_date, parsed=parsed)
     if school_meal:
         sourcing, meal = school_meal
         result = await _read_tool("source_ingredients", sourcing.model_dump(mode="json"), p)
@@ -89,7 +129,7 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         meal["complete"] = all(row["status"] == "available" for row in result["ingredients"])
         return {"recipe": result, "meal": meal, "draft": None,
                 "mode": gemini.MODEL if meal["generated"] else "guided_meal",
-                "message": "School lunch proposal and purchasing list ready for kitchen review."}
+                "message": catalog_gap or "School lunch proposal and purchasing list ready for kitchen review."}
     recipes = parsed.recipes if parsed else []
     if not recipes and "\n" in text:
         recipe_rows = sum(bool(kitchen.LINE.fullmatch(line.strip().removeprefix("- "))) for line in text.splitlines())
@@ -112,7 +152,7 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
             draft=draft_requested), p, recipes=recipes, allow_incomplete=True)
         return {"recipe": result, "draft": result.get("draft"), "mode": mode,
                 "message": ("Recipe draft ready for review." if result.get("draft") else
-                            result.get("draft_blocker", "Recipe shopping list ready for review."))}
+                            catalog_gap or result.get("draft_blocker", "Recipe shopping list ready for review."))}
     need = parsed.need if parsed and parsed.need else _lookup(text, today)
     draft_requested = draft_requested or (request.action == "shop" and explicit_quantity(text))
     if request.delivery_date:
@@ -139,6 +179,8 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
                    "exclude_terms": need.exclude_terms, "limit": 16}
         found = await _read_tool("search_products", search_args, p)
     ids = list(dict.fromkeys(need.preferred_product_ids + [row["id"] for row in found["results"]]))
+    if request.action == "shop" and need.preferred_product_ids:
+        ids = list(await anyio.to_thread.run_sync(get_products, ids))
     response = {"mode": mode, "need": need.model_dump(mode="json"), "draft": None}
     if not ids:
         return {**response, "message": "No catalog items match. Try a product name or Valio product code."}

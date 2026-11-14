@@ -1,12 +1,43 @@
 import {orderThread} from "./order_thread.js";
-import {$, date, dateTime, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
+import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
 
 let key = sessionStorage.getItem("aimo-operations-key") || "";
 let view = "queue";
 let hosted = false;
 let page = null;
 let version = 0;
+let ticketVersion = 0;
 const recordTarget = $("records");
+
+const decisionLabels = {
+  matches_request:"Matches buyer request", substitution_fit:"Substitution suitability",
+  dietary_consistent:"Dietary consistency", quantity_typical:"Usual order quantity",
+  not_duplicate:"Distinct from recent orders", rationale_consistent:"Agent rationale",
+  free_of_instructions:"Approval instructions in order text",
+};
+
+function approvalEvidence(events) {
+  const evaluation = events.findLast(event => event.event_type === "AIMO_APPROVAL_EVALUATED");
+  if (!evaluation) return null;
+  const section = node("section", "", "approval-evidence");
+  section.append(node("h3", "Approval evidence"), node("p", evaluation.summary, "muted"));
+  const answers = Object.entries(evaluation.data.answers ?? {});
+  if (answers.length) section.append(table(["Decision question", "Answer", "Confidence", "Routing"], answers.map(([id, result]) => {
+    const answer = result.type === "noul" ? number.format(result.answer * 100) + "% yes" :
+      result.type === "score" ? number.format(result.answer) : result.answer.replaceAll("_", " ");
+    return [decisionLabels[id] || id.replaceAll("_", " "), answer,
+      number.format(result.confidence * 100) + "%", result.flagged ? pill("pending_approval") : "Passed"];
+  })));
+  const recheck = events.findLast(event => event.event_type === "AIMO_APPROVAL_RECHECKED");
+  const facts = (recheck || evaluation).data.evidence;
+  if (facts?.preparation_minutes != null) {
+    const warehouse = node("p", "Pick and load: " + number.format(facts.preparation_minutes) +
+      " min · Transit: " + number.format(facts.transit_minutes) + " min · Deadline slack: " +
+      number.format(facts.margin_minutes) + " min", "cell-note");
+    section.append(warehouse);
+  }
+  return section;
+}
 
 function ticketButton(id) {
   const button = node("button", id);
@@ -17,31 +48,29 @@ function ticketButton(id) {
 async function inspect(id) {
   const dialog = $("details");
   const target = $("detail-body");
+  const current = ++ticketVersion;
   target.replaceChildren(node("p", "Loading ticket…", "empty"));
   if (!dialog.open) dialog.showModal();
   try {
     const credential = key;
     const detail = await request("/operations/orders/" + encodeURIComponent(id), credential);
-    if (!dialog.open || credential !== key) return;
+    if (current !== ticketVersion || !dialog.open || credential !== key) return;
     const order = detail.order;
     target.replaceChildren(pill(order.status),
       node("p", order.buyer_id + " · Delivery " + date(order.delivery_date) + " · " + money.format(order.total_net), "cell-note"),
       lineItems(order.lines), node("h3", "Policy decision", "results"),
       node("p", order.policy.reasons.join(" ")));
+    const evidence = approvalEvidence(detail.audit.events);
+    if (evidence) target.append(evidence);
     if (detail.approval?.status === "pending") target.append(reviewForm(detail.approval.approval_id, id));
     else if (detail.approval?.decided_at) {
       target.append(node("p", "Reviewed " + date(detail.approval.decided_at) + " by " +
         detail.approval.decided_by + (detail.approval.comment ? " · " + detail.approval.comment : ""), "cell-note"));
     }
     target.append(orderThread(detail, {url:"/operations/orders/" + encodeURIComponent(id), key, admin:true}));
-    const timeline = node("ol", "", "timeline");
-    for (const event of detail.audit.events) {
-      timeline.append(node("li", event.summary || event.event_type.replaceAll("_", " ")));
-    }
-    target.append(node("h3", "Audit trail", "results"), timeline,
-      node("p", detail.audit.chain.ok ? "Audit chain verified" : "Audit chain verification failed", "cell-note"));
+    target.append(auditTrail(detail.audit));
   } catch (error) {
-    target.replaceChildren(node("p", error.message, "feedback error"));
+    if (current === ticketVersion && dialog.open) target.replaceChildren(node("p", error.message, "feedback error"));
   }
 }
 

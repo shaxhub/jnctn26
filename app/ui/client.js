@@ -1,5 +1,5 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, date, dateTime, feedback, lineItems, money, node, number, parseInputDate, pill, portalUrl, request, table} from "./common.js";
+import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, parseInputDate, pill, portalUrl, request, table} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
@@ -154,12 +154,9 @@ export async function inspectTicket(id) {
       node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
     target.append(orderThread(detail, {url, key, language:document.documentElement.lang}));
     if (order.status === "confirmed") target.append(repeatForm(order, current, key, dialog));
-    const audit = await request("/audit?order_id=" + encodeURIComponent(id), key);
+    const audit = await request(url + "/audit", key);
     if (current !== scope || !dialog.open) return;
-    const events = node("ol", "", "timeline");
-    for (const event of audit.events) events.append(node("li", event.summary));
-    target.append(node("h3", "Audit trail", "results"), events,
-      node("p", audit.chain.ok ? "Audit chain verified" : "Audit chain verification failed", "cell-note"));
+    target.append(auditTrail(audit));
   } catch (error) {
     if (current === scope && dialog.open) target.append(node("p", error.message, "feedback error"));
   }
@@ -194,6 +191,9 @@ async function sendChat(requestData) {
     const result = await request("/client/chat", buyerKey(), requestData);
     if (current !== queryVersion) return;
     feedback($("chat-status"), result.message);
+    $("assistant-mode").textContent = result.mode === "gemini-4-hydrogen" ? "Interpreted by Gemini 4 Hydrogen (Medium)." :
+      result.mode === "guided_fallback" ? "Gemini was unavailable. Guided search handled this request." :
+      "Guided search handled this request.";
     if (result.recipe) showRecipe(result.recipe);
     else showResults(result, requestData);
     if (result.draft) showDraft(result.draft);
@@ -224,15 +224,43 @@ document.querySelectorAll("[data-example]").forEach(button => button.addEventLis
   $("message").value = button.dataset.example;
   $("message").focus();
 }));
-$("seasonal-pick").addEventListener("click", () => {
-  $("message").value = "Find seasonal Finnish produce for this week";
-  $("message").focus();
-  $("message").setSelectionRange($("message").value.length, $("message").value.length);
+$("seasonal-pick").addEventListener("click", async () => {
+  const button = $("seasonal-pick");
+  const target = $("seasonal-results");
+  const raw = $("chat-delivery-date").value.trim();
+  const delivery = raw ? parseInputDate(raw) : new Intl.DateTimeFormat("sv-SE", {
+    timeZone:"Europe/Helsinki", year:"numeric", month:"2-digit", day:"2-digit",
+  }).format(new Date());
+  if (!delivery) {
+    target.textContent = "Enter a valid delivery date above.";
+    $("chat-delivery-date").focus();
+    return;
+  }
+  const current = scope;
+  button.disabled = true;
+  target.textContent = "Checking seasonal stock…";
+  try {
+    const result = await request("/client/seasonal?delivery_date=" + encodeURIComponent(delivery), buyerKey());
+    if (current !== scope) return;
+    target.replaceChildren(node("p", result.calendar + " · " + date(result.delivery_date), "cell-note"));
+    if (!result.suggestions.length) target.append(node("p", "No seasonal products with verified stock on this date."));
+    for (const group of result.suggestions) {
+      target.append(node("h4", group.ingredient), table(["Product", "Net price / unit", "Stock", "Earliest date",
+        "kg CO₂e/kg", "Reliability"], offerRows(group.offers)));
+    }
+  } catch (error) {
+    if (current === scope) target.replaceChildren(node("p", error.message, "feedback error"));
+  } finally {
+    if (current === scope) button.disabled = false;
+  }
 });
 
 buyer.addEventListener("change", () => {
   scope += 1;
   queryVersion += 1;
+  $("seasonal-pick").disabled = false;
+  $("seasonal-results").replaceChildren();
+  $("assistant-mode").textContent = "Describe your request or paste a recipe with quantities.";
   $("chat").querySelectorAll("[type=submit]").forEach(button => { button.disabled = false; });
   showDraft(null);
   $("results").replaceChildren();

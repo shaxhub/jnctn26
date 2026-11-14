@@ -1,7 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap');
 :root {
   color-scheme: light;
-  --ink:#10233c; --muted:#4d6179; --blue:#234bd2; --deep:#142c70; --sky:#edf3fa;
+  --ink:#0f2744; --muted:#4d6179; --blue:#235e94; --deep:#0b2440; --sky:#f4f7fb;
+  --yellow:#ffd700; --yellow-soft:#f0e68c;
   --line:#d9e4f0; --white:#fff; --green:#00745c; --pale:#e4f6ef; --amber:#764709;
   font: 16px/1.5 "Instrument Sans", "Segoe UI", sans-serif;
   color:var(--ink); background:var(--sky);
@@ -17,11 +18,11 @@ a:hover { text-decoration-thickness:2px }
 .rail { background:var(--ink); color:white; display:flex; flex-direction:column; padding:1.5rem 1rem; gap:2.5rem }
 .brand { display:flex; gap:.75rem; align-items:center; color:white; font-weight:700; font-size:1.18rem; text-decoration:none; margin:.25rem }
 .brand small { display:block; font-size:.76rem; color:#a9c5eb; font-weight:500 }
-.mark { display:grid; place-items:center; inline-size:2.5rem; block-size:2.5rem; flex:none; background:#b2f1dd; color:#10324a; border-radius:.45rem 1.1rem .45rem .45rem; font-size:.92rem; letter-spacing:-.03em }
+.mark { display:grid; place-items:center; inline-size:2.5rem; block-size:2.5rem; flex:none; background:var(--yellow); color:var(--deep); border-radius:.7rem; font-size:.92rem; letter-spacing:-.03em }
 .rail nav { display:grid; gap:.35rem }
 .rail nav a { display:block; padding:.7rem .8rem; color:#d4e4f7; border-radius:.5rem; font-size:.9rem; text-decoration:none }
 .rail nav a:hover, .rail nav [aria-current] { background:#26466d; color:#fff }
-.rail nav [aria-current] { box-shadow:inset 3px 0 #b2f1dd }
+.rail nav [aria-current] { box-shadow:inset 3px 0 var(--yellow) }
 .rail-foot { margin-top:auto; padding:.5rem .25rem; color:#acc5e4; font-size:.76rem }
 main { min-width:0 }
 .top { min-height:4rem; background:white; border-bottom:1px solid var(--line); padding:.75rem clamp(1rem,4vw,3rem); display:flex; justify-content:space-between; align-items:center; gap:1rem; font-weight:600 }
@@ -51,8 +52,8 @@ input[type=checkbox] { min-height:auto; accent-color:var(--blue) }
 button { display:inline-flex; align-items:center; justify-content:center; padding:.45rem .8rem; min-height:2.5rem; border:1px solid #a9bdd5; border-radius:.45rem; background:white; color:var(--ink); font-weight:600; cursor:pointer }
 button:hover { background:var(--sky) }
 button:disabled { cursor:wait; opacity:.65 }
-button.primary, .switcher [aria-pressed=true] { color:white; background:var(--blue); border-color:var(--blue) }
-button.primary:hover { background:var(--deep) }
+button.primary, .switcher [aria-pressed=true] { color:var(--deep); background:var(--yellow); border-color:#c9aa00 }
+button.primary:hover, .switcher [aria-pressed=true]:hover { background:#ffdf1f }
 .actions,.suggestions,.form-row,.filters,.switcher { display:flex; align-items:end; gap:.65rem; flex-wrap:wrap }
 .actions { align-items:center; margin-top:1rem }
 .suggestions button { min-height:2rem; border-radius:1rem; padding:.2rem .65rem; font-size:.8rem; color:var(--deep) }
@@ -87,6 +88,12 @@ dialog { max-width:min(48rem,calc(100% - 2rem)); width:100%; max-height:85dvh; b
 dialog::backdrop { background:#10233ca8 }
 .timeline { padding-left:1.2rem }
 .timeline li { margin:.6rem 0 }
+.audit-trail { margin-top:1.25rem; border-top:1px solid var(--line); padding-top:.85rem }
+.audit-trail p, .approval-evidence .muted { overflow-wrap:anywhere }
+.approval-evidence { margin:1rem 0; border:1px solid var(--line); border-inline-start:4px solid var(--yellow); border-radius:.55rem; padding:1rem; background:var(--sky) }
+.approval-evidence .table-scroll { margin-top:.55rem }
+.seasonal-results:not(:empty) { background:var(--white); border:1px solid var(--line); padding:1rem; border-radius:.75rem }
+.seasonal-results h4 { margin:1rem 0 .35rem }
 .analytics-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 15rem),1fr)); gap:1.25rem }
 .period-summary { border-left:3px solid var(--blue); padding:.25rem .85rem; margin-bottom:1rem }
 .period-summary p { color:var(--muted); margin-top:.25rem; max-width:70ch }

@@ -43,8 +43,7 @@ body { grid-template-columns: 248px minmax(0, 1fr) }
 :root {
   --navy-900:#0b2440; --navy-800:#0f2d4e;
   --ink:#0f2744; --muted:#5b6b80;
-  --blue:#1f6feb; --deep:#0b2440;
-  --yellow:#ffd700; --yellow-soft:#f6e7a6;
+  --blue:#235e94; --deep:#0b2440;
   --page:#f7f9fc; --sky:#f4f7fb; --pale:#eef3fb;
   --line:#e3e9f2; --line-strong:#d5deea;
   --white:#ffffff; --green:#047857; --amber:#8a4b00;
@@ -64,7 +63,7 @@ a:hover { color:#0b57c7 }
 .rail nav a { display:flex; align-items:center; gap:.75rem; color:#42556e; text-decoration:none; font-weight:500 }
 .rail nav a svg { inline-size:1.1rem; block-size:1.1rem; flex:none; opacity:.85 }
 .rail nav a:hover { background:#f1f5fa; color:var(--ink) }
-.rail nav [aria-current] { background:var(--blue); color:#fff; box-shadow:0 4px 12px rgb(31 111 235 / .32) }
+.rail nav [aria-current], .rail nav [aria-current]:hover { background:var(--deep); color:#fff; box-shadow:inset 3px 0 var(--yellow) }
 .rail nav [aria-current] svg { opacity:1 }
 .rail-foot { color:var(--muted) }
 .client-tools button { background:#fff; color:var(--ink); border-color:var(--line-strong); justify-content:start }

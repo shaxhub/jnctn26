@@ -63,7 +63,8 @@ Use actual warehouse and routing records for this endpoint in live mode. `OFFLIN
 
 ## Frontend handoff
 
-- Delete the Models selector and omit `model` from `POST /client/chat`. Older payloads that still send the field work because the server ignores it. `GET /client/models` reports Hydrogen availability for existing clients.
+- The buyer portal omits `model` from `POST /client/chat` and shows the interpretation mode returned by the server. Older clients can still call `GET /client/models` to check Hydrogen availability.
+- Aimo order details display the Decisions API questions that applied, their answers and confidence, and the flags that route an order to a reviewer. The buyer portal consumes the redacted order audit.
 - Fetch `GET /client/requests/{order_id}/audit` on the buyer portal. Aimo can read the full audit under `audit` in `GET /operations/orders/{order_id}`. External agents already have `GET /audit?order_id=…` and the MCP `get_audit_log` tool; for buyer keys these keep summaries, the plain-text rendering, and the hash-chain result, but omit the warehouse evidence payload and show Aimo operators as `admin`.
 - The buyer endpoint returns a reduced view. Each entry in `events[]` has `event_type`, `ts`, an `actor` role such as `admin` or `gateway`, and `data` with `decision`, `status`, and `rules` (rule names) where they apply. It omits warehouse evidence, operator usernames, summaries, and the hash-chain result. The Aimo view keeps `events[].summary`, the plain-text rendering, and the hash-chain result. Include `AIMO_APPROVAL_EVALUATED` and `AIMO_APPROVAL_RECHECKED` in the Aimo decision view. Order audit explains an individual decision. Analytics aggregates across orders.
 

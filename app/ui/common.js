@@ -13,7 +13,10 @@ export const inputDate = value => {
 };
 export const parseInputDate = value => {
   const match = String(value || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  return match ? match[3] + "-" + match[2].padStart(2, "0") + "-" + match[1].padStart(2, "0") : null;
+  if (!match || match[3] === "0000") return null;
+  const iso = match[3] + "-" + match[2].padStart(2, "0") + "-" + match[1].padStart(2, "0");
+  const parsed = new Date(iso);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().startsWith(iso + "T") ? iso : null;
 };
 export const statusText = {confirmed:"Confirmed", pending_approval:"Needs review", rejected:"Rejected", expired:"Expired"};
 
@@ -74,4 +77,23 @@ export function lineItems(lines) {
       number.format(line.quantity) + " " + line.sales_unit + " · " + money.format(line.line_total)));
   }
   return list;
+}
+
+export function auditTrail(audit) {
+  const section = node("section", "", "audit-trail");
+  const timeline = node("ol", "", "timeline");
+  for (const event of audit.events) {
+    const entry = node("li");
+    const time = node("time", dateTime(event.ts), "cell-note");
+    time.dateTime = event.ts;
+    const label = event.event_type.toLowerCase().replaceAll("_", " ");
+    const outcome = event.data?.decision?.replaceAll("_", " ");
+    const summary = event.summary || label[0].toUpperCase() + label.slice(1) + (outcome ? " · " + outcome : "");
+    entry.append(time, node("p", summary));
+    timeline.append(entry);
+  }
+  section.append(node("h3", "Audit trail"), timeline);
+  if (audit.chain) section.append(node("p",
+    audit.chain.ok ? "Audit chain verified" : "Audit chain verification failed", "cell-note"));
+  return section;
 }

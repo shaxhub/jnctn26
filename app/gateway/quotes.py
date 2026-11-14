@@ -76,7 +76,7 @@ def jwks() -> dict:
 def sign(payload: dict) -> str:
     header = {"alg": "EdDSA", "typ": "JWT", "kid": KID}
     signing_input = _b64(json.dumps(header, separators=(",", ":")).encode()) + "." + \
-        _b64(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode())
+        _b64(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str, allow_nan=False).encode())
     return signing_input + "." + _b64(private_key().sign(signing_input.encode()))
 
 

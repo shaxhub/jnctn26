@@ -75,12 +75,12 @@ def expand_allergens(items: list[str]) -> list[str]:
 
 # --- catalog / search -------------------------------------------------------------------------
 class SearchRequest(BaseModel):
-    text: str = Field("", description="Free text, matched as a substring of fi/en/sv names and brand (min 3 chars per word).")
-    free_from: list[str] = Field(default_factory=list, description="nutritionalClaim ids that must be present, e.g. FREE_FROM_LACTOSE, FREE_FROM_GLUTEN, VEGAN.")
-    exclude_allergens: list[str] = Field(default_factory=list, description="Allergen codes (AM, AW...) or groups (milk, gluten, nuts) the product must not CONTAIN.")
-    category: str | None = Field(None, description="Category code or prefix, e.g. '10400' (milk) or '104'.")
-    labels: list[str] = Field(default_factory=list, description="packagingMarkedLabel ids that must be present, e.g. GOODS_FROM_FINLAND_BLUE_SWAN.")
-    exclude_terms: list[str] = Field(default_factory=list, description="Drop products whose name contains any of these words (e.g. kahvi, kaakao).")
+    text: str = Field("", max_length=20_000, description="Free text, matched as a substring of fi/en/sv names and brand (min 3 chars per word).")
+    free_from: list[str] = Field(default_factory=list, max_length=30, description="nutritionalClaim ids that must be present, e.g. FREE_FROM_LACTOSE, FREE_FROM_GLUTEN, VEGAN.")
+    exclude_allergens: list[str] = Field(default_factory=list, max_length=30, description="Allergen codes (AM, AW...) or groups (milk, gluten, nuts) the product must not CONTAIN.")
+    category: str | None = Field(None, max_length=40, description="Category code or prefix, e.g. '10400' (milk) or '104'.")
+    labels: list[str] = Field(default_factory=list, max_length=30, description="packagingMarkedLabel ids that must be present, e.g. GOODS_FROM_FINLAND_BLUE_SWAN.")
+    exclude_terms: list[str] = Field(default_factory=list, max_length=30, description="Drop products whose name contains any of these words (e.g. kahvi, kaakao).")
     limit: int = Field(20, ge=1, le=100)
 
 
@@ -169,7 +169,8 @@ class Offer(BaseModel):
 class OffersRequest(BaseModel):
     product_ids: list[str] = Field(..., min_length=1, max_length=1000)
     delivery_date: date
-    quantity: float | None = Field(None, gt=0, description="Optional: needed amount, to also get a plan.")
+    quantity: float | None = Field(None, gt=0, le=1_000_000, allow_inf_nan=False,
+                                  description="Optional: needed amount, to also get a plan.")
     unit: str | None = Field(None, description="Unit of quantity: L, KG, PCS or a sales unit code.")
     include_substitutes: bool = False
     required_claims: list[str] = Field(default_factory=list, max_length=30)
@@ -182,7 +183,7 @@ class OffersRequest(BaseModel):
 class Need(BaseModel):
     """What the buyer asked for, in structured form (shown to the user before anything is ordered)."""
     item: str = Field(..., description="Short description, e.g. 'lactose-free milk'.")
-    quantity: float = Field(..., gt=0)
+    quantity: float = Field(..., gt=0, le=1_000_000, allow_inf_nan=False)
     unit: str = Field(..., description="L, KG, PCS (consumer pieces) or a sales unit code such as KI.")
     delivery_date: date
     search_text: str = ""
@@ -254,7 +255,7 @@ class PolicyResult(BaseModel):
 # --- quotes / orders --------------------------------------------------------------------------
 class LineRequest(BaseModel):
     product_id: str
-    quantity: float = Field(..., gt=0, allow_inf_nan=False, description="In sales units.")
+    quantity: float = Field(..., gt=0, le=1_000_000, allow_inf_nan=False, description="In sales units.")
 
 
 class QuoteRequest(BaseModel):
@@ -289,6 +290,7 @@ class QuoteLine(BaseModel):
 
 class Quote(BaseModel):
     quote_id: str
+    name: str | None = None
     buyer_id: str
     delivery_date: date
     lines: list[QuoteLine]
@@ -317,6 +319,7 @@ class OrderStatus(str, Enum):
 
 class Order(BaseModel):
     order_id: str
+    name: str | None = None
     quote_id: str
     buyer_id: str
     status: OrderStatus
@@ -385,7 +388,7 @@ class Mandate(BaseModel):
 
 
 class AgentRunRequest(BaseModel):
-    text: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1, max_length=6000)
     mode: Literal["auto", "llm", "scripted"] = "auto"
 
 

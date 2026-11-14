@@ -7,6 +7,7 @@ from the caller's arguments.
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -47,7 +48,10 @@ def _aware(dt: datetime) -> datetime:
 
 # --- search & offers ---------------------------------------------------------------------------
 def search_products(p: Principal, req: SearchRequest) -> SearchResult:
-    res = search(req)
+    try:
+        res = search(req)
+    except ValueError as exc:
+        raise GatewayError(422, str(exc)) from exc
     audit.log("SEARCH", p.actor, {"text": req.text, "matches": res.total_matches,
                                   "categories": res.category_counts, "filters": req.model_dump(exclude={"text", "limit"}, exclude_defaults=True)},
               buyer_id=p.buyer_id)
@@ -208,7 +212,8 @@ def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[s
             or not required.issubset(offer.claims)]
 
 
-def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None) -> Quote:
+def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None,
+                 max_total_gross: float | None = None, name: str | None = None) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
@@ -218,6 +223,8 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
     conflicts = _dietary_conflicts(offers_list, req.exclude_allergens, req.required_claims)
     errors = [f"{sku}: conflicts with requested dietary constraints" for sku in conflicts]
     warnings, lines = [], []
+    live_checks = fulfillment.enabled()
+    committed = {} if live_checks else store.committed_quantities(req.delivery_date)
     qty_by_pid: dict[str, float] = {}
     for l in req.lines:
         o = offers.get(l.product_id)
@@ -232,9 +239,12 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
         if qty != l.quantity:
             warnings.append(f"{l.product_id}: quantity rounded {l.quantity:g} -> {qty:g} {o.sales_unit} (lot size)")
         qty_by_pid[o.product_id] = qty_by_pid.get(o.product_id, 0.0) + qty
-        if o.available_qty is not None and qty_by_pid[o.product_id] > o.available_qty:
-            errors.append(f"{l.product_id}: only {o.available_qty:g} {o.sales_unit} available, asked {qty_by_pid[o.product_id]:g}")
-            continue
+        if o.available_qty is not None:
+            remaining = o.available_qty if live_checks else max(
+                o.available_qty - committed.get((o.product_id, o.sales_unit), 0.0), 0.0)
+            if qty_by_pid[o.product_id] > remaining + 1e-9:
+                errors.append(f"{l.product_id}: only {remaining:g} {o.sales_unit} available, asked {qty_by_pid[o.product_id]:g}")
+                continue
         if o.reason == OrderableReason.no_availability_data:
             warnings.append(f"{l.product_id}: availability unknown, a human must confirm")
         need = req.need
@@ -263,6 +273,10 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
 
     total = round(sum(l.line_total for l in lines), 2)
     gross = round(sum(l.quantity * (l.unit_price_with_tax or l.unit_price) for l in lines), 2)
+    if not all(math.isfinite(value) for value in (total, gross)):
+        raise GatewayError(409, "The checked prices could not produce a finite total.")
+    if max_total_gross is not None and gross > max_total_gross:
+        raise GatewayError(409, f"The checked basket costs €{gross:,.2f} incl. VAT and exceeds the hard budget of €{max_total_gross:,.2f}.")
     preview = _evaluate(p, lines, offers, total, req.need, delivery=req.delivery_date)
     expires = quotes.expiry([offers[l.product_id].price_valid_to for l in lines],
                             [l.closing_time for l in lines], now + QUOTE_FALLBACK_TTL)
@@ -271,8 +285,12 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
                "lines": [l.model_dump(mode="json") for l in lines], "total_net": total, "total_gross": gross,
                "currency": "EUR", "created_at": now.isoformat(), "expires_at": expires.isoformat(),
                "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role,
-               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims}
-    jws = quotes.sign(payload)
+               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims,
+               "max_total_gross": max_total_gross}
+    try:
+        jws = quotes.sign(payload)
+    except ValueError as exc:
+        raise GatewayError(409, "The quote contains a non-finite or invalid value.") from exc
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
     with store.transaction() as conn:
         if supersedes:
@@ -284,6 +302,9 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
         conn.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
                      " VALUES (?,?,?,?,?,?,?,?)",
                      (quote_id, p.buyer_id, now.isoformat(), expires.isoformat(), "open", total, json.dumps(payload), jws))
+        previous = conn.execute("SELECT name FROM ticket_names WHERE quote_id=?", (supersedes,)).fetchone()
+        quote.name = previous["name"] if previous else name or ticket_label(lines)
+        conn.execute("INSERT INTO ticket_names VALUES (?,?)", (quote_id, quote.name))
         evidence = {"lines": payload["lines"], "total_net": total, "expires_at": payload["expires_at"],
                     "decision": preview.decision.value, "policy_preview": preview.model_dump(mode="json"),
                     "warnings": warnings}
@@ -296,10 +317,22 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
 
 
 # --- orders ------------------------------------------------------------------------------------
+def ticket_label(lines) -> str:
+    names = list(dict.fromkeys(line.name or line.product_id for line in lines))
+    return " + ".join(names[:2])[:100]
+
+
+def ticket_name(quote_id: str, lines) -> str:
+    row = store.fetchone("SELECT name FROM ticket_names WHERE quote_id=?", (quote_id,))
+    return row["name"] if row else ticket_label(lines)
+
+
 def _order_from_row(r) -> Order:
-    return Order(order_id=r["order_id"], quote_id=r["quote_id"], buyer_id=r["buyer_id"], status=r["status"],
+    lines = [QuoteLine.model_validate(line) for line in json.loads(r["lines_json"])]
+    return Order(order_id=r["order_id"], quote_id=r["quote_id"], name=ticket_name(r["quote_id"], lines),
+                 buyer_id=r["buyer_id"], status=r["status"],
                  total_net=r["total_net"], currency=r["currency"], delivery_date=r["delivery_date"],
-                 lines=json.loads(r["lines_json"]), policy=json.loads(r["policy_json"]),
+                 lines=lines, policy=json.loads(r["policy_json"]),
                  approval_id=r["approval_id"], agent_rationale=r["agent_rationale"] or "",
                  created_at=r["created_at"], updated_at=r["updated_at"])
 
@@ -446,6 +479,18 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                     return _order_from_row(existing)
             raise GatewayError(409, f"quote_invalid: quote {quote_id} was already used")
         result = _evaluate(p, lines, offers, payload["total_net"], need, delivery=delivery, conn=conn)
+        if not check_fulfillment:
+            committed = store.committed_quantities(delivery, conn=conn)
+            by_pid: dict[str, float] = {}
+            for line in lines:
+                by_pid[line.product_id] = by_pid.get(line.product_id, 0.0) + line.quantity
+            for pid, qty in by_pid.items():
+                offer = offers.get(pid)
+                tag = f"{pid}:insufficient_stock"
+                if (offer is not None and offer.available_qty is not None
+                        and qty + committed.get((pid, offer.sales_unit), 0.0) > offer.available_qty + 1e-9
+                        and tag not in stale):
+                    stale.append(tag)
         if stale:
             message = f"No longer orderable since the quote: {', '.join(stale)}"
             result = PolicyResult(decision=Decision.reject, mandate_id=result.mandate_id,
@@ -553,6 +598,7 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         raise GatewayError(400, "Decision must be 'approve' or 'reject'")
     row = _pending_approval(p, store.fetchone(_APPROVAL_QUERY, (approval_id,)), approval_id)
     lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
+    offers: dict[str, Offer] = {}
     problems = []
     if decision == "approve" and store.now() < _aware(datetime.fromisoformat(row["expires_at"])):
         offers, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
@@ -582,6 +628,17 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
             store.append_in_transaction(conn, "AIMO_APPROVAL_RECHECKED", p.actor, {
                 "evidence": snapshot, "checks": [rule.model_dump(mode="json") for rule in warehouse_rules],
             }, buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
+        elif decision == "approve" and not expired and not problems:
+            committed = store.committed_quantities(
+                date.fromisoformat(row["delivery_date"]), exclude_order_id=row["order_id"], conn=conn)
+            by_pid: dict[str, float] = {}
+            for line in lines:
+                by_pid[line.product_id] = by_pid.get(line.product_id, 0.0) + line.quantity
+            for pid, qty in by_pid.items():
+                offer = offers.get(pid)
+                if (offer is not None and offer.available_qty is not None
+                        and qty + committed.get((pid, offer.sales_unit), 0.0) > offer.available_qty + 1e-9):
+                    problems.append(f"{pid}:insufficient_stock")
         approved = decision == "approve" and not expired and not problems
         status = "expired" if expired else "confirmed" if approved else "rejected"
         if expired:

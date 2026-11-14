@@ -22,7 +22,7 @@
       <a href="#drafts" data-view="drafts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><path d="M6 3.5h9l4 4V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M15 3.5V8h4M9 12h6M9 16h6"/></svg><span data-en="Draft Tickets" data-fi="Luonnokset">Draft Tickets</span></a>
       <a href="#requests" data-view="requests"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><path d="M4 7h16v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7Z"/><path d="M4 7l2-3h12l2 3M9 12h6"/></svg><span data-en="Submitted Requests" data-fi="Lähetetyt pyynnöt">Submitted Requests</span></a>
       <a href="#analytics" data-view="analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span data-en="Analytics" data-fi="Analytiikka">Analytics</span></a>
-      <a href="#settings" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg><span data-en="Settings" data-fi="Asetukset">Settings</span></a>
+      <a href="#settings" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M9 2h6l.6 3 1.6.9 2.9-.9 3 5.2-2.3 2v1.6l2.3 2-3 5.2-2.9-.9-1.6.9-.6 3H9l-.6-3-1.6-.9-2.9.9-3-5.2 2.3-2v-1.6l-2.3-2 3-5.2 2.9.9L8.4 5Z" transform="translate(2 1) scale(.83)"/><circle cx="12" cy="11.8" r="3"/></svg><span data-en="Settings" data-fi="Asetukset">Settings</span></a>
     </nav>
     <div class="rail-foot client-tools">
       <div class="locale-buttons" aria-label="Language"><button id="lang-en" type="button" aria-label="English">EN</button><button id="lang-fi" type="button" aria-label="Suomi">FI</button></div>
@@ -30,6 +30,7 @@
       <button id="client-sign-out" type="button" data-en="Sign out" data-fi="Kirjaudu ulos">Sign out</button>
     </div>
   </aside>
+  <aside id="draft-flyout" class="panel" aria-labelledby="draft-flyout-toggle" hidden></aside>
   <main id="main">
     <section id="client-login" class="panel login" hidden aria-labelledby="client-login-title">
       <h1 id="client-login-title">Sign in to Agent Dairy</h1>
@@ -41,8 +42,8 @@
       <p id="client-login-status" class="feedback" role="status" hidden></p>
     </section>
     <header class="top">
-      <div class="crumbs">Workspace <span aria-hidden="true">/</span> <b id="crumb-current">Product Search</b></div>
-      <label class="workspace-select">Workspace <select id="buyer"><option value="hotel">Hotel kitchen</option><option value="hospital">Hospital kitchen</option></select></label>
+      <div class="crumbs"><span data-en="Workspace" data-fi="Työtila">Workspace</span> <span aria-hidden="true">/</span> <b id="crumb-current">Product Search</b></div>
+      <label class="workspace-select"><span data-en="Workspace" data-fi="Työtila">Workspace</span> <select id="buyer"><option value="hotel" data-en="Hotel kitchen" data-fi="Hotellin keittiö">Hotel kitchen</option><option value="hospital" data-en="Hospital kitchen" data-fi="Sairaalan keittiö">Hospital kitchen</option></select></label>
     </header>
     <div class="content">
       <section class="page-head">
@@ -58,16 +59,15 @@
             <section class="panel workspace-studio" id="kitchen-workspace" aria-label="Ask Agent Dairy">
               <section id="product-panel" aria-labelledby="ask-title">
                 <div class="panel-head">
-                  <h2 id="ask-title">Ask Agent Dairy</h2>
+                  <h2 id="ask-title" data-en="Ask Agent Dairy" data-fi="Kysy Agent Dairylta">Ask Agent Dairy</h2>
                   <svg class="sparkle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" focusable="false"><path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M19 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg>
                 </div>
                 <form id="chat">
                   <textarea id="message" rows="5" maxlength="6000" required aria-label="What does your kitchen need?" placeholder="I need 200 litres of lactose-free milk by Monday"></textarea>
                   <p class="cell-note" id="assistant-mode">Describe your request or paste a recipe with quantities.</p>
-                  <div class="suggestions" aria-label="Example requests"><button type="button" data-recipe>Paste a recipe</button><button type="button" data-example="I need 200 litres of lactose-free milk by Monday">Milk for Monday</button><button type="button" data-example="Find 25 kg of potatoes by Monday">Seasonal produce</button><button type="button" data-example="Find 60 litres of gluten-free oat drink by Monday">Dietary requirements</button></div>
-                  <div class="form-row"><label>Delivery date <input id="chat-delivery-date" type="text" inputmode="numeric" placeholder="dd.mm.yyyy" pattern="\d{1,2}\.\d{1,2}\.\d{4}" title="dd.mm.yyyy"></label><label>Delivery postcode <input id="postcode" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="00100" title="Five-digit Finnish postal code"></label><label class="check"><input id="substitutes" type="checkbox" checked> Find alternatives</label></div>
-                  <div class="actions"><button type="submit" value="lookup" class="primary"><span data-en="Check offers" data-fi="Tarkista tarjoukset">Check offers</span></button><button type="submit" value="draft" class="secondary"><span data-en="Create ticket draft" data-fi="Luo tilausluonnos">Create ticket draft</span></button></div>
-                  <p class="action-hint">Check offers first. Create a draft when the plan looks right.</p>
+                  <div class="form-row"><label><span data-en="Delivery date" data-fi="Toimituspäivä">Delivery date</span> <input id="chat-delivery-date" type="date" aria-describedby="delivery-help"></label><label><span data-en="Delivery postcode" data-fi="Toimituksen postinumero">Delivery postcode</span> <input id="postcode" aria-describedby="delivery-help" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="00100"></label><label class="check"><input id="substitutes" type="checkbox" checked> <span data-en="Find alternatives" data-fi="Etsi vaihtoehtoja">Find alternatives</span></label></div>
+                  <div class="actions"><button type="submit" value="shop" class="primary"><span data-en="Build shopping list" data-fi="Luo ostoslista">Build shopping list</span></button></div>
+                  <p class="action-hint" id="delivery-help" data-en="Include a delivery date and five-digit postcode in your request or enter them above." data-fi="Kirjoita toimituspäivä ja viisinumeroinen postinumero pyyntöön tai täytä yllä olevat kentät.">Include a delivery date and five-digit postcode in your request or enter them above.</p>
                 </form>
                 <p id="chat-status" class="feedback" role="status" hidden></p>
                 <div id="results" aria-live="polite"></div>
@@ -83,8 +83,9 @@
             <div id="seasonal-results" class="seasonal-results" aria-live="polite"></div>
           </div>
           <aside class="side">
-            <section class="panel" aria-labelledby="draft-title"><div class="panel-head"><h2 id="draft-title">Ticket review</h2></div><div id="draft" class="empty">Create a ticket draft to review quantities, prices and the delivery date.</div></section>
-            <section class="panel" aria-labelledby="trust-title"><div class="panel-head"><h2 id="trust-title">Purchasing limits</h2><span class="tag">MANDATE</span></div><div id="trust" class="empty">Loading…</div></section>
+            <section id="shopping-basket" class="panel" hidden></section>
+            <section class="panel" aria-labelledby="draft-title"><div class="panel-head"><h2 id="draft-title" data-en="Ticket review" data-fi="Tilauksen tarkistus">Ticket review</h2></div><div id="draft" class="empty">Create a ticket draft to review quantities, prices and the delivery date.</div></section>
+            <section class="panel" aria-labelledby="trust-title"><div class="panel-head"><h2 id="trust-title" data-en="Purchasing limits" data-fi="Hankintarajat">Purchasing limits</h2><span class="tag" data-en="MANDATE" data-fi="HANKINTASÄÄNNÖT">MANDATE</span></div><div id="trust" class="empty">Loading…</div></section>
           </aside>
         </div>
       </div>

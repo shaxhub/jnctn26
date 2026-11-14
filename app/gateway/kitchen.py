@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-from . import audit, service
+from . import audit, service, store
 from .auth import Principal
 from .menu_catalog import DISH_ALIASES, DISHES, INGREDIENT_ALIASES, SEARCH_TERMS, SWAPS
 from .models import Need, Offer, QuoteRequest, SearchRequest, expand_allergens
@@ -114,6 +114,8 @@ def compile_ingredients(request: KitchenRequest) -> dict:
         raise service.GatewayError(422, "Use at most 40 distinct ingredient and unit combinations")
     for row in rows.values():
         row["quantity"] = round(row["quantity"], 9)
+        if row["quantity"] == 0:
+            raise service.GatewayError(422, f"Scaled amount for {row['ingredient']} is below supported precision.")
         row["quantities_by_dish"] = {name: round(amount, 9) for name, amount in row["quantities_by_dish"].items()}
     return {"servings_per_dish": request.servings, "ingredients": list(rows.values()),
             "unresolved_dishes": unresolved, "known_dishes": sorted(DISHES)}
@@ -139,13 +141,23 @@ def recipes_from_text(text: str, servings: int) -> list[Recipe]:
 
 
 def _candidate_ids(name: str, excluded: list[str], claims: list[str]) -> list[str]:
-    term = SEARCH_TERMS.get(name, name)
+    if name.isdecimal():
+        return [name] if service.get_products([name]) else []
+    term = SEARCH_TERMS.get(name, {"red lentils": "punainen linssi", "wholegrain bread": "täysjyväleipä"}.get(name, name))
     if len(term) < 3:
         return []
     result = search(SearchRequest(text=term, category=CATEGORIES.get(name), limit=8,
                                   free_from=claims, exclude_allergens=excluded,
                                   exclude_terms=list(EXCLUDED.get(name, ()))))
     return [item.id for item in result.results]
+
+
+def catalog_candidates(name: str, excluded: list[str]) -> list[dict]:
+    ids = _candidate_ids(canonical_name(name), excluded, [])
+    forbidden = set(expand_allergens(excluded))
+    return [{"id": product.id, "name": product.name_en or product.name_fi or product.id,
+             "sales_unit": product.sales_unit} for product in service.get_products(ids).values()
+            if not forbidden.intersection(product.allergens_contains + product.allergens_may_contain)]
 
 
 def _pick(principal: Principal, name: str, row: dict, offers: list[Offer], request: SourceRequest) -> dict | None:
@@ -167,6 +179,8 @@ def _pick(principal: Principal, name: str, row: dict, offers: list[Offer], reque
 
 
 def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
+    if request.delivery_date < store.now().date():
+        raise service.GatewayError(422, "Choose today or a future delivery date.")
     result = compile_ingredients(request)
     rows = result["ingredients"]
     excluded = request.exclude_allergens + principal.mandate.forbidden_allergens
@@ -181,6 +195,7 @@ def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
     ids = list(dict.fromkeys(pid for matches in ids_by_name.values() for pid in matches))
     offers, checked_at = service.get_offers(ids, request.delivery_date) if ids else ([], None)
     by_id = {offer.product_id: offer for offer in offers}
+    catalog_codes = service.get_products([row["ingredient"] for row in rows if row["ingredient"].isdecimal()])
 
     def match(name: str, row: dict) -> dict | None:
         return _pick(principal, name, row, [by_id[pid] for pid in ids_by_name.get(name, []) if pid in by_id], request)
@@ -188,6 +203,9 @@ def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
     for row in rows:
         name = row["ingredient"]
         direct = match(name, row)
+        if name in catalog_codes:
+            product = catalog_codes[name]
+            row["product_name"] = product.name_en or product.name_fi or name
         if direct and direct["plan"]["coverage"] >= 0.9999:
             row.update(status="available", sourcing=direct, alternatives=[])
             continue

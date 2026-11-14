@@ -29,7 +29,7 @@ def serve(app: str, host: str, port: int) -> int:
     import uvicorn
 
     sys.path.insert(0, str(APP_DIR))
-    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, proxy_headers=False))
 
     def watch_supervisor() -> None:
         # EOF also arrives if the supervisor exits unexpectedly.

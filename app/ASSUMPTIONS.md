@@ -84,3 +84,6 @@ See also [README.md](README.md), [Architecture Decision Records](../docs/adr/), 
     chain; anchoring the head externally is on the roadmap.
 28. Time zone: `Europe/Helsinki` for all timestamps and week boundaries. `DEMO_NOW` (env var) or `POST /demo/reset`
     can pin a fixed demo clock for reproducible cutoff demonstrations.
+# Aimo catalog source files
+
+The SQLite importer reads the Aimo product JSON and joins the delivery reliability and carbon footprint CSVs by product code. A separate `data_schema` file is optional for this application. The importer defines the database schema in `gateway/load_catalog.py`.

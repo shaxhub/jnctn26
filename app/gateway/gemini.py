@@ -2,6 +2,7 @@
 import functools
 import json
 import os
+from datetime import date
 
 import httpx
 from pydantic import BaseModel, Field
@@ -43,7 +44,7 @@ def _schema(model) -> dict:
 
 def _request(text: str, instruction: str, schema) -> dict:
     return {
-        "headers": {"x-goog-api-key": os.environ["GEMINI_API_KEY"].strip(), "Api-Revision": "2026-05-20"},
+        "headers": {"x-goog-api-key": os.getenv("GEMINI_API_KEY", "").strip(), "Api-Revision": "2026-05-20"},
         "json": {"model": MODEL, "input": text, "system_instruction": instruction, "store": False,
                  "generation_config": {"thinking_level": "medium"},
                  "response_format": {"type": "text", "mime_type": "application/json",
@@ -56,8 +57,13 @@ def _parse(response: httpx.Response, schema):
     data = response.json()
     if not isinstance(data, dict) or data.get("status") != "completed":
         raise ValueError("Gemini did not complete the interaction")
-    output = "".join(part["text"] for step in data["steps"] if step["type"] == "model_output"
-                     for part in step["content"] if part["type"] == "text")
+    steps = data.get("steps")
+    if not isinstance(steps, list):
+        raise ValueError("Gemini did not return interaction steps")
+    output = "".join(part.get("text", "") for step in steps
+                     if isinstance(step, dict) and step.get("type") == "model_output"
+                     for part in (step.get("content") or ())
+                     if isinstance(part, dict) and part.get("type") == "text")
     return schema.model_validate_json(output)
 
 
@@ -75,16 +81,51 @@ def _interpretation():
         need: Need | None = None
         recipes: list[Recipe] = Field(default_factory=list, max_length=12)
         servings: int | None = Field(None, ge=1, le=5000)
+        delivery_date: date | None = None
+        exclude_allergens: list[str] = Field(default_factory=list, max_length=20)
+        ticket_name: str | None = Field(None, max_length=100)
 
     return Interpretation
 
 
-async def extract(text: str, today):
+async def extract(text: str, today, language: str | None = None):
     return await _structured(text, (
         f"Today is {today}. Extract one purchasing Need or pasted recipes. Use Finnish catalog terms. "
         "Extract explicitly stated yields and metric ingredients. Use recipe yield if no target is stated. "
+        "When the buyer describes a goal rather than naming a product, infer the shopping list by proposing recipes "
+        "with metric ingredient quantities and catalog-friendly ingredient names. Include all requested components. "
+        "Respect stated dietary constraints in every relevant recipe. If groups overlap or overlap is unspecified, "
+        "prefer one shared set of recipes that respects all restrictions. Put allergens to avoid in exclude_allergens. "
+        "For a direct product request, return need instead. "
+        f"Write recipe titles and a short ticket_name in {language or 'the same language as the buyer'}. "
+        "Set servings to the requested headcount, and resolve an explicit weekday or date into delivery_date. "
         "Never invent products or submit orders."
     ), _interpretation())
+
+
+class BasketName(BaseModel):
+    name: str = Field(min_length=1, max_length=100, pattern=r"\S")
+
+
+async def name_basket(products: list[str], language: str) -> str | None:
+    if enabled():
+        try:
+            result = await _structured(json.dumps(products),
+                f"Give this purchasing basket a short descriptive title in {language}. Use only the product names.",
+                BasketName)
+            return result.name.strip()
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+            pass
+    return None
+
+
+async def ground_recipes(text: str, recipes, candidates: list[dict]):
+    return await _structured(json.dumps({"request": text, "proposal": [recipe.model_dump() for recipe in recipes],
+                                        "catalog": candidates}),
+        "Revise this inferred meal using only the provided catalog. In each ingredient name return the exact "
+        "catalog product id. Keep the requested meal components, diet and headcount. Preserve meaningful staple "
+        "and protein roles. If the catalog cannot cover the request, return an empty recipes list. "
+        "Do not replace explicitly named ingredients or invent items.", _interpretation())
 
 
 async def suggest_edit(text: str, draft: dict):

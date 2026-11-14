@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from datetime import date, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from . import audit, service
 from .auth import Principal, principal_for_key
@@ -97,17 +98,8 @@ def explicit_quantity(text: str) -> bool:
     return _UNIT_RE.search(text.lower()) is not None
 
 
-def parse_need_heuristic(text: str, today: date | None = None) -> Need:
-    """Deterministic fallback parser. Good enough for the demo scenarios, not for real users."""
-    today = today or store_now().date()
+def requested_date(text: str, today: date) -> date | None:
     t = text.lower()
-    m = _UNIT_RE.search(t)
-    if m:
-        raw_unit = m.group(2)
-        qty = round(_parse_number(m.group(1)) * UNIT_SCALE.get(raw_unit, 1.0), 6)
-        unit = UNIT_WORDS.get(raw_unit, "PCS")
-    else:
-        qty, unit = 1.0, "PCS"
     m_date = re.search(r"\d{4}-\d{2}-\d{2}", t)
     delivery: date | None = None
     if m_date:
@@ -125,15 +117,36 @@ def parse_need_heuristic(text: str, today: date | None = None) -> Need:
             delivery = today + timedelta(days=1)
         elif re.search(r"\b(today|tänään)\b", t):
             delivery = today
-        else:
-            delivery = today + timedelta(days=2)
+    return delivery
+
+
+def parse_need_heuristic(text: str, today: date | None = None) -> Need:
+    """Deterministic fallback parser for direct product requests."""
+    today = today or store_now().date()
+    t = text.lower()
+    m = _UNIT_RE.search(t)
+    if m:
+        raw_unit = m.group(2)
+        try:
+            raw_qty = _parse_number(m.group(1)) * UNIT_SCALE.get(raw_unit, 1.0)
+            if not math.isfinite(raw_qty):
+                raise ValueError("non-finite quantity")
+            qty = round(raw_qty, 6)
+        except (OverflowError, ValueError) as exc:
+            raise service.GatewayError(422, "Enter a quantity above 0 and at most 1,000,000.") from exc
+        if not (0 < qty <= 1_000_000):
+            raise service.GatewayError(422, "Enter a quantity above 0 and at most 1,000,000.")
+        unit = UNIT_WORDS.get(raw_unit, "PCS")
+    else:
+        qty, unit = 1.0, "PCS"
+    delivery = requested_date(text, today) or today + timedelta(days=2)
     free_from = sorted({v for k, v in CLAIM_WORDS.items() if k in t})
     keys_desc = sorted(ITEM_HINTS, key=len, reverse=True)
     item_key = next((k for k in keys_desc if re.search(rf"\b{re.escape(k)}\b", t)), None)
     if item_key is None:
         item_key = next((k for k in keys_desc if k in t), None)
     words = [w for w in (tok.strip(".,!?;:\"'()[]") for tok in t.split()) if w]
-    fallback_word = words[-1] if words else ""
+    fallback_word = words[-1][:200] if words else ""
     search_text, category, exclude = ITEM_HINTS.get(item_key, (fallback_word, None, []))
     preferred_ids = list(dict.fromkeys(re.findall(r"\b(4\d{5})\b", text)))
     if not preferred_ids and item_key in {"oat drink", "oat milk", "kaurajuoma"} and any(
@@ -146,16 +159,19 @@ def parse_need_heuristic(text: str, today: date | None = None) -> Need:
         if code in free_from
     ]
     item = " ".join(claim_labels + [item_key or search_text or "item"]).strip()
-    return Need(
-        item=item, quantity=qty, unit=unit, delivery_date=delivery, search_text=search_text,
-        category=category, free_from=free_from, exclude_terms=exclude, preferred_product_ids=preferred_ids,
-    )
+    try:
+        return Need(
+            item=item, quantity=qty, unit=unit, delivery_date=delivery, search_text=search_text,
+            category=category, free_from=free_from, exclude_terms=exclude, preferred_product_ids=preferred_ids,
+        )
+    except ValidationError as exc:
+        raise service.GatewayError(422, "Enter a quantity above 0 and at most 1,000,000.") from exc
 
 
 class NeedDraft(BaseModel):
     """Structured-output schema the LLM fills from the buyer's text."""
     item: str = Field(description="Short English description of the product wanted")
-    quantity: float
+    quantity: float = Field(gt=0, le=1_000_000, allow_inf_nan=False)
     unit: Literal["L", "KG", "PCS"]
     delivery_date: str = Field(description="YYYY-MM-DD")
     search_text_fi: str = Field(description="One Finnish word to search product names, e.g. maito, kerma, kaurajuoma")
@@ -167,15 +183,18 @@ class NeedDraft(BaseModel):
 
 
 def parse_need_llm(client, text: str, today: date) -> Need:
-    resp = client.beta.messages.parse(
-        model=MODEL, max_tokens=4000,
-        betas=[FALLBACK_BETA], fallbacks="default",
-        output_config={"effort": "low"},
-        output_format=NeedDraft,
-        system=f"Extract a purchasing need from a food-service buyer's message. Today is {today.isoformat()} "
-               f"({today.strftime('%A')}). Resolve weekday names to the next such date. Use only the listed units.",
-        messages=[{"role": "user", "content": text}],
-    )
+    try:
+        resp = client.beta.messages.parse(
+            model=MODEL, max_tokens=4000,
+            betas=[FALLBACK_BETA], fallbacks="default",
+            output_config={"effort": "low"},
+            output_format=NeedDraft,
+            system=f"Extract a purchasing need from a food-service buyer's message. Today is {today.isoformat()} "
+                   f"({today.strftime('%A')}). Resolve weekday names to the next such date. Use only the listed units.",
+            messages=[{"role": "user", "content": text}],
+        )
+    except ValidationError as exc:
+        raise service.GatewayError(422, "Requested quantity must be above 0 and at most 1,000,000.") from exc
     if resp.stop_reason == "refusal":
         raise RuntimeError("The model declined to parse this request")
     d: NeedDraft | None = resp.parsed_output
@@ -185,9 +204,13 @@ def parse_need_llm(client, text: str, today: date) -> Need:
         delivery = date.fromisoformat(d.delivery_date)
     except ValueError as exc:
         raise RuntimeError(f"Model returned invalid delivery_date {d.delivery_date!r}") from exc
-    return Need(item=d.item, quantity=d.quantity, unit=d.unit, delivery_date=delivery,
-                search_text=d.search_text_fi, free_from=d.free_from, exclude_allergens=d.exclude_allergens,
-                exclude_terms=d.exclude_terms, preferred_product_ids=d.preferred_product_ids)
+    try:
+        return Need(item=d.item, quantity=d.quantity, unit=d.unit, delivery_date=delivery,
+                    search_text=d.search_text_fi[:500], free_from=d.free_from[:30],
+                    exclude_allergens=d.exclude_allergens[:30], exclude_terms=d.exclude_terms[:30],
+                    preferred_product_ids=d.preferred_product_ids)
+    except ValidationError as exc:
+        raise service.GatewayError(422, "Requested quantity must be above 0 and at most 1,000,000.") from exc
 
 
 # --- compact views (fewer tokens for the model, easier to read in the UI trace) ------------------
@@ -405,39 +428,42 @@ def run_llm(p: Principal, text: str, today: date | None = None) -> dict:
     client = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY (or an `ant auth login` profile)
     trace: list[dict] = []
     state: dict = {"plans": None, "quote": None, "order": None}
-    need = parse_need_llm(client, text, today)
-    if not need.preferred_product_ids:
-        need.exclude_allergens = sorted(set(need.exclude_allergens) | set(p.mandate.forbidden_allergens))
-    trace.append({"step": "parse_need", "output": need.model_dump(mode="json")})
-    mandate_summary = json.dumps(
-        {
-            "buyer_id": p.buyer_id,
-            "name": p.name,
-            "mandate": p.mandate.model_dump(mode="json"),
-            "weekly_spent_eur": service.weekly_spent(p.buyer_id),
-        },
-        indent=2,
-    )
-    runner = client.beta.messages.tool_runner(
-        model=MODEL, max_tokens=16000, max_iterations=15,
-        betas=[FALLBACK_BETA], fallbacks="default",
-        output_config={"effort": "medium"},
-        system=SYSTEM_PROMPT,
-        tools=_llm_tools(p, trace, need, state),
-        messages=[{
-            "role": "user",
-            "content": (
-                f"Buyer request: {text}\n\nParsed need (confirmed):\n{need.model_dump_json(indent=2)}\n\n"
-                f"Buyer mandate and current spend:\n{mandate_summary}\n\nToday is {today.isoformat()}."
-            ),
-        }],
-    )
-    final_text, last = "", None
-    for message in runner:   # one BetaMessage per model turn; tools run between turns
-        last = message
-        texts = [b.text for b in message.content if b.type == "text"]
-        if texts:
-            final_text = "\n".join(texts)
+    try:
+        need = parse_need_llm(client, text, today)
+        if not need.preferred_product_ids:
+            need.exclude_allergens = sorted(set(need.exclude_allergens) | set(p.mandate.forbidden_allergens))[:30]
+        trace.append({"step": "parse_need", "output": need.model_dump(mode="json")})
+        mandate_summary = json.dumps(
+            {
+                "buyer_id": p.buyer_id,
+                "name": p.name,
+                "mandate": p.mandate.model_dump(mode="json"),
+                "weekly_spent_eur": service.weekly_spent(p.buyer_id),
+            },
+            indent=2,
+        )
+        runner = client.beta.messages.tool_runner(
+            model=MODEL, max_tokens=16000, max_iterations=15,
+            betas=[FALLBACK_BETA], fallbacks="default",
+            output_config={"effort": "medium"},
+            system=SYSTEM_PROMPT,
+            tools=_llm_tools(p, trace, need, state),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Buyer request: {text}\n\nParsed need (confirmed):\n{need.model_dump_json(indent=2)}\n\n"
+                    f"Buyer mandate and current spend:\n{mandate_summary}\n\nToday is {today.isoformat()}."
+                ),
+            }],
+        )
+        final_text, last = "", None
+        for message in runner:   # one BetaMessage per model turn; tools run between turns
+            last = message
+            texts = [b.text for b in message.content if b.type == "text"]
+            if texts:
+                final_text = "\n".join(texts)
+    except anthropic.APIError as exc:
+        raise service.GatewayError(502, "The AI agent service is temporarily unavailable. Try scripted mode or retry shortly.") from exc
     if last is not None:
         if last.stop_reason == "refusal":
             final_text = "The model declined this request."

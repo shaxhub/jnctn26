@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 from collections import Counter, defaultdict
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 
 from . import audit, fulfillment, service, store
 from .auth import Admin, require_admin
@@ -162,3 +162,24 @@ def update_stage(order_id: str, body: ShipmentUpdate, admin: Admin = Depends(req
 @router.post("/orders/{order_id}/messages")
 def post_order_message(order_id: str, body: Message, admin: Admin = Depends(require_admin)):
     return send_message(admin, order_id, body)
+
+
+demo_router = APIRouter(prefix="/demo")
+
+
+@demo_router.post("/reset", include_in_schema=False)
+def demo_reset(payload: dict[str, Any] | None = Body(default=None), admin: Admin = Depends(require_admin)):
+    if payload is not None and "demo_now" in payload:
+        raw = payload["demo_now"]
+        if raw is None or raw == "":
+            store.set_demo_now(None, persist=True)
+        else:
+            try:
+                dt = datetime.fromisoformat(str(raw))
+            except ValueError as exc:
+                raise HTTPException(422, f"Invalid demo_now ISO timestamp: {raw}") from exc
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=TZ)
+            store.set_demo_now(dt, persist=True)
+    store.reset_db()
+    return {"ok": True, "now": store.now().isoformat()}

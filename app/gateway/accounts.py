@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from . import store
 from .config import demo_catalog_enabled
 
-COOKIES = {"client": "ad_client_session", "admin": "ad_admin_session"}
+COOKIES = {"client": "ad_client_session", "admin": "ad_admin_session", "portal": "ad_portal_session"}
 SESSION_SECONDS = 8 * 3600
 _SCRYPT_LIMIT = threading.BoundedSemaphore(4)
 
@@ -80,7 +80,7 @@ def authenticate(body: "Login", request: Request, role: str, *, origin: str | No
             "INSERT INTO portal_login_attempts (source,role,username,at) VALUES (?,?,?,?)",
             (source, role, username, now.isoformat()),
         ).lastrowid
-    row = store.fetchone("SELECT * FROM portal_accounts WHERE username=? AND role=?", (username, role))
+    row = store.fetchone("SELECT * FROM portal_accounts WHERE username=? AND (role=? OR ?='portal')", (username, role, role))
     digest = password_hash(body.password, row["salt"] if row else bytes(16))
     if row is None or not hmac.compare_digest(digest, row["password_hash"]):
         raise HTTPException(401, "Invalid username or password.")
@@ -97,13 +97,16 @@ def same_origin(request: Request, origin: str | None = None) -> None:
 
 
 def identity(request: Request, role: str):
-    token = request.cookies.get(COOKIES[role])
+    # Legacy role cookies belong only to the standalone operations app.
+    # They must not restore access after logout from the shared portal.
+    cookie_role = "portal" if getattr(request.app.state, "unified_portal", False) else role
+    token = request.cookies.get(COOKIES[cookie_role])
     if not token or len(token) > 100:
         return None
     row = store.fetchone(
-        "SELECT a.username,a.buyer_id FROM portal_sessions s JOIN portal_accounts a USING(username) "
-        "WHERE s.token_hash=? AND a.role=? AND julianday(s.expires_at)>julianday(?)",
-        (token_hash(token), role, datetime.now(timezone.utc).isoformat()))
+        "SELECT a.username,a.buyer_id,a.role FROM portal_sessions s JOIN portal_accounts a USING(username) "
+        "WHERE s.token_hash=? AND (a.role=? OR ?='portal') AND julianday(s.expires_at)>julianday(?)",
+        (token_hash(token), role, role, datetime.now(timezone.utc).isoformat()))
     if row and request.method not in {"GET", "HEAD", "OPTIONS"}:
         same_origin(request)
     return row
@@ -123,7 +126,8 @@ def router(role: str) -> APIRouter:
         response.headers["Cache-Control"] = "no-store"
         user = identity(request, role)
         return {"required": hosted(), "username": user["username"] if user else None,
-                "buyer_id": user["buyer_id"] if user else None, "offline_demo": demo_catalog_enabled(),
+                "buyer_id": user["buyer_id"] if user else None, "role": user["role"] if user else None,
+                "offline_demo": demo_catalog_enabled(),
                 "now": store.now().isoformat()}
 
     @routes.post("/login")
@@ -131,11 +135,14 @@ def router(role: str) -> APIRouter:
         row = authenticate(body, request, role)
         username = row["username"]
         now = datetime.now(timezone.utc)
+        previous_token = request.cookies.get(cookie)
         token = secrets.token_urlsafe(32)
         with store.transaction() as conn:
             current = conn.execute("SELECT password_hash FROM portal_accounts WHERE username=?", (username,)).fetchone()
             if current is None or current["password_hash"] != row["password_hash"]:
                 raise HTTPException(401, "Invalid username or password.")
+            if previous_token:
+                conn.execute("DELETE FROM portal_sessions WHERE token_hash=?", (token_hash(previous_token),))
             conn.execute("DELETE FROM portal_sessions WHERE julianday(expires_at)<=julianday(?)", (now.isoformat(),))
             conn.execute("INSERT INTO portal_sessions VALUES (?,?,?)",
                          (token_hash(token), username, (now+timedelta(seconds=SESSION_SECONDS)).isoformat()))
@@ -143,7 +150,7 @@ def router(role: str) -> APIRouter:
         response.set_cookie(cookie, token, max_age=SESSION_SECONDS, httponly=True,
                             path=request.scope.get("root_path") or "/",
                             secure=request.url.scheme == "https", samesite="strict")
-        return {"username": username, "buyer_id": row["buyer_id"]}
+        return {"username": username, "buyer_id": row["buyer_id"], "role": row["role"]}
 
     @routes.post("/logout")
     def logout(request: Request, response: Response):

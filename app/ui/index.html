@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#0b2440">
   <title>Agent Dairy | Purchasing workspace</title>
   <script>document.documentElement.classList.add("booting"); setTimeout(function(){document.documentElement.classList.remove("booting")},2500)</script>
+  <script src="assets/theme.js"></script>
   <link rel="stylesheet" href="assets/portal.css">
   <link rel="stylesheet" href="assets/workspace.css">
   <script type="module" src="assets/client.js"></script>
@@ -25,6 +26,10 @@
       <a href="#settings" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M9 2h6l.6 3 1.6.9 2.9-.9 3 5.2-2.3 2v1.6l2.3 2-3 5.2-2.9-.9-1.6.9-.6 3H9l-.6-3-1.6-.9-2.9.9-3-5.2 2.3-2v-1.6l-2.3-2 3-5.2 2.9.9L8.4 5Z" transform="translate(2 1) scale(.83)"/><circle cx="12" cy="11.8" r="3"/></svg><span data-en="Settings" data-fi="Asetukset">Settings</span></a>
     </nav>
     <div class="rail-foot client-tools">
+      <a id="admin-panel-link" class="admin-panel-link" href="admin/" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3 4 6v6c0 4 8 9 8 9s8-5 8-9V6Z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span data-en="Admin panel" data-fi="Ylläpito">Admin panel</span><span aria-hidden="true">↗</span>
+      </a>
       <div class="locale-buttons" aria-label="Language"><button id="lang-en" type="button" aria-label="English">EN</button><button id="lang-fi" type="button" aria-label="Suomi">FI</button></div>
       <button id="help-open" type="button" data-en="Need help? / FAQs" data-fi="Tarvitsetko apua?">Need help? / FAQs</button>
       <button id="client-sign-out" type="button" data-en="Sign out" data-fi="Kirjaudu ulos">Sign out</button>

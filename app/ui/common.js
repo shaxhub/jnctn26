@@ -114,6 +114,8 @@ function formatErrorDetail(data) {
 
 export async function request(path, key, payload) {
   const headers = key ? {"X-API-Key": key} : {};
+  const workspace = $("buyer");
+  if (workspace?.dataset.admin === "true") headers["X-Workspace-Buyer"] = workspace.value;
   if (payload !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(portalUrl(path), {method: payload === undefined ? "GET" : "POST", headers,
     body: payload === undefined ? undefined : JSON.stringify(payload)});

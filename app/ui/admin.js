@@ -259,7 +259,11 @@ $("sign-in").addEventListener("submit", async event => {
   } catch (error) { feedback($("login-status"), error.message, true); }
 });
 $("sign-out").addEventListener("click", async () => {
-  if (hosted) await request("/session/logout", "", {});
+  if (hosted) {
+    await request("/session/logout", "", {});
+    window.location.assign(document.baseURI);
+    return;
+  }
   key = "";
   version += 1;
   sessionStorage.removeItem("aimo-operations-key");
@@ -275,7 +279,11 @@ $("more").addEventListener("click", () => load(true));
 $("period").addEventListener("change", () => load());
 for (const tab of ["queue", "activity", "insights"]) $(tab + "-tab").addEventListener("click", () => showView(tab));
 request("/session", "").then(session => {
-  hosted = session.required;
+  hosted = session.required || !!session.username;
+  if (session.role && session.role !== "admin") {
+    window.location.replace(document.baseURI);
+    return;
+  }
   if (hosted) {
     key = "";
     $("admin-user-label").hidden = false;

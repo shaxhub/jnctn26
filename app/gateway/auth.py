@@ -1,7 +1,8 @@
 """API key -> principal (buyer + role) -> mandate.
 
-The buyer id and limits are NEVER taken from the request body or tool arguments: they come from the
-credential. REST uses the `require_principal` dependency; MCP requests go through
+Buyer identity and limits come from the credential, never the request body or tool arguments.
+An authenticated portal admin may select an allowlisted buyer workspace through X-Workspace-Buyer.
+REST uses the `require_principal` dependency; MCP requests go through
 `McpAuthMiddleware`, which sets the `current_principal` contextvar (tools also fall back to the
 request headers).
 
@@ -130,9 +131,19 @@ def key_from_headers(headers: Mapping[str, str] | None) -> str | None:
 
 def require_principal(request: Request, x_api_key: str | None = Header(None), authorization: str | None = Header(None)) -> Principal:
     key = x_api_key or (authorization[7:] if authorization and authorization.lower().startswith("bearer ") else None)
-    user = identity(request, "client")
-    p = (Principal(user["buyer_id"], "client", user["username"], load_mandate(user["buyer_id"]))
-         if user else principal_for_key(key))
+    unified = getattr(request.app.state, "unified_portal", False)
+    user = identity(request, "portal" if unified else "client")
+    if user:
+        buyer_id = user["buyer_id"]
+        name = user["username"]
+        if user["role"] == "admin":
+            buyer_id = request.headers.get("x-workspace-buyer", "hotel")
+            if buyer_id not in {"hotel", "hospital"}:
+                raise HTTPException(422, "Select the hotel or hospital workspace.")
+            name += " (admin)"
+        p = Principal(buyer_id, "client", name, load_mandate(buyer_id))
+    else:
+        p = principal_for_key(key)
     if p is None:
         raise HTTPException(401, "Missing or unknown API key (X-API-Key or Authorization: Bearer)")
     current_principal.set(p)

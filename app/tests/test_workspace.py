@@ -9,8 +9,7 @@ from gateway.models import QuoteRequest
 from test_portals import gateway
 
 
-def test_split_hosts_request_tracking_and_settings(gateway):
-    from gateway.admin_app import app as admin_app
+def test_shared_portal_request_tracking_and_settings(gateway):
     from gateway.api import app
 
     hotel = {"X-API-Key": "demo-hotel-client-key"}
@@ -22,13 +21,13 @@ def test_split_hosts_request_tracking_and_settings(gateway):
 
     async def verify():
         async with (
-            AsyncClient(transport=ASGITransport(app=app), base_url="http://client") as client,
-            AsyncClient(transport=ASGITransport(app=admin_app), base_url="http://admin") as aimo,
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://portal") as client,
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://portal") as aimo,
         ):
-            assert (await client.get("/admin")).status_code == 404
-            assert (await client.get("/assets/admin.js")).status_code == 404
-            assert (await aimo.get("/assets/client.js")).status_code == 404
-            assert (await aimo.get("/client/settings")).status_code == 404
+            assert (await client.get("/admin/")).status_code == 200
+            assert (await client.get("/assets/admin.js")).status_code == 200
+            assert (await client.get("/operations/activity", headers=hotel)).status_code == 401
+            assert (await aimo.get("/client/settings", headers=admin)).status_code == 401
             assert (await client.get("/client/drafts", headers=hospital)).json() == []
             from gateway.auth import principal_for_mcp_key
             issued = await client.post("/client/agent-credentials", headers=hotel, json={"label": "Kitchen agent"})

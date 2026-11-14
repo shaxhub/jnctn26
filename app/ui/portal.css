@@ -3,19 +3,33 @@
   color-scheme: light;
   --ink:#0f2744; --muted:#4d6179; --blue:#235e94; --deep:#0b2440; --sky:#f4f7fb;
   --yellow:#ffd700; --yellow-soft:#f0e68c;
-  --line:#d9e4f0; --white:#fff; --green:#00745c; --pale:#e4f6ef; --amber:#764709;
+  --line:#d9e4f0; --line-strong:#a9bdd5; --white:#fff; --green:#00745c; --pale:#e4f6ef; --amber:#764709;
+  --page:#f4f7fb; --hover:#f1f5fa; --link-hover:#0b57c7; --primary-ink:#0b2440;
+  --info-bg:#eef4ff; --danger-bg:#fff0eb; --danger-ink:#852915;
+  --warning-bg:#fff0ce; --tag-bg:#e9effd;
+  --strip-bg:var(--yellow-soft); --strip-border:#ecd77a; --strip-ink:#5c5426;
   font: 16px/1.5 "Instrument Sans", "Segoe UI", sans-serif;
   color:var(--ink); background:var(--sky);
 }
+:root[data-theme=dark] {
+  color-scheme:dark;
+  --ink:#e3eefe; --muted:#adbed4; --blue:#91baff; --deep:#153459;
+  --page:#0b1626; --sky:#17283e; --white:#102035;
+  --line:#30465f; --line-strong:#49617d; --hover:#213750; --link-hover:#bfd6ff;
+  --green:#83e0bc; --pale:#143c32; --amber:#f7ce77;
+  --info-bg:#192f4e; --danger-bg:#3c252c; --danger-ink:#ffb4a7;
+  --warning-bg:#3d321d; --tag-bg:#243b59;
+  --strip-bg:#302d20; --strip-border:#65592d; --strip-ink:#ebdba4;
+}
 *, *::before, *::after { box-sizing:border-box }
-body { margin:0; min-height:100dvh; display:grid; grid-template-columns: 14.5rem minmax(0, 1fr) }
+body { background:var(--page); margin:0; min-height:100dvh; display:grid; grid-template-columns: 14.5rem minmax(0, 1fr) }
 [hidden] { display:none !important }
 a { color:var(--blue); text-underline-offset:.2em }
 a:hover { text-decoration-thickness:2px }
-.skip { position:fixed; left:.75rem; top:.75rem; transform:translateY(-200%); z-index:2; background:white; padding:.5rem }
+.skip { position:fixed; left:.75rem; top:.75rem; transform:translateY(-200%); z-index:2; background:var(--white); padding:.5rem }
 .skip:focus { transform:none }
-:focus-visible { outline:3px solid #0074af; outline-offset:3px }
-.rail { background:var(--ink); color:white; display:flex; flex-direction:column; padding:1.5rem 1rem; gap:2.5rem }
+:focus-visible { outline:3px solid var(--blue); outline-offset:3px }
+.rail { background:#0f2744; color:white; display:flex; flex-direction:column; padding:1.5rem 1rem; gap:2.5rem }
 .brand { display:flex; gap:.75rem; align-items:center; color:white; font-weight:700; font-size:1.18rem; text-decoration:none; margin:.25rem }
 .brand small { display:block; font-size:.76rem; color:#a9c5eb; font-weight:500 }
 .mark { display:grid; place-items:center; inline-size:2.5rem; block-size:2.5rem; flex:none; background:var(--yellow); color:var(--deep); border-radius:.7rem; font-size:.92rem; letter-spacing:-.03em }
@@ -25,7 +39,7 @@ a:hover { text-decoration-thickness:2px }
 .rail nav [aria-current] { box-shadow:inset 3px 0 var(--yellow) }
 .rail-foot { margin-top:auto; padding:.5rem .25rem; color:#acc5e4; font-size:.76rem }
 main { min-width:0 }
-.top { min-height:4rem; background:white; border-bottom:1px solid var(--line); padding:.75rem clamp(1rem,4vw,3rem); display:flex; justify-content:space-between; align-items:center; gap:1rem; font-weight:600 }
+.top { min-height:4rem; background:var(--white); border-bottom:1px solid var(--line); padding:.75rem clamp(1rem,4vw,3rem); display:flex; justify-content:space-between; align-items:center; gap:1rem; font-weight:600 }
 .top label, .panel-head label { display:flex; align-items:center; gap:.6rem; font-size:.86rem }
 .content { margin:auto; max-width:96rem; padding:clamp(1rem,3vw,2.5rem) }
 .hero { min-height:11rem; display:flex; justify-content:space-between; align-items:end; gap:1.5rem; color:white; background:var(--deep); border-radius:.85rem; padding:clamp(1.25rem,4vw,2.5rem); margin-bottom:1.25rem; overflow:hidden; position:relative; isolation:isolate }
@@ -45,28 +59,29 @@ h3 { font-size:1rem }
 .empty { background:var(--sky); border-radius:.4rem; padding:1rem }
 form label, .filters label { font-weight:600; font-size:.87rem }
 input,select,textarea,button { font:inherit }
-input,select,textarea { color:var(--ink); border:1px solid #a9bdd5; background:white; border-radius:.4rem; min-height:2.5rem; padding:.45rem .65rem }
+input,select,textarea { color:var(--ink); border:1px solid var(--line-strong); background:var(--white); border-radius:.4rem; min-height:2.5rem; padding:.45rem .65rem }
 input:not([type=checkbox]),textarea { display:block; width:100% }
 textarea { margin:.35rem 0 .75rem; resize:vertical }
+input::placeholder,textarea::placeholder { color:var(--muted); opacity:1 }
 input[type=checkbox] { min-height:auto; accent-color:var(--blue) }
-button { display:inline-flex; align-items:center; justify-content:center; padding:.45rem .8rem; min-height:2.5rem; border:1px solid #a9bdd5; border-radius:.45rem; background:white; color:var(--ink); font-weight:600; cursor:pointer }
-button:hover { background:var(--sky) }
+button { display:inline-flex; align-items:center; justify-content:center; padding:.45rem .8rem; min-height:2.5rem; border:1px solid var(--line-strong); border-radius:.45rem; background:var(--white); color:var(--ink); font-weight:600; cursor:pointer }
+button:hover { background:var(--hover) }
 button:disabled { cursor:wait; opacity:.65 }
-button.primary, .switcher [aria-pressed=true] { color:var(--deep); background:var(--yellow); border-color:#c9aa00 }
+button.primary, .switcher [aria-pressed=true] { color:var(--primary-ink); background:var(--yellow); border-color:#c9aa00 }
 button.primary:hover, .switcher [aria-pressed=true]:hover { background:#ffdf1f }
 .actions,.suggestions,.form-row,.filters,.switcher { display:flex; align-items:end; gap:.65rem; flex-wrap:wrap }
 .actions { align-items:center; margin-top:1rem }
-.suggestions button { min-height:2rem; border-radius:1rem; padding:.2rem .65rem; font-size:.8rem; color:var(--deep) }
+.suggestions button { min-height:2rem; border-radius:1rem; padding:.2rem .65rem; font-size:.8rem; color:var(--ink) }
 .form-row { margin-top:1rem; align-items:center }
 .form-row input:not([type=checkbox]) { max-width:9rem; margin-top:.2rem }
 .check { display:flex; align-items:center; gap:.4rem; align-self:end; min-height:2.5rem }
 .feedback { margin:.9rem 0; padding:.7rem .8rem; background:var(--sky); border-left:3px solid var(--blue); overflow-wrap:anywhere }
-.feedback.error { background:#fff0eb; border-color:#a0351e; color:#852915 }
-.tag { display:inline-block; width:max-content; max-width:100%; padding:.23rem .55rem; border-radius:.35rem; background:#e9effd; color:var(--deep); font-size:.76rem; font-weight:700 }
+.feedback.error { background:var(--danger-bg); border-color:var(--danger-ink); color:var(--danger-ink) }
+.tag { display:inline-block; width:max-content; max-width:100%; padding:.23rem .55rem; border-radius:.35rem; background:var(--tag-bg); color:var(--blue); font-size:.76rem; font-weight:700 }
 .tag.confirmed { background:var(--pale); color:var(--green) }
-.tag.pending_approval { background:#fff0ce; color:var(--amber) }
-.tag.rejected,.tag.expired { background:#ffe9e5; color:#882d20 }
-pre { min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; max-width:100%; overflow:auto; background:#f0f4fb; padding:.7rem; border-radius:.35rem; font-size:.76rem }
+.tag.pending_approval { background:var(--warning-bg); color:var(--amber) }
+.tag.rejected,.tag.expired { background:var(--danger-bg); color:var(--danger-ink) }
+pre { min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; max-width:100%; overflow:auto; background:var(--sky); padding:.7rem; border-radius:.35rem; font-size:.76rem }
 .orders,.results,.ticket-lines,.analytics-grid { margin-top:1.25rem }
 .table-scroll { overflow:auto; width:100% }
 table { border-collapse:collapse; width:100%; text-align:left; font-size:.88rem }
@@ -84,7 +99,7 @@ td button { min-height:2rem; padding:.2rem .55rem }
 .filters label:first-child { flex:1 1 13rem }
 .filters select { display:block }
 #more { margin-top:1rem }
-dialog { max-width:min(48rem,calc(100% - 2rem)); width:100%; max-height:85dvh; border:1px solid var(--line); border-radius:.8rem; color:var(--ink); padding:1.5rem }
+dialog { background:var(--white); max-width:min(48rem,calc(100% - 2rem)); width:100%; max-height:85dvh; border:1px solid var(--line); border-radius:.8rem; color:var(--ink); padding:1.5rem }
 dialog::backdrop { background:#10233ca8 }
 .timeline { padding-left:1.2rem }
 .timeline li { margin:.6rem 0 }
@@ -121,7 +136,7 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 .kitchen-hero .dispatch li + li { border-color:#7296de }
 .workspace-modes { display:flex; flex-wrap:wrap; gap:.35rem; padding:.3rem; margin-bottom:1.25rem; background:var(--sky); border-radius:.55rem }
 .workspace-modes button { flex:1 0 auto; border-color:transparent; background:transparent }
-.workspace-modes button[aria-pressed=true] { background:white; border-color:var(--line); color:var(--blue); box-shadow:0 2px 4px #19376212 }
+.workspace-modes button[aria-pressed=true] { background:var(--white); border-color:var(--line); color:var(--blue); box-shadow:0 2px 4px #19376212 }
 .kitchen-settings { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr)); gap:.75rem }
 .kitchen-settings input,.kitchen-settings select { display:block; width:100%; margin-top:.25rem }
 .kitchen-entry,.ingredient-head { display:flex; justify-content:space-between; align-items:center; gap:.75rem; margin-top:1rem }
@@ -135,10 +150,10 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 .ingredient { padding:.85rem; border:1px solid var(--line); border-top:3px solid #9abbe4; border-radius:.5rem; min-width:0 }
 .ingredient-head { margin:0; align-items:baseline }
 .ingredient-head h4 { margin:0; font-size:1.04rem; overflow-wrap:anywhere }
-.ingredient-quantity { color:var(--deep); white-space:nowrap; font-variant-numeric:tabular-nums }
+.ingredient-quantity { color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums }
 .ingredient .tag { margin-top:.65rem }
 .kitchen-available { background:var(--pale); color:var(--green) }
-.kitchen-partial,.kitchen-stockout,.kitchen-unmatched,.kitchen-unverified { background:#fff0ce; color:var(--amber) }
+.kitchen-partial,.kitchen-stockout,.kitchen-unmatched,.kitchen-unverified { background:var(--warning-bg); color:var(--amber) }
 .ingredient-offers { margin-top:.65rem; font-size:.87rem }
 .ingredient-offers summary { cursor:pointer; font-weight:600 }
 .ingredient-offers .ticket-lines { margin-top:.35rem; padding-left:1.2rem; overflow-wrap:anywhere }

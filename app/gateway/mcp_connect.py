@@ -1,6 +1,9 @@
 """OAuth discovery, ChatGPT consent and buyer-owned connection management."""
+from collections import deque
+from functools import lru_cache
 from html import escape
 import re
+import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 
@@ -87,11 +90,73 @@ def _bad_token_request(error: str) -> JSONResponse:
     return JSONResponse({"error": error}, status_code=400, headers={"Cache-Control": "no-store"})
 
 
-def oauth_routes(provider: OAuthProvider) -> list[Route]:
+AUTHORIZE_WINDOW = 60.0
+AUTHORIZE_LIMIT = 30
+_AUTHORIZE_MAX_HOSTS = 4096
+_authorize_lock = threading.Lock()
+_authorize_hits: dict[str, deque[float]] = {}
+
+
+def _authorize_throttled(request: Request) -> bool:
+    host = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    cutoff = now - AUTHORIZE_WINDOW
+    with _authorize_lock:
+        for stale_host in list(_authorize_hits):
+            bucket = _authorize_hits[stale_host]
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+            if not bucket:
+                del _authorize_hits[stale_host]
+            else:
+                break
+        bucket = _authorize_hits.get(host)
+        if bucket is not None:
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+            if len(bucket) >= AUTHORIZE_LIMIT:
+                return True
+            del _authorize_hits[host]
+        else:
+            if len(_authorize_hits) >= _AUTHORIZE_MAX_HOSTS:
+                _authorize_hits.pop(next(iter(_authorize_hits)))
+            bucket = deque()
+        bucket.append(now)
+        _authorize_hits[host] = bucket
+        return False
+
+
+class _CorsApp:
+    def __init__(self, app, methods: tuple[str, ...]):
+        self.app = app
+        self.headers = [
+            (b"access-control-allow-origin", b"*"),
+            (b"access-control-allow-methods", ", ".join(methods).encode()),
+            (b"access-control-allow-headers", b"Authorization, Content-Type, Accept, MCP-Protocol-Version"),
+        ]
+
+    async def __call__(self, scope, receive, send):
+        if "agent_dairy_mcp" in scope:
+            return await self.app(scope, receive, send)
+        if scope["type"] == "http" and scope["method"] == "OPTIONS":
+            await send({"type": "http.response.start", "status": 204, "headers": list(self.headers)})
+            return await send({"type": "http.response.body", "body": b""})
+
+        async def send_with_cors(message):
+            if message["type"] == "http.response.start":
+                existing = {k.lower() for k, _ in message.get("headers", [])}
+                extra = [(k, v) for k, v in self.headers if k not in existing]
+                message = {**message, "headers": [*message.get("headers", []), *extra]}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cors)
+
+
+@lru_cache(maxsize=4)
+def _provider_apps(provider: OAuthProvider) -> dict:
     authorization_handler = AuthorizationHandler(provider)
     token_handler = TokenHandler(provider, ClientAuthenticator(provider))
     consent_url = provider.issuer + "/oauth/connect"
-    issuer_path = urlsplit(provider.issuer).path
 
     async def resource_metadata(_):
         return JSONResponse({"resource": provider.resource, "resource_name": "Agent Dairy",
@@ -113,6 +178,8 @@ def oauth_routes(provider: OAuthProvider) -> list[Route]:
         })
 
     async def authorize(request: Request):
+        if _authorize_throttled(request):
+            return JSONResponse({"error": "slow_down"}, status_code=429, headers={"Cache-Control": "no-store"})
         if request.query_params.get("code_challenge_method") != "S256":
             return _bad_token_request("invalid_request")
         response = await authorization_handler.handle(request)
@@ -164,17 +231,66 @@ def oauth_routes(provider: OAuthProvider) -> list[Route]:
             return _bad_token_request("invalid_request")
         return await token_handler.handle(request)
 
+    return {
+        "resource_metadata": _CorsApp(request_response(resource_metadata), ("GET", "OPTIONS")),
+        "metadata": _CorsApp(request_response(metadata), ("GET", "OPTIONS")),
+        "authorize": RequestBodyLimitMiddleware(request_response(authorize), 8192),
+        "consent": RequestBodyLimitMiddleware(request_response(consent), 8192),
+        "token": _CorsApp(RequestBodyLimitMiddleware(request_response(token), 8192), ("POST", "OPTIONS")),
+    }
+
+
+class _DynamicOAuthApp:
+    def __init__(self, target: str, *, funnel_prefix: bool = False):
+        self.target = target
+        self.funnel_prefix = funnel_prefix
+
+    async def __call__(self, scope, receive, send):
+        active = oauth()
+        if active is not None and self.funnel_prefix:
+            prefix = scope.get("path_params", {}).get("prefix", "")
+            if prefix != prefix.strip("/") or "/" + prefix.strip("/") != urlsplit(active.issuer).path:
+                active = None
+        if active is None:
+            response = JSONResponse({"error": "not_found"}, status_code=404, headers={"Cache-Control": "no-store"})
+            return await response(scope, receive, send)
+        await _provider_apps(active)[self.target](scope, receive, send)
+
+
+def oauth_routes(provider: OAuthProvider | None = None) -> list[Route]:
+    if provider is None:
+        return [
+            Route("/.well-known/oauth-protected-resource/mcp", _DynamicOAuthApp("resource_metadata"),
+                  methods=["GET", "OPTIONS"], include_in_schema=False),
+            Route("/.well-known/oauth-authorization-server", _DynamicOAuthApp("metadata"),
+                  methods=["GET", "OPTIONS"], include_in_schema=False),
+            Route("/authorize", _DynamicOAuthApp("authorize"), methods=["GET"], include_in_schema=False),
+            Route("/oauth/connect", _DynamicOAuthApp("consent"), methods=["GET", "POST"], include_in_schema=False),
+            Route("/token", _DynamicOAuthApp("token"), methods=["POST", "OPTIONS"], include_in_schema=False),
+            Route("/oauth-protected-resource/{prefix:path}/mcp",
+                  _DynamicOAuthApp("resource_metadata", funnel_prefix=True),
+                  methods=["GET", "OPTIONS"], include_in_schema=False),
+            Route("/oauth-authorization-server/{prefix:path}",
+                  _DynamicOAuthApp("metadata", funnel_prefix=True),
+                  methods=["GET", "OPTIONS"], include_in_schema=False),
+        ]
+    apps = _provider_apps(provider)
+    issuer_path = urlsplit(provider.issuer).path
     routes = [
-        Route("/.well-known/oauth-protected-resource/mcp", resource_metadata, methods=["GET"]),
-        Route("/.well-known/oauth-authorization-server", metadata, methods=["GET"]),
-        Route("/authorize", authorize, methods=["GET"]),
-        Route("/oauth/connect", RequestBodyLimitMiddleware(request_response(consent), 8192), methods=["GET", "POST"]),
-        Route("/token", RequestBodyLimitMiddleware(request_response(token), 8192), methods=["POST"]),
+        Route("/.well-known/oauth-protected-resource/mcp", apps["resource_metadata"],
+              methods=["GET", "OPTIONS"], include_in_schema=False),
+        Route("/.well-known/oauth-authorization-server", apps["metadata"],
+              methods=["GET", "OPTIONS"], include_in_schema=False),
+        Route("/authorize", apps["authorize"], methods=["GET"], include_in_schema=False),
+        Route("/oauth/connect", apps["consent"], methods=["GET", "POST"], include_in_schema=False),
+        Route("/token", apps["token"], methods=["POST", "OPTIONS"], include_in_schema=False),
     ]
     if issuer_path:
         # The Funnel maps the two public discovery URLs to these internal paths.
         routes += [
-            Route("/oauth-protected-resource" + issuer_path + "/mcp", resource_metadata, methods=["GET"]),
-            Route("/oauth-authorization-server" + issuer_path, metadata, methods=["GET"]),
+            Route("/oauth-protected-resource" + issuer_path + "/mcp", apps["resource_metadata"],
+                  methods=["GET", "OPTIONS"], include_in_schema=False),
+            Route("/oauth-authorization-server" + issuer_path, apps["metadata"],
+                  methods=["GET", "OPTIONS"], include_in_schema=False),
         ]
     return routes

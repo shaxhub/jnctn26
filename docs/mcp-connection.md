@@ -12,6 +12,8 @@
    MCP_ALLOWED_ORIGINS=https://chatgpt.com
    ```
 
+   Browser-based MCP clients (such as ChatGPT and `MCP_PUBLIC_URL`'s origin) are allowed automatically. To permit additional browser origins (for example, MCP Inspector), set `MCP_ALLOWED_ORIGINS` as a comma-separated list of origins (defaults to `http://localhost:8000,http://127.0.0.1:8000`).
+
 3. Verify that the public MCP endpoint returns HTTP 401 without credentials and includes a `WWW-Authenticate` challenge with the public metadata URL. Both discovery URLs should return 200. The protected resource must match the public MCP URL exactly.
 
    ```sh

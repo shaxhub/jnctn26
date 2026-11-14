@@ -160,16 +160,50 @@ def require_approver(p: Principal) -> Principal:
 class McpAuthMiddleware:
     """Pure ASGI middleware: authenticates /mcp requests and sets current_principal."""
 
+    _OAUTH_CORS_PATHS = {
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+        "/.well-known/oauth-authorization-server",
+        "/token",
+    }
+
     def __init__(self, app, prefix: str = "/mcp"):
         self.app, self.prefix = app, prefix
-        self.allowed_origins = [value.strip() for value in os.getenv(
-            "MCP_ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
-        ).split(",") if value.strip() and value.strip() != "*"]
-        self.browser_app = CORSMiddleware(
-            self.authenticate, allow_origins=self.allowed_origins, allow_methods=["GET", "POST", "DELETE"],
-            allow_headers=["Authorization", "MCP-Protocol-Version", "MCP-Session-Id", "Last-Event-ID", "X-API-Key"],
-            expose_headers=["WWW-Authenticate", "MCP-Protocol-Version", "MCP-Session-Id"],
-        )
+        self._cors_cache: dict[tuple[str, ...], CORSMiddleware] = {}
+
+    def _allowed_origins(self, provider) -> list[str]:
+        origins = [
+            value.strip()
+            for value in os.getenv(
+                "MCP_ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,https://chatgpt.com"
+            ).split(",")
+            if value.strip() and value.strip() != "*"
+        ]
+        if provider and provider.origin not in origins:
+            origins.append(provider.origin)
+        return origins
+
+    def _browser_app(self, origins: list[str]) -> CORSMiddleware:
+        key = tuple(origins)
+        cached = self._cors_cache.get(key)
+        if cached is None:
+            cached = CORSMiddleware(
+                self.authenticate,
+                allow_origins=list(key),
+                allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+                allow_headers=[
+                    "Authorization",
+                    "Content-Type",
+                    "Accept",
+                    "MCP-Protocol-Version",
+                    "MCP-Session-Id",
+                    "Last-Event-ID",
+                    "X-API-Key",
+                ],
+                expose_headers=["WWW-Authenticate", "MCP-Protocol-Version", "MCP-Session-Id"],
+            )
+            self._cors_cache[key] = cached
+        return cached
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
@@ -179,14 +213,15 @@ class McpAuthMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         is_mcp = path == self.prefix or path.startswith(self.prefix + "/")
-        if not is_mcp and path not in {"/.well-known/oauth-protected-resource/mcp",
-                                      "/.well-known/oauth-authorization-server", "/token"}:
+        if not is_mcp and path not in self._OAUTH_CORS_PATHS:
             return await self.app(scope, receive, send)
+        provider = oauth()
+        allowed_origins = self._allowed_origins(provider)
         origin = dict(scope.get("headers", [])).get(b"origin")
-        if is_mcp and origin is not None and origin.decode("latin1") not in self.allowed_origins:
+        if is_mcp and origin is not None and origin.decode("latin1") not in allowed_origins:
             await send({"type": "http.response.start", "status": 403, "headers": []})
             return await send({"type": "http.response.body", "body": b"Origin forbidden"})
-        return await self.browser_app({**scope, "agent_dairy_mcp": is_mcp}, receive, send)
+        return await self._browser_app(allowed_origins)({**scope, "agent_dairy_mcp": is_mcp}, receive, send)
 
     async def authenticate(self, scope, receive, send):
         if not scope["agent_dairy_mcp"]:

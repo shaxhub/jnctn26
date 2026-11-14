@@ -57,3 +57,88 @@ def test_mcp_initialize_and_tool_validation(gateway):
                 assert expected in error["content"][0]["text"]
 
     asyncio.run(check())
+
+
+def test_readonly_bearer_key_and_mcp_cors(gateway, monkeypatch):
+    import json
+    from datetime import date
+    from gateway import service
+    from gateway.api import app
+    from gateway.auth import principal_for_key
+    from gateway.models import QuoteRequest
+
+    monkeypatch.setenv("MCP_ALLOWED_ORIGINS", "https://chatgpt.com")
+
+    buyer = principal_for_key("demo-hotel-client-key")
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=date(2026, 11, 16),
+                                                     lines=[{"product_id": "milk", "quantity": 5}]))
+    order = service.place_order(buyer, quote.quote_id)
+
+    async def check():
+        async with (
+            app.router.lifespan_context(app),
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost:8000",
+                        headers={"Accept": "application/json, text/event-stream"}) as http,
+        ):
+            # CORS preflight and 401 challenge headers for allowed browser origins vs forbidden origins.
+            assert (await http.options("/mcp", headers={"Origin": "https://evil.example"})).status_code == 403
+            preflight = await http.options("/mcp", headers={
+                "Origin": "https://chatgpt.com",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Authorization,Content-Type",
+            })
+            assert preflight.status_code == 200
+            assert preflight.headers["access-control-allow-origin"] == "https://chatgpt.com"
+            assert "POST" in preflight.headers["access-control-allow-methods"]
+            assert "Authorization" in preflight.headers["access-control-allow-headers"]
+            challenge = await http.post("/mcp", json={}, headers={"Origin": "https://chatgpt.com"})
+            assert challenge.status_code == 401
+            assert challenge.headers["access-control-allow-origin"] == "https://chatgpt.com"
+            assert "WWW-Authenticate" in challenge.headers["access-control-expose-headers"]
+
+            # Issue a read-only agent Bearer credential (can_order=False) and verify MCP read-only enforcement.
+            issued = await http.post("/client/agent-credentials",
+                                     headers={"X-API-Key": "demo-hotel-client-key"},
+                                     json={"label": "Read-only monitor", "can_order": False})
+            assert issued.status_code == 201
+            ro_secret = issued.json()["secret"]
+
+            for token in ("demo-hotel-lookup-key", ro_secret):
+                headers = {"Authorization": f"Bearer {token}"}
+                init_res = await http.post("/mcp", headers=headers, json={
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                               "clientInfo": {"name": "pytest", "version": "1"}},
+                })
+                assert init_res.status_code == 200
+                headers["MCP-Protocol-Version"] = init_res.json()["result"]["protocolVersion"]
+                tools = (await http.post("/mcp", headers=headers, json={
+                    "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+                })).json()["result"]["tools"]
+                names = {tool["name"] for tool in tools}
+                assert "check_offers" in names
+                assert names.isdisjoint({"create_quote", "place_order", "repeat_quote", "post_request_message"})
+                assert all(tool["annotations"]["readOnlyHint"] for tool in tools)
+
+                mandate_res = (await http.post("/mcp", headers=headers, json={
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {"name": "get_my_mandate", "arguments": {}},
+                })).json()["result"]
+                assert not mandate_res.get("isError")
+                mandate_data = json.loads(mandate_res["content"][0]["text"])
+                assert set(mandate_data["allowed_tools"]).isdisjoint(
+                    {"create_quote", "place_order", "repeat_quote", "post_request_message"}
+                )
+
+                for write_tool, args in (
+                    ("post_request_message", {"order_id": order.order_id, "text": "Should be blocked"}),
+                    ("create_quote", {"delivery_date": "2026-11-16", "lines": [{"product_id": "milk", "quantity": 1}]}),
+                ):
+                    denied = (await http.post("/mcp", headers=headers, json={
+                        "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                        "params": {"name": write_tool, "arguments": args},
+                    })).json()["result"]
+                    assert denied["isError"]
+                    assert "read-only" in denied["content"][0]["text"]
+
+    asyncio.run(check())

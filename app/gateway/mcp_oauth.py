@@ -1,6 +1,7 @@
 """SQLite-backed grants for the MCP SDK's OAuth authorization-code flow."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import secrets
@@ -15,7 +16,7 @@ from mcp.server.auth.provider import (
 )
 from mcp.server.auth.routes import build_resource_metadata_url
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, ValidationError
 
 from . import store
 from .accounts import token_hash
@@ -24,6 +25,7 @@ SCOPE = "workspace:read"
 CLIENT_ID = "https://chatgpt.com/oauth/client.json"
 CALLBACK = "https://chatgpt.com/connector_platform_oauth_redirect"
 PENDING_TTL = 600
+MAX_PENDING = 500
 CODE_TTL = 120
 ACCESS_TTL = 3600
 REFRESH_TTL = 30 * 86400
@@ -51,18 +53,35 @@ def oauth_provider(public_url: str | None) -> OAuthProvider | None:
 def oauth() -> OAuthProvider | None:
     if os.getenv("MCP_OAUTH_ENABLED") != "1":
         return None
-    provider = oauth_provider(public_mcp_url())
-    if provider is None:
-        raise ValueError("Set MCP_PUBLIC_URL when enabling MCP OAuth.")
-    return provider
+    try:
+        provider = oauth_provider(public_mcp_url())
+        if provider is None:
+            raise ValueError("Set MCP_PUBLIC_URL when enabling MCP OAuth.")
+        return provider
+    except (ValueError, ValidationError) as exc:
+        logging.getLogger(__name__).warning("MCP OAuth disabled due to invalid configuration: %s", exc)
+        return None
 
 
 def _save_pending(params: AuthorizationParams, request_id: str) -> None:
     now = int(time.time())
+    over_limit = False
     with store.transaction() as conn:
         conn.execute("DELETE FROM mcp_oauth_pending WHERE expires_at<=?", (now,))
-        conn.execute("INSERT INTO mcp_oauth_pending (request_hash,params,expires_at) VALUES (?,?,?)",
-                     (token_hash(request_id), params.model_dump_json(), now + PENDING_TTL))
+        count = conn.execute("SELECT count(*) FROM mcp_oauth_pending").fetchone()[0]
+        if count >= MAX_PENDING:
+            conn.execute(
+                "DELETE FROM mcp_oauth_pending WHERE rowid IN ("
+                "SELECT rowid FROM mcp_oauth_pending WHERE code_hash IS NULL ORDER BY expires_at ASC, rowid ASC LIMIT ?)",
+                (count - MAX_PENDING + 1,),
+            )
+            if conn.execute("SELECT count(*) FROM mcp_oauth_pending").fetchone()[0] >= MAX_PENDING:
+                over_limit = True
+        if not over_limit:
+            conn.execute("INSERT INTO mcp_oauth_pending (request_hash,params,expires_at) VALUES (?,?,?)",
+                         (token_hash(request_id), params.model_dump_json(), now + PENDING_TTL))
+    if over_limit:
+        raise AuthorizeError("temporarily_unavailable", "Too many pending authorization requests. Try again shortly.")
 
 
 class OAuthProvider:

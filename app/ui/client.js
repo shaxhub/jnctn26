@@ -1,5 +1,5 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, pill, portalUrl, request, table, translate} from "./common.js";
+import {$, auditTrail, date, dateTime, feedback, gatewayNow, lineItems, money, node, number, pill, portalUrl, request, table, translate} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
@@ -53,10 +53,23 @@ function renderBasket() {
   form.append(save, cancel, notice);
   form.addEventListener("submit", async event => {
     event.preventDefault();
+    const delivery = $("chat-delivery-date").value || state.delivery;
+    if (!delivery) {
+      feedback(notice, tr("Choose a delivery date before saving.", "Valitse toimituspäivä ennen tallennusta."), true);
+      return;
+    }
+    for (const [, item] of state.lines) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0 || item.quantity > 1_000_000) {
+        feedback(notice, tr("Enter a valid quantity above 0 for each product.",
+          "Syötä jokaiselle tuotteelle määrä, joka on suurempi kuin 0."), true);
+        return;
+      }
+    }
+    state.delivery = delivery;
     save.disabled = true;
     try {
       const quote = await request("/client/basket" + (state.id ? "?quote_id=" + encodeURIComponent(state.id) : ""),
-        buyerKey(), {delivery_date:state.delivery, quantities:Object.fromEntries(
+        buyerKey(), {delivery_date:delivery, quantities:Object.fromEntries(
           [...state.lines].map(([sku, item]) => [sku, item.quantity])),
           exclude_allergens:[...new Set([...state.lines.values()].flatMap(item => item.excludeAllergens || []))],
           required_claims:[...new Set([...state.lines.values()].flatMap(item => item.requiredClaims || []))]});
@@ -153,7 +166,7 @@ export function showDraft(quote, outcome, target = $("draft")) {
     target.append(node("p", quote.policy_preview.reasons.map(translate).join(" "), "cell-note"));
   }
   const button = node("button", "Submit ticket to Aimo", "primary");
-  if (new Date(quote.expires_at) <= new Date()) {
+  if (new Date(quote.expires_at) <= gatewayNow()) {
     button.disabled = true;
     target.append(node("p", "This draft expired. Save a revised draft to refresh the quote.", "feedback"));
   }
@@ -382,6 +395,12 @@ async function sendChat(requestData) {
   }
 }
 
+$("chat-delivery-date").addEventListener("input", () => {
+  if (basket && $("chat-delivery-date").value) {
+    basket.delivery = $("chat-delivery-date").value;
+  }
+});
+
 $("chat").addEventListener("submit", event => {
   event.preventDefault();
   const text = $("message").value.trim();
@@ -397,7 +416,7 @@ $("seasonal-pick").addEventListener("click", async () => {
   const target = $("seasonal-results");
   const delivery = $("chat-delivery-date").value || new Intl.DateTimeFormat("sv-SE", {
     timeZone:"Europe/Helsinki", year:"numeric", month:"2-digit", day:"2-digit",
-  }).format(new Date());
+  }).format(gatewayNow());
   if (!delivery) {
     target.textContent = "Enter a valid delivery date above.";
     $("chat-delivery-date").focus();

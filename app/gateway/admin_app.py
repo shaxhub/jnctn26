@@ -28,7 +28,7 @@ def demo_reset(payload: dict[str, Any] | None = Body(default=None), admin: Admin
     if payload is not None and "demo_now" in payload:
         raw = payload["demo_now"]
         if raw is None or raw == "":
-            store.set_demo_now(None)
+            store.set_demo_now(None, persist=True)
         else:
             try:
                 dt = datetime.fromisoformat(str(raw))
@@ -36,6 +36,6 @@ def demo_reset(payload: dict[str, Any] | None = Body(default=None), admin: Admin
                 raise HTTPException(422, f"Invalid demo_now ISO timestamp: {raw}") from exc
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=TZ)
-            store.set_demo_now(dt)
+            store.set_demo_now(dt, persist=True)
     store.reset_db()
     return {"ok": True, "now": store.now().isoformat()}

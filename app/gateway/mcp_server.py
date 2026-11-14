@@ -40,19 +40,26 @@ For menu planning use compile_ingredients and source_ingredients. These are read
 Quantities in quotes and orders are in SALES units (see sales_unit).
 Your buyer's mandate is enforced server-side; orders may be confirmed, wait for human approval, or be rejected."""
 
+def _is_read_only(p: Principal) -> bool:
+    return p.oauth_read_only or p.role != "agent" or not p.can_order
+
+
 class PurchasingMCPServer(MCPServer):
     async def list_tools(self):
         tools = await super().list_tools()
         principal = current_principal.get()
-        if principal and principal.oauth_read_only:
+        if principal and _is_read_only(principal):
             return [tool.model_copy(update={"annotations": ToolAnnotations(read_only_hint=True)})
                     for tool in tools if tool.name in READ_TOOLS]
         return tools
 
     async def call_tool(self, name, arguments, context=None):
         principal = current_principal.get()
-        if principal and principal.oauth_read_only and name not in READ_TOOLS:
-            raise ToolError("This ChatGPT connection has read-only access")
+        if principal and name not in READ_TOOLS:
+            if principal.oauth_read_only:
+                raise ToolError("This ChatGPT connection has read-only access")
+            if _is_read_only(principal):
+                raise ToolError("This credential has read-only access")
         return await super().call_tool(name, arguments, context)
 
 
@@ -69,7 +76,7 @@ def _principal(ctx: Context | None, *, write: bool = False) -> Principal:
             p = None
     if p is None:
         raise ToolError("Unauthenticated: send X-API-Key or Authorization: Bearer <key>")
-    if p.role not in {"agent", "client"} or (write and (p.role != "agent" or not p.can_order)):
+    if p.role not in {"agent", "client"} or (write and _is_read_only(p)):
         raise ToolError("This credential does not have permission to perform this action")
     return p
 
@@ -185,8 +192,7 @@ async def get_my_mandate(ctx: Context = None) -> dict:
         "name": p.name,
         "mandate": p.mandate.model_dump(mode="json"),
         "weekly_spent": spent,
-        "allowed_tools": list(READ_TOOLS) + ([] if p.oauth_read_only else ["post_request_message"])
-                         + (["create_quote", "repeat_quote", "place_order"] if p.role == "agent" and p.can_order else []),
+        "allowed_tools": list(READ_TOOLS) + ([] if _is_read_only(p) else ["post_request_message", "create_quote", "repeat_quote", "place_order"]),
     }
 
 
@@ -336,6 +342,6 @@ async def get_request_thread(order_id: str, ctx: Context = None) -> dict:
 @mcp.tool()
 async def post_request_message(order_id: str, text: str, ctx: Context = None) -> dict:
     """Post a message to Aimo in the conversation for one of your buyer's submitted requests."""
-    principal = _principal(ctx)
+    principal = _principal(ctx, write=True)
     message = _parse_args(lambda: workspace.Message(text=text))
     return await _run(workspace.send_message, principal, order_id, message)

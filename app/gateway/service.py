@@ -48,7 +48,10 @@ def _aware(dt: datetime) -> datetime:
 
 # --- search & offers ---------------------------------------------------------------------------
 def search_products(p: Principal, req: SearchRequest) -> SearchResult:
-    res = search(req)
+    try:
+        res = search(req)
+    except ValueError as exc:
+        raise GatewayError(422, str(exc)) from exc
     audit.log("SEARCH", p.actor, {"text": req.text, "matches": res.total_matches,
                                   "categories": res.category_counts, "filters": req.model_dump(exclude={"text", "limit"}, exclude_defaults=True)},
               buyer_id=p.buyer_id)
@@ -220,6 +223,8 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
     conflicts = _dietary_conflicts(offers_list, req.exclude_allergens, req.required_claims)
     errors = [f"{sku}: conflicts with requested dietary constraints" for sku in conflicts]
     warnings, lines = [], []
+    live_checks = fulfillment.enabled()
+    committed = {} if live_checks else store.committed_quantities(req.delivery_date)
     qty_by_pid: dict[str, float] = {}
     for l in req.lines:
         o = offers.get(l.product_id)
@@ -234,9 +239,12 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
         if qty != l.quantity:
             warnings.append(f"{l.product_id}: quantity rounded {l.quantity:g} -> {qty:g} {o.sales_unit} (lot size)")
         qty_by_pid[o.product_id] = qty_by_pid.get(o.product_id, 0.0) + qty
-        if o.available_qty is not None and qty_by_pid[o.product_id] > o.available_qty:
-            errors.append(f"{l.product_id}: only {o.available_qty:g} {o.sales_unit} available, asked {qty_by_pid[o.product_id]:g}")
-            continue
+        if o.available_qty is not None:
+            remaining = o.available_qty if live_checks else max(
+                o.available_qty - committed.get((o.product_id, o.sales_unit), 0.0), 0.0)
+            if qty_by_pid[o.product_id] > remaining + 1e-9:
+                errors.append(f"{l.product_id}: only {remaining:g} {o.sales_unit} available, asked {qty_by_pid[o.product_id]:g}")
+                continue
         if o.reason == OrderableReason.no_availability_data:
             warnings.append(f"{l.product_id}: availability unknown, a human must confirm")
         need = req.need
@@ -471,6 +479,18 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                     return _order_from_row(existing)
             raise GatewayError(409, f"quote_invalid: quote {quote_id} was already used")
         result = _evaluate(p, lines, offers, payload["total_net"], need, delivery=delivery, conn=conn)
+        if not check_fulfillment:
+            committed = store.committed_quantities(delivery, conn=conn)
+            by_pid: dict[str, float] = {}
+            for line in lines:
+                by_pid[line.product_id] = by_pid.get(line.product_id, 0.0) + line.quantity
+            for pid, qty in by_pid.items():
+                offer = offers.get(pid)
+                tag = f"{pid}:insufficient_stock"
+                if (offer is not None and offer.available_qty is not None
+                        and qty + committed.get((pid, offer.sales_unit), 0.0) > offer.available_qty + 1e-9
+                        and tag not in stale):
+                    stale.append(tag)
         if stale:
             message = f"No longer orderable since the quote: {', '.join(stale)}"
             result = PolicyResult(decision=Decision.reject, mandate_id=result.mandate_id,
@@ -578,6 +598,7 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         raise GatewayError(400, "Decision must be 'approve' or 'reject'")
     row = _pending_approval(p, store.fetchone(_APPROVAL_QUERY, (approval_id,)), approval_id)
     lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
+    offers: dict[str, Offer] = {}
     problems = []
     if decision == "approve" and store.now() < _aware(datetime.fromisoformat(row["expires_at"])):
         offers, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
@@ -607,6 +628,17 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
             store.append_in_transaction(conn, "AIMO_APPROVAL_RECHECKED", p.actor, {
                 "evidence": snapshot, "checks": [rule.model_dump(mode="json") for rule in warehouse_rules],
             }, buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
+        elif decision == "approve" and not expired and not problems:
+            committed = store.committed_quantities(
+                date.fromisoformat(row["delivery_date"]), exclude_order_id=row["order_id"], conn=conn)
+            by_pid: dict[str, float] = {}
+            for line in lines:
+                by_pid[line.product_id] = by_pid.get(line.product_id, 0.0) + line.quantity
+            for pid, qty in by_pid.items():
+                offer = offers.get(pid)
+                if (offer is not None and offer.available_qty is not None
+                        and qty + committed.get((pid, offer.sales_unit), 0.0) > offer.available_qty + 1e-9):
+                    problems.append(f"{pid}:insufficient_stock")
         approved = decision == "approve" and not expired and not problems
         status = "expired" if expired else "confirmed" if approved else "rejected"
         if expired:

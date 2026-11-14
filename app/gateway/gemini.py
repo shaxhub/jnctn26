@@ -44,7 +44,7 @@ def _schema(model) -> dict:
 
 def _request(text: str, instruction: str, schema) -> dict:
     return {
-        "headers": {"x-goog-api-key": os.environ["GEMINI_API_KEY"].strip(), "Api-Revision": "2026-05-20"},
+        "headers": {"x-goog-api-key": os.getenv("GEMINI_API_KEY", "").strip(), "Api-Revision": "2026-05-20"},
         "json": {"model": MODEL, "input": text, "system_instruction": instruction, "store": False,
                  "generation_config": {"thinking_level": "medium"},
                  "response_format": {"type": "text", "mime_type": "application/json",
@@ -57,8 +57,13 @@ def _parse(response: httpx.Response, schema):
     data = response.json()
     if not isinstance(data, dict) or data.get("status") != "completed":
         raise ValueError("Gemini did not complete the interaction")
-    output = "".join(part["text"] for step in data["steps"] if step["type"] == "model_output"
-                     for part in step["content"] if part["type"] == "text")
+    steps = data.get("steps")
+    if not isinstance(steps, list):
+        raise ValueError("Gemini did not return interaction steps")
+    output = "".join(part.get("text", "") for step in steps
+                     if isinstance(step, dict) and step.get("type") == "model_output"
+                     for part in (step.get("content") or ())
+                     if isinstance(part, dict) and part.get("type") == "text")
     return schema.model_validate_json(output)
 
 

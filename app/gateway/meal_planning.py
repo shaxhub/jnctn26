@@ -1,9 +1,10 @@
 """A guided school lunch proposal with live ingredient sourcing."""
+import math
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from . import kitchen, service
-from .agent import parse_need_heuristic
+from .agent import requested_date
 
 SCHOOL = re.compile(r"\b(?:schools?|schoolchildren|pupils|kouluruokailu)\b", re.I)
 SERVINGS = re.compile(r"\b([1-9]\d{0,3})\s+(?:children|pupils|schoolchildren|servings|portions)\b", re.I)
@@ -21,7 +22,7 @@ def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=N
     servings = int(headcount[1])
     if servings > 5000:
         raise service.GatewayError(422, "Plan up to 5,000 meals at a time.")
-    delivery = delivery_date or (parsed.delivery_date if parsed else None) or parse_need_heuristic(text, today).delivery_date
+    delivery = delivery_date or (parsed.delivery_date if parsed else None) or requested_date(text, today) or today + timedelta(days=2)
     if delivery < today:
         raise service.GatewayError(422, "Choose today or a future delivery date.")
     lower = text.casefold()
@@ -51,7 +52,15 @@ def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=N
     recipes = [kitchen.Recipe(name=name, servings=1, ingredients=[
         kitchen.Ingredient(name=item, amount=quantity, unit=unit) for item, quantity, unit in ingredients
     ]) for name, ingredients, _ in proposal]
-    budgets = {match[1].lower(): float(match[2].replace(",", "")) for match in BUDGET.finditer(text)}
+    budgets: dict[str, float] = {}
+    for match in BUDGET.finditer(text):
+        try:
+            val = float(match[2].replace(",", ""))
+        except (ValueError, OverflowError) as exc:
+            raise service.GatewayError(422, "Enter a valid budget amount up to €1,000,000,000.") from exc
+        if not math.isfinite(val) or val > 1_000_000_000:
+            raise service.GatewayError(422, "Enter a valid budget amount up to €1,000,000,000.")
+        budgets[match[1].lower()] = val
     if budgets.get("soft", 0) > budgets.get("hard", float("inf")):
         raise service.GatewayError(422, "The soft budget must be at or below the hard budget.")
     generated = bool(parsed and parsed.recipes and not stock_menu)

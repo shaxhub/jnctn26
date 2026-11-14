@@ -91,6 +91,7 @@ def oauth_routes(provider: OAuthProvider) -> list[Route]:
     authorization_handler = AuthorizationHandler(provider)
     token_handler = TokenHandler(provider, ClientAuthenticator(provider))
     consent_url = provider.issuer + "/oauth/connect"
+    issuer_path = urlsplit(provider.issuer).path
 
     async def resource_metadata(_):
         return JSONResponse({"resource": provider.resource, "resource_name": "Agent Dairy",
@@ -130,7 +131,7 @@ def oauth_routes(provider: OAuthProvider) -> list[Route]:
             request_id = request.query_params.get("request_id", "")
             form = None
         else:
-            same_origin(request, provider.issuer)
+            same_origin(request, provider.origin)
             form = await request.form()
             request_id = form.get("request_id", "")
         if (not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", request_id)
@@ -146,7 +147,7 @@ def oauth_routes(provider: OAuthProvider) -> list[Route]:
             account = None
             if approved:
                 credentials = Login(username=form.get("username", ""), password=form.get("password", ""))
-                account = await run_in_threadpool(authenticate, credentials, request, "client", origin=provider.issuer)
+                account = await run_in_threadpool(authenticate, credentials, request, "client", origin=provider.origin)
             callback = await run_in_threadpool(provider.finish, request_id, account, approved)
             return RedirectResponse(callback, status_code=303, headers=_PAGE_HEADERS)
         except ValidationError:
@@ -163,10 +164,17 @@ def oauth_routes(provider: OAuthProvider) -> list[Route]:
             return _bad_token_request("invalid_request")
         return await token_handler.handle(request)
 
-    return [
+    routes = [
         Route("/.well-known/oauth-protected-resource/mcp", resource_metadata, methods=["GET"]),
         Route("/.well-known/oauth-authorization-server", metadata, methods=["GET"]),
         Route("/authorize", authorize, methods=["GET"]),
         Route("/oauth/connect", RequestBodyLimitMiddleware(request_response(consent), 8192), methods=["GET", "POST"]),
         Route("/token", RequestBodyLimitMiddleware(request_response(token), 8192), methods=["POST"]),
     ]
+    if issuer_path:
+        # Tailscale strips a mounted /.well-known prefix before forwarding to the app.
+        routes += [
+            Route("/oauth-protected-resource" + issuer_path + "/mcp", resource_metadata, methods=["GET"]),
+            Route("/oauth-authorization-server" + issuer_path, metadata, methods=["GET"]),
+        ]
+    return routes

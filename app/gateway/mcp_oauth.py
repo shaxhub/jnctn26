@@ -6,7 +6,7 @@ import re
 import secrets
 import time
 from functools import lru_cache
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import anyio
 from fastapi import HTTPException
@@ -41,7 +41,8 @@ def oauth_provider(public_url: str | None) -> OAuthProvider | None:
     if not public_url:
         return None
     url = AnyHttpUrl(public_url)
-    if (url.scheme != "https" or url.path != "/mcp" or url.query is not None or url.fragment is not None
+    if (url.scheme != "https" or not re.fullmatch(r"(?:/[a-zA-Z0-9_-]+)*/mcp", url.path or "")
+            or url.query is not None or url.fragment is not None
             or url.username is not None or url.password is not None or str(url) != public_url):
         raise ValueError("MCP_PUBLIC_URL must be a canonical HTTPS URL ending in /mcp when OAuth is enabled.")
     return OAuthProvider(public_url)
@@ -68,6 +69,8 @@ class OAuthProvider:
     def __init__(self, resource: str):
         self.resource = resource
         self.issuer = resource.removesuffix("/mcp")
+        issuer = urlsplit(self.issuer)
+        self.origin = f"{issuer.scheme}://{issuer.netloc}"
         self.metadata = str(build_resource_metadata_url(AnyHttpUrl(resource)))
         # Pin the supported ChatGPT CIMD document's identity, redirect and public-client method.
         # This keeps authorization independent of arbitrary client URLs or outbound metadata requests.

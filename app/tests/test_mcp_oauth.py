@@ -151,3 +151,23 @@ def test_chatgpt_oauth_link_refresh_and_disconnect(oauth_app):
             assert (await rpc("tools/list", {}, new_access)).status_code == 401
 
     asyncio.run(check())
+
+
+def test_funnel_oauth_discovery_through_portal_prefix(oauth_app):
+    from gateway.mcp_connect import oauth_routes
+    from gateway.mcp_oauth import oauth_provider
+
+    issuer = ORIGIN + "/agent-dairy"
+    provider = oauth_provider(issuer + "/mcp")
+    app = FastAPI(routes=oauth_routes(provider))
+
+    async def check():
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=ORIGIN) as http:
+            resource = await http.get("/oauth-protected-resource/agent-dairy/mcp")
+            discovery = await http.get("/oauth-authorization-server/agent-dairy")
+            assert resource.json()["resource"] == issuer + "/mcp"
+            assert resource.json()["authorization_servers"] == [issuer]
+            assert discovery.json()["authorization_endpoint"] == issuer + "/authorize"
+            assert provider.origin == ORIGIN
+
+    asyncio.run(check())

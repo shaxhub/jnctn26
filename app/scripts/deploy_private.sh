@@ -15,7 +15,7 @@ export DB_PATH=data/hosted-gateway.db
 export SIGNING_KEY_PATH=data/hosted-signing.pem
 export VALIO_API_KEY= GEMINI_API_KEY= ANTHROPIC_API_KEY=
 export MCP_ALLOWED_ORIGINS="http://$host:8000"
-if [[ "$app_dir" == *'"'* || "$app_dir" == *%* || "$app_dir" == *$'\n'* ]]; then
+if [[ "$app_dir" == *'"'* || "$app_dir" == *%* || "$app_dir" == *$'\n'* || "$app_dir" == *$'\r'* || "$app_dir" == *'\'* ]]; then
   printf 'Unsupported character in the deployment directory.\n' >&2
   exit 2
 fi
@@ -43,7 +43,7 @@ if systemctl --user show-environment >/dev/null 2>&1 &&
 Description=Agent Dairy $surface
 After=network-online.target
 [Service]
-WorkingDirectory="$app_dir"
+WorkingDirectory=$app_dir
 Environment=REQUIRE_PORTAL_LOGIN=1 OFFLINE_DEMO=1
 Environment=CATALOG_DB_PATH=data/synthetic.db DB_PATH=data/hosted-gateway.db SIGNING_KEY_PATH=data/hosted-signing.pem
 Environment=VALIO_API_KEY= GEMINI_API_KEY= ANTHROPIC_API_KEY=

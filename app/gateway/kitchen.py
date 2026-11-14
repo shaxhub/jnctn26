@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-from . import audit, service
+from . import audit, service, store
 from .auth import Principal
 from .menu_catalog import DISH_ALIASES, DISHES, INGREDIENT_ALIASES, SEARCH_TERMS, SWAPS
 from .models import Need, Offer, QuoteRequest, SearchRequest, expand_allergens
@@ -114,6 +114,8 @@ def compile_ingredients(request: KitchenRequest) -> dict:
         raise service.GatewayError(422, "Use at most 40 distinct ingredient and unit combinations")
     for row in rows.values():
         row["quantity"] = round(row["quantity"], 9)
+        if row["quantity"] == 0:
+            raise service.GatewayError(422, f"Scaled amount for {row['ingredient']} is below supported precision.")
         row["quantities_by_dish"] = {name: round(amount, 9) for name, amount in row["quantities_by_dish"].items()}
     return {"servings_per_dish": request.servings, "ingredients": list(rows.values()),
             "unresolved_dishes": unresolved, "known_dishes": sorted(DISHES)}
@@ -177,6 +179,8 @@ def _pick(principal: Principal, name: str, row: dict, offers: list[Offer], reque
 
 
 def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
+    if request.delivery_date < store.now().date():
+        raise service.GatewayError(422, "Choose today or a future delivery date.")
     result = compile_ingredients(request)
     rows = result["ingredients"]
     excluded = request.exclude_allergens + principal.mandate.forbidden_allergens

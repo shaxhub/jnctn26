@@ -70,6 +70,8 @@ async def _run(fn, *args, **kwargs):
         raise ToolError(e.message) from e
     except httpx.HTTPError as e:
         raise ToolError(f"Valio upstream API error: {e}") from e
+    except OverflowError as e:
+        raise ToolError("A numeric value is outside the supported range.") from e
     except (ValidationError, TypeError, ValueError, RuntimeError) as e:
         raise ToolError(str(e)) from e
 

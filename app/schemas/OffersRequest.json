@@ -18,6 +18,7 @@
       "anyOf": [
         {
           "exclusiveMinimum": 0,
+          "maximum": 1000000,
           "type": "number"
         },
         {

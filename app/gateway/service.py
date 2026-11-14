@@ -7,6 +7,7 @@ from the caller's arguments.
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -264,6 +265,8 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
 
     total = round(sum(l.line_total for l in lines), 2)
     gross = round(sum(l.quantity * (l.unit_price_with_tax or l.unit_price) for l in lines), 2)
+    if not all(math.isfinite(value) for value in (total, gross)):
+        raise GatewayError(409, "The checked prices could not produce a finite total.")
     if max_total_gross is not None and gross > max_total_gross:
         raise GatewayError(409, f"The checked basket costs €{gross:,.2f} incl. VAT and exceeds the hard budget of €{max_total_gross:,.2f}.")
     preview = _evaluate(p, lines, offers, total, req.need, delivery=req.delivery_date)
@@ -276,7 +279,10 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
                "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role,
                "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims,
                "max_total_gross": max_total_gross}
-    jws = quotes.sign(payload)
+    try:
+        jws = quotes.sign(payload)
+    except ValueError as exc:
+        raise GatewayError(409, "The quote contains a non-finite or invalid value.") from exc
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
     with store.transaction() as conn:
         if supersedes:

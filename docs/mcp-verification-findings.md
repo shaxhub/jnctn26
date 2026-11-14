@@ -68,3 +68,14 @@
 
 - In this environment, `/Users/shax/.gemini/config/mcp_config.json` is empty (0 bytes) and no local gateway server is running on port `8000` by default.
 - Because `McpAuthMiddleware` requires `X-API-Key` or `Authorization: Bearer <key>` on `/mcp`, clients that natively support custom HTTP headers (e.g. `claude mcp add --transport http ... --header "Authorization: Bearer ..."`) can connect directly, while clients configured only with a `url` in `mcp_config.json` require header support or a local stdio bridge (such as `mcp-remote`).
+
+## Resolution on feature/mcp-fixes
+
+1. Offer, need, and quote line quantities must be finite and at most 1,000,000. MCP returns a tool error for numeric overflow.
+2. Quote creation rejects non-finite totals before saving and JWS signing uses strict JSON.
+3. Ingredient amounts that round to zero return a validation error identifying the ingredient.
+4. Ingredient sourcing rejects dates before the gateway’s Helsinki date before looking up offers.
+
+The [MCP HTTP regression test](../app/tests/test_mcp_transport.py) covers initialization, authentication, tool discovery, and all four input-validation cases. A separate signing test covers strict JSON serialization.
+
+For hosted clients, create a named key in **Settings → Agent integration**. Configure **Streamable HTTP** with `Authorization: Bearer <key>` and the Funnel URL `https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp`. Use the custom MCP hostname after it has been configured in Cloudflare. For clients that only accept a URL, use a bridge that can supply the authorization header. Keep credentials in the client’s private configuration. The Antigravity installation noted above was outside the scope of this branch.

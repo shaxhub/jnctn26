@@ -169,7 +169,8 @@ class Offer(BaseModel):
 class OffersRequest(BaseModel):
     product_ids: list[str] = Field(..., min_length=1, max_length=1000)
     delivery_date: date
-    quantity: float | None = Field(None, gt=0, description="Optional: needed amount, to also get a plan.")
+    quantity: float | None = Field(None, gt=0, le=1_000_000, allow_inf_nan=False,
+                                  description="Optional: needed amount, to also get a plan.")
     unit: str | None = Field(None, description="Unit of quantity: L, KG, PCS or a sales unit code.")
     include_substitutes: bool = False
     required_claims: list[str] = Field(default_factory=list, max_length=30)
@@ -182,7 +183,7 @@ class OffersRequest(BaseModel):
 class Need(BaseModel):
     """What the buyer asked for, in structured form (shown to the user before anything is ordered)."""
     item: str = Field(..., description="Short description, e.g. 'lactose-free milk'.")
-    quantity: float = Field(..., gt=0)
+    quantity: float = Field(..., gt=0, le=1_000_000, allow_inf_nan=False)
     unit: str = Field(..., description="L, KG, PCS (consumer pieces) or a sales unit code such as KI.")
     delivery_date: date
     search_text: str = ""
@@ -254,7 +255,7 @@ class PolicyResult(BaseModel):
 # --- quotes / orders --------------------------------------------------------------------------
 class LineRequest(BaseModel):
     product_id: str
-    quantity: float = Field(..., gt=0, allow_inf_nan=False, description="In sales units.")
+    quantity: float = Field(..., gt=0, le=1_000_000, allow_inf_nan=False, description="In sales units.")
 
 
 class QuoteRequest(BaseModel):

@@ -1,0 +1,38 @@
+body { grid-template-columns: 15.75rem minmax(0, 1fr) }
+.client-tools { display:grid; gap:.65rem }
+.client-tools button { background:transparent; color:white; border-color:#57749b; justify-content:start }
+.client-tools button:hover { background:#26466d }
+.locale-buttons { display:flex; gap:.5rem }
+.locale-buttons button { border-radius:50%; min-width:2.5rem; justify-content:center; padding:.25rem }
+.locale-buttons [aria-pressed=true] { background:#b2f1dd; color:#10233c; border-color:#b2f1dd }
+.client-hero { min-height:11.5rem }
+.client-hero h1 { max-width:25ch }
+.workspace-metrics { margin-top:1rem }
+.delivery-pipeline { list-style:none; display:grid; grid-template-columns:repeat(auto-fit,minmax(7rem,1fr)); gap:.6rem; padding:0 }
+.delivery-pipeline li { display:grid; gap:.25rem; border-left:3px solid var(--blue); background:var(--sky); padding:.75rem }
+.delivery-pipeline strong { font-size:1.45rem }
+.workspace-form { display:grid; gap:.75rem; margin-top:1rem }
+.workspace-form input,.workspace-form select { margin-top:.25rem }
+.settings-grid { grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr)); align-items:end }
+.settings-grid .feedback { grid-column:1/-1 }
+.workspace-metrics-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr)); gap:.9rem; margin:1rem 0 }
+.workspace-chart { display:grid; gap:.4rem; margin:.75rem 0 0; padding:0; list-style:none; font-size:.84rem }
+.workspace-chart li { display:grid; grid-template-columns: minmax(4rem,1fr) minmax(3rem,1.2fr) auto; align-items:center; gap:.4rem }
+.workspace-chart progress { inline-size:100%; accent-color:var(--green) }
+.thread-messages { list-style:none; padding:0; display:grid; gap:.5rem; max-height:20rem; overflow:auto }
+.thread-messages li { background:var(--sky); border-radius:.45rem; padding:.65rem; overflow-wrap:anywhere }
+.seasonal-panel { margin-bottom:1rem }
+#product-view > .workspace { margin-bottom:1rem }
+#view-title { overflow-wrap:normal }
+[data-theme=dark] { color-scheme:dark; --ink:#e3eefe; --muted:#adc3de; --blue:#779af7; --deep:#183365;
+ --sky:#17273f; --line:#354d6e; --white:#101f34; --green:#88efd5; --pale:#163c36 }
+[data-theme=dark] .rail,[data-theme=dark] .top { background:#0d1c2e; color:var(--ink) }
+[data-theme=dark] button,[data-theme=dark] input,[data-theme=dark] textarea,[data-theme=dark] select { background:#152842;color:var(--ink) }
+[data-theme=dark] button.primary { color:#10233c;background:#8facfc }
+[data-theme=dark] pre,[data-theme=dark] .tag { background:var(--sky);color:var(--ink) }
+[data-theme=dark] .locale-buttons [aria-pressed=true] { background:#b2f1dd;color:#10233c }
+@media(max-width:650px) {
+  .client-tools { display:flex; flex-wrap:wrap;padding:0 }
+  .client-tools button { min-height:2rem;font-size:.8rem }
+  .locale-buttons button { min-width:2rem }
+}

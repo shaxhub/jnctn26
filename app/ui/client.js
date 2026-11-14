@@ -1,11 +1,11 @@
+import {orderThread, stageName} from "./order_thread.js";
 import {$, date, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
 
 const buyer = $("buyer");
-const buyerKey = () => "demo-" + buyer.value + "-client-key";
-let draft = null;
+export const buyerKey = () => "demo-" + buyer.value + "-client-key";
 let scope = 0;
 let queryVersion = 0;
-let ordersVersion = 0;
+let seasonalVersion = 0;
 
 function connection() {
   $("mcp-command").textContent = 'claude mcp add --transport http agent-dairy ' + location.origin +
@@ -13,9 +13,7 @@ function connection() {
   feedback($("copy-status"), "");
 }
 
-function showDraft(quote, outcome) {
-  draft = quote;
-  const target = $("draft");
+export function showDraft(quote, outcome, target = $("draft")) {
   target.classList.toggle("empty", !quote && !outcome);
   target.replaceChildren();
   if (outcome) {
@@ -35,10 +33,36 @@ function showDraft(quote, outcome) {
   key.href = "/.well-known/jwks.json";
   proof.append(node("summary", "Signed quote"), key, node("pre", quote.signature));
   target.append(proof);
+  const history = node("details", "", "plan-option");
+  history.append(node("summary", "Recurring order comparison"));
+  history.addEventListener("toggle", async () => {
+    if (!history.open || history.childElementCount > 1) return;
+    const pending = node("p", "Comparing recent deliveries…", "cell-note");
+    history.append(pending);
+    try {
+      const comparison = await request("/client/tickets/" + encodeURIComponent(quote.quote_id) + "/recurring", buyerKey());
+      pending.remove();
+      if (!comparison.baselines.length) {
+        history.append(node("p", "A baseline needs at least three confirmed deliveries on this weekday.", "cell-note"));
+        return;
+      }
+      history.append(table(["SKU", "Usual quantity", "Proposed quantity", "Unit price change"],
+        comparison.baselines.map(item => [item.product_id, number.format(item.baseline_quantity) + " " + item.sales_unit,
+          number.format(item.current_quantity) + " " + item.sales_unit,
+          item.price_change_pct == null ? "—" : number.format(item.price_change_pct) + "%"])));
+    } catch (error) {
+      pending.textContent = error.message;
+    }
+  });
+  target.append(history);
   if (quote.policy_preview.reasons.length) {
     target.append(node("p", quote.policy_preview.reasons.join(" "), "cell-note"));
   }
   const button = node("button", "Submit ticket to Aimo", "primary");
+  if (new Date(quote.expires_at) <= new Date()) {
+    button.disabled = true;
+    target.append(node("p", "This draft expired. Save a revised draft to refresh the quote.", "feedback"));
+  }
   const actions = node("div", "", "actions");
   const info = node("p", "", "feedback");
   info.hidden = true;
@@ -50,10 +74,10 @@ function showDraft(quote, outcome) {
     button.disabled = true;
     feedback(info, "Submitting ticket…");
     try {
-      const order = await request("/client/tickets/submit", buyerKey(), {quote_id: draft.quote_id});
-      if (current === scope && draft === quote) {
-        showDraft(null, order);
-        await loadOrders();
+      const order = await request("/client/tickets/submit", buyerKey(), {quote_id: quote.quote_id});
+      if (current === scope && target.isConnected) {
+        showDraft(null, order, target);
+        window.dispatchEvent(new Event("ticket-submitted"));
       }
     } catch (error) {
       feedback(info, error.message, true);
@@ -119,13 +143,7 @@ function showResults(result, requestData) {
   }
 }
 
-function ticketButton(order) {
-  const button = node("button", order.order_id);
-  button.addEventListener("click", () => inspectTicket(order.order_id));
-  return button;
-}
-
-async function inspectTicket(id) {
+export async function inspectTicket(id) {
   const dialog = $("ticket-details");
   const target = $("ticket-detail-body");
   const current = scope;
@@ -133,11 +151,15 @@ async function inspectTicket(id) {
   target.replaceChildren(node("p", "Loading ticket…", "empty"));
   dialog.showModal();
   try {
-    const order = await request("/orders/" + encodeURIComponent(id), key);
+    const url = "/client/requests/" + encodeURIComponent(id);
+    const detail = await request(url, key);
+    const order = detail.order;
     if (current !== scope || !dialog.open) return;
-    target.replaceChildren(pill(order.status), node("p", order.order_id + " · Delivery " + date(order.delivery_date),
+    target.replaceChildren(node("span", stageName(detail.stage, document.documentElement.lang), "tag"), node("p", order.order_id + " · Delivery " + date(order.delivery_date),
       "cell-note"), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
       node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
+    target.append(orderThread(detail, {url, key, language:document.documentElement.lang}));
+    if (order.status === "confirmed") target.append(repeatForm(order, current, key, dialog));
     const audit = await request("/audit?order_id=" + encodeURIComponent(id), key);
     if (current !== scope || !dialog.open) return;
     const events = node("ol", "", "timeline");
@@ -149,18 +171,21 @@ async function inspectTicket(id) {
   }
 }
 
-async function loadOrders() {
-  const current = ++ordersVersion;
-  const target = $("orders");
-  target.replaceChildren(node("p", "Loading tickets…", "empty"));
-  try {
-    const orders = await request("/orders", buyerKey());
-    if (current !== ordersVersion) return;
-    target.replaceChildren(orders.length ? table(["Ticket", "Status", "Delivery", "Net total"],
-      orders.map(order => [ticketButton(order), pill(order.status), date(order.delivery_date), money.format(order.total_net)]))
-      : node("p", "Submitted tickets will appear here.", "empty"));
-  } catch (error) {
-    if (current === ordersVersion) target.replaceChildren(node("p", error.message, "feedback error"));
+function showRecipe(recipe) {
+  const target = $("results");
+  target.replaceChildren(node("h3", "Recipe ingredients", "results"));
+  const data = recipe.ingredients.map(row => [
+    row.ingredient, number.format(row.quantity) + " " + row.unit, row.dishes.join(", "),
+    row.status ?? "Add a delivery date to check stock",
+    row.sourcing ? lineItems(row.sourcing.plan.lines) : "—"
+  ]);
+  if (data.length) target.append(table(["Ingredient", "Quantity", "Used in", "Stock", "Matched products"], data));
+  if (recipe.unresolved_dishes.length) target.append(node("p", "Unresolved: " + recipe.unresolved_dishes.join(", "), "feedback"));
+  for (const row of recipe.ingredients) for (const option of row.alternatives ?? []) {
+    const card = node("details", "", "plan-option");
+    card.append(node("summary", "Alternative for " + row.ingredient + ": " + option.ingredient),
+      node("p", option.compatible_dishes.join(", ") + " · " + option.culinary_note), lineItems(option.plan.lines));
+    target.append(card);
   }
 }
 
@@ -175,8 +200,10 @@ async function sendChat(requestData) {
     const result = await request("/client/chat", buyerKey(), requestData);
     if (current !== queryVersion) return;
     feedback($("chat-status"), result.message);
-    $("assistant-mode").textContent = result.mode === "ai" ? "AI-assisted" : "Guided search";
-    showResults(result, requestData);
+    $("assistant-mode").textContent = result.mode === "gemini-4-carbon" ? "Gemini 4 Carbon" :
+      result.mode === "guided_fallback" ? "Gemini unavailable. Using guided search." : "Guided search";
+    if (result.recipe) showRecipe(result.recipe);
+    else showResults(result, requestData);
     if (result.draft) showDraft(result.draft);
   } catch (error) {
     if (current === queryVersion) feedback($("chat-status"), error.message, true);
@@ -190,7 +217,8 @@ $("chat").addEventListener("submit", event => {
   const text = $("message").value.trim();
   if (!text) return;
   sendChat({text, action: event.submitter?.value || "lookup",
-    postal_code: $("postcode").value || null, include_substitutes: $("substitutes").checked});
+    postal_code: $("postcode").value || null, delivery_date:$("chat-delivery-date").value || null,
+    model:$("assistant-model").value, include_substitutes: $("substitutes").checked});
 });
 
 document.querySelectorAll("[data-example]").forEach(button => button.addEventListener("click", () => {
@@ -205,7 +233,33 @@ $("copy").addEventListener("click", async () => {
     feedback($("copy-status"), "Clipboard is unavailable. Select and copy the configuration above.", true);
   }
 });
+$("seasonal-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const version = ++seasonalVersion;
+  const target = $("seasonal-results");
+  const button = event.currentTarget.querySelector("button");
+  target.replaceChildren(node("p", "Checking seasonal stock…", "feedback"));
+  button.disabled = true;
+  try {
+    const result = await request("/client/seasonal?delivery_date=" + encodeURIComponent($("seasonal-date").value), buyerKey());
+    if (version !== seasonalVersion) return;
+    target.replaceChildren(node("p", result.calendar + " · " + date(result.delivery_date), "cell-note"));
+    if (!result.suggestions.length) target.append(node("p", "No available products match the seasonal calendar for this date.", "empty"));
+    for (const group of result.suggestions) {
+      target.append(node("h3", group.ingredient, "results"), table(
+        ["Product", "Net price / unit", "Availability", "Earliest date", "kg CO₂e/kg", "Reliability"], offerRows(group.offers)));
+    }
+  } catch (error) {
+    if (version === seasonalVersion) target.replaceChildren(node("p", error.message, "feedback error"));
+  } finally {
+    if (version === seasonalVersion) button.disabled = false;
+  }
+});
+
 buyer.addEventListener("change", () => {
+  seasonalVersion += 1;
+  $("seasonal-results").replaceChildren();
+  $("seasonal-form").querySelector("button").disabled = false;
   scope += 1;
   queryVersion += 1;
   $("chat").querySelectorAll("[type=submit]").forEach(button => { button.disabled = false; });
@@ -213,8 +267,16 @@ buyer.addEventListener("change", () => {
   showDraft(null);
   $("results").replaceChildren();
   feedback($("chat-status"), "");
-  loadOrders();
 });
-$("refresh").addEventListener("click", loadOrders);
 connection();
-loadOrders();
+
+
+document.querySelector("[data-recipe]").addEventListener("click", () => {
+  $("message").value = "Tomato salad (4)\n500 g tomato\n80 g red onion\n12 g basil";
+  $("message").focus();
+});
+request("/client/models", buyerKey()).then(data => {
+  const model = data.models[0];
+  if (!model.available) $("assistant-mode").textContent =
+    "Gemini key pending. Guided search accepts product requests and metric recipe lists.";
+}).catch(() => {});

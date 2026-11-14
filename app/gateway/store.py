@@ -22,6 +22,9 @@ from .config import TZ, settings
 GENESIS = "0" * 64
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS workspace_preferences (
+    buyer_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS quotes (
     quote_id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open',            -- open | used

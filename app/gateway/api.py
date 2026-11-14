@@ -6,22 +6,19 @@
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime
-from typing import Any
 
 import anyio
-import httpx
-from fastapi import Body, Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import quotes, service, store
+from . import gemini, quotes, service, store
 from .agent import compact_offers, run_agent
-from .auth import Admin, require_admin, McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
-from .config import APP_DIR, TZ, settings
+from .auth import McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
+from .config import APP_DIR, settings
 from .mcp_server import mcp
-from .operations import router as operations_router
+from .workspace import router as workspace_router
+from .web_common import configure_errors, mount_assets
 from .portal_chat import router as client_router
 from .models import (AgentRunRequest, ApprovalDecisionRequest, Need, OffersRequest, OrderRequest, QuoteRequest,
                      SearchRequest)
@@ -43,24 +40,10 @@ app = FastAPI(title="Agent Dairy — Valio Aimo Trade Gateway", version="0.1.0",
                           "hash-chained audit log. Auth: X-API-Key (demo keys in buyers.json).")
 app.router.routes.extend(mcp_app.routes)    # serves POST/GET /mcp from the same process and port
 app.add_middleware(McpAuthMiddleware)
-app.include_router(operations_router)
 app.include_router(client_router)
-app.mount("/assets", StaticFiles(directory=APP_DIR / "ui"), name="portal-assets")
-
-
-@app.exception_handler(service.GatewayError)
-async def _gateway_error(_, exc: service.GatewayError):
-    return JSONResponse(status_code=exc.status, content={"detail": exc.message})
-
-
-@app.exception_handler(httpx.HTTPError)
-async def _upstream_error(_, exc: httpx.HTTPError):
-    return JSONResponse(status_code=502, content={"detail": f"Upstream Valio API error: {exc}"})
-
-
-@app.exception_handler(RuntimeError)
-async def _runtime_error(_, exc: RuntimeError):
-    return JSONResponse(status_code=503, content={"detail": str(exc)})
+app.include_router(workspace_router)
+configure_errors(app)
+mount_assets(app, {"client.js", "common.js", "portal.css", "workspace.js", "workspace.css", "order_thread.js"})
 
 
 async def _thread(fn, *args):
@@ -74,17 +57,12 @@ def ui():
     return FileResponse(APP_DIR / "ui" / "index.html")
 
 
-@app.get("/admin", include_in_schema=False)
-def admin_ui():
-    return FileResponse(APP_DIR / "ui" / "admin.html")
-
-
 @app.get("/health")
 def health():
     return {
         "ok": True,
         "catalog": settings.catalog_db_path.exists(),
-        "llm_agent": bool(settings.anthropic_api_key),
+        "llm_agent": gemini.enabled(),
         "valio_api_key": bool(settings.valio_api_key),
         "demo_now": store.now().isoformat(),
     }
@@ -181,21 +159,3 @@ def next_monday():
     from .agent import next_weekday
     cur = store.now().date()
     return {"date": next_weekday(0, cur).isoformat(), "today": cur.isoformat()}
-
-
-@app.post("/demo/reset", include_in_schema=False)
-def demo_reset(payload: dict[str, Any] | None = Body(default=None), admin: Admin = Depends(require_admin)):
-    if payload is not None and "demo_now" in payload:
-        raw = payload["demo_now"]
-        if raw is None or raw == "":
-            store.set_demo_now(None)
-        else:
-            try:
-                dt = datetime.fromisoformat(str(raw))
-            except ValueError as exc:
-                raise HTTPException(422, f"Invalid demo_now ISO timestamp: {raw}") from exc
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=TZ)
-            store.set_demo_now(dt)
-    store.reset_db()
-    return {"ok": True, "now": store.now().isoformat()}

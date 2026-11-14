@@ -261,6 +261,8 @@ class QuoteRequest(BaseModel):
     delivery_date: date
     lines: list[LineRequest] = Field(..., min_length=1, max_length=1000)
     need: Need | None = Field(None, description="Optional original need, so the gateway can check the match.")
+    exclude_allergens: list[str] = Field(default_factory=list, max_length=20)
+    required_claims: list[str] = Field(default_factory=list, max_length=10)
 
 
 class QuoteLine(BaseModel):

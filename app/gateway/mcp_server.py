@@ -11,6 +11,7 @@ The tool descriptions below are the agent's documentation: keep them precise.
 """
 from __future__ import annotations
 
+from datetime import date
 from functools import partial
 
 import anyio
@@ -19,7 +20,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
-from . import kitchen, service, store
+from . import kitchen, seasonal, service, store, workspace
 from .agent import compact_offers
 from .auth import Principal, current_principal, key_from_headers, principal_for_key
 from .delivery import estimate, postal_code_from_address
@@ -27,7 +28,7 @@ from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
 
 READ_TOOLS = ("ping", "get_my_mandate", "search_products", "check_offers",
-              "estimate_delivery", "get_order_status", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
+              "estimate_delivery", "discover_seasonal_products", "check_recurring_quote", "get_order_status", "get_request_thread", "post_request_message", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
 
 INSTRUCTIONS = """Valio Aimo trade gateway for food-service purchasing agents.
 Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+unit to get plans)
@@ -81,6 +82,20 @@ async def ping(ctx: Context = None) -> dict:
     except ToolError:
         upstream = "unavailable"
     return {"status": "ok", "valio": upstream, "checked_at": store.now().isoformat()}
+
+
+@mcp.tool()
+async def discover_seasonal_products(delivery_date: str, exclude_allergens: list[kitchen.Text] | None = None,
+                                     required_claims: list[kitchen.Text] | None = None, ctx: Context = None) -> dict:
+    """Suggest in-season Finnish produce with verified availability for the requested date.
+    Applies buyer constraints and returns price, origin, and sustainability evidence when available.
+    """
+    principal = _principal(ctx)
+    delivery = _parse_args(lambda: date.fromisoformat(delivery_date))
+    excluded, claims = exclude_allergens or [], required_claims or []
+    if len(excluded) > 20 or len(claims) > 10:
+        raise ToolError("Use at most 20 allergen exclusions and 10 required claims")
+    return await _run(seasonal.discover, principal, delivery, excluded, claims)
 
 
 @mcp.tool()
@@ -147,7 +162,7 @@ async def get_my_mandate(ctx: Context = None) -> dict:
         "name": p.name,
         "mandate": p.mandate.model_dump(mode="json"),
         "weekly_spent": spent,
-        "allowed_tools": list(READ_TOOLS) + (["create_quote", "place_order"] if p.role == "agent" and p.can_order else []),
+        "allowed_tools": list(READ_TOOLS) + (["create_quote", "repeat_quote", "place_order"] if p.role == "agent" and p.can_order else []),
     }
 
 
@@ -251,6 +266,25 @@ async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None) 
 
 
 @mcp.tool()
+async def repeat_quote(order_id: str, delivery_date: str, ctx: Context = None) -> dict:
+    """Create a new signed quote for a confirmed order on a new delivery date.
+    Checks current stock, pricing, dietary constraints and recurring-order drift. Requires ordering permission.
+    """
+    principal = _principal(ctx, write=True)
+    delivery = _parse_args(lambda: date.fromisoformat(delivery_date))
+    quote = await _run(service.repeat_quote, principal, order_id, delivery)
+    return quote.model_dump(mode="json")
+
+
+@mcp.tool()
+async def check_recurring_quote(quote_id: str, ctx: Context = None) -> dict:
+    """Compare a buyer-owned signed quote with recent same-weekday confirmed orders.
+    Results include per-SKU baselines and drift flags when enough history is available.
+    """
+    return await _run(service.check_recurring_quote, _principal(ctx), quote_id)
+
+
+@mcp.tool()
 async def get_order_status(order_id: str, ctx: Context = None) -> dict:
     """Current status of one of your orders: confirmed, pending_approval, rejected or expired, with the
     lines, totals and the policy decision with the rules that fired."""
@@ -266,3 +300,18 @@ async def get_audit_log(order_id: str, ctx: Context = None) -> dict:
     p = _principal(ctx)
     res = await _run(service.get_audit_log, p, order_id)
     return {"order_id": order_id, "text": res["text"], "events": res["events"], "chain": res["chain"]}
+
+@mcp.tool()
+async def get_request_thread(order_id: str, ctx: Context = None) -> dict:
+    """Read fulfillment status and the conversation for one of your buyer's submitted requests."""
+    principal = _principal(ctx)
+    order = await _run(service.get_order, principal, order_id)
+    return await _run(workspace.ticket_activity, order)
+
+
+@mcp.tool()
+async def post_request_message(order_id: str, text: str, ctx: Context = None) -> dict:
+    """Post a message to Aimo in the conversation for one of your buyer's submitted requests."""
+    principal = _principal(ctx)
+    message = _parse_args(lambda: workspace.Message(text=text))
+    return await _run(workspace.send_message, principal, order_id, message)

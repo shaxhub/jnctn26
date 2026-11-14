@@ -14,7 +14,8 @@ Everything you need to run **Agent Dairy** locally.
 
 Optional:
 
-- `ANTHROPIC_API_KEY` in `app/.env` enables the reference LLM agent. Without it the deterministic scripted agent is used.
+- `GEMINI_API_KEY` enables Gemini 4 Carbon in the client workspace. The client uses guided parsing with an empty key.
+- `ANTHROPIC_API_KEY` enables LLM mode for the separate reference buyer agent.
 - `DEMO_NOW` pins the demo clock.
 
 ## 2. Challenge dataset
@@ -63,14 +64,21 @@ Do not edit them by hand.
 
 ## 4. First run
 
-```bash
-cd app
-cp .env.example .env        # then fill in VALIO_API_KEY and AIMO_ADMIN_API_KEY
-uv run python -m gateway.load_catalog
-uv run uvicorn gateway.api:app --reload --port 8000
+Copy `app/.env.example` to `app/.env` and fill in the keys. From `app/`, build the catalog and start both portals.
+
+```sh
+uv run --locked python -m gateway.load_catalog
+uv run --locked python scripts/run_local.py
 ```
 
-Configure `DEMO_NOW` in `.env` if you want a fixed demo clock.
+The client uses port 8000 and Aimo operations uses port 8001. Press **Ctrl+C** to stop both. If you installed with pip, run the same Python commands from `app/` with the virtual environment active.
+
+```sh
+python -m gateway.load_catalog
+python scripts/run_local.py
+```
+
+See the [root README](../README.md#run-locally) for setup and alternate ports. Configure `DEMO_NOW` in `.env` if you want a fixed demo clock.
 
 ## 5. Verify the install
 
@@ -80,4 +88,4 @@ uv run pytest -q
 uv run python evals/run_evals.py
 ```
 
-Tests and evals run offline; starting the app and loading the catalog require the challenge data and API key.
+Tests and default evaluations run offline. Importing the catalog requires the challenge files, and live offers require the Valio API key.

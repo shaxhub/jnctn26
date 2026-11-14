@@ -7,14 +7,14 @@ from datetime import date
 from typing import Literal
 
 import anyio
+import httpx
 from fastapi import APIRouter, Depends
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field, ValidationError
 
-from . import audit, kitchen, service, store
-from .agent import explicit_quantity, parse_need_heuristic, parse_need_llm
+from . import audit, gemini, kitchen, service, store
+from .agent import explicit_quantity, parse_need_heuristic
 from .auth import Principal, current_principal, require_client
-from .config import settings
 from .delivery import postal_code_from_address
 from .mcp_server import mcp
 from .models import Need, OrderRequest, QuoteRequest
@@ -23,7 +23,9 @@ router = APIRouter(prefix="/client")
 
 
 class ChatRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1, max_length=6000)
+    delivery_date: date | None = None
+    model: Literal["gemini-4-carbon"] = "gemini-4-carbon"
     action: Literal["lookup", "draft"] = "lookup"
     postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
     include_substitutes: bool = True
@@ -35,25 +37,18 @@ DRAFT_COMMAND = re.compile(r"^(?:please\s+)?(?:create|draft|prepare)\s+(?:an?\s+
 ALLERGY = re.compile(r"\b(?:allergy to|allergic to|exclude allergen)\s+([\w -]+?)(?=[,.;]|\s+(?:by|for|on)\b|$)", re.I)
 
 
-async def _lookup(p: Principal, text: str) -> tuple[Need, str]:
-    today = store.now().date()
-    if settings.anthropic_api_key:
-        import anthropic
-
-        def parse():
-            with anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=15, max_retries=0) as client:
-                return parse_need_llm(client, text, today)
-
-        try:
-            return await anyio.to_thread.run_sync(parse), "ai"
-        except (anthropic.APIError, RuntimeError, ValueError):
-            pass
+def _lookup(text: str, today: date) -> Need:
     need = parse_need_heuristic(text, today)
     need.exclude_allergens.extend(match.group(1).strip() for match in ALLERGY.finditer(text))
-    return need, "guided"
+    return need
 
 
-async def _read_tool(name: Literal["search_products", "check_offers", "compile_ingredients", "source_ingredients"], args: dict, p: Principal) -> dict:
+@router.get("/models")
+def models():
+    return {"models": [{"id": gemini.MODEL, "name": gemini.LABEL, "available": gemini.enabled()}]}
+
+
+async def _read_tool(name: Literal["search_products", "check_offers", "compile_ingredients", "source_ingredients", "discover_seasonal_products"], args: dict, p: Principal) -> dict:
     token = current_principal.set(p)
     try:
         result = await mcp.call_tool(name, args)
@@ -76,7 +71,35 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     if not text:
         raise service.GatewayError(422, "Enter a product request")
     draft_requested = request.action == "draft" or bool(DRAFT_COMMAND.match(text))
-    need, mode = await _lookup(p, text)
+    today = store.now().date()
+    mode = "guided"
+    parsed = None
+    if gemini.enabled():
+        try:
+            parsed = await gemini.extract(text, today)
+            mode = gemini.MODEL
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+            mode = "guided_fallback"
+    recipes = parsed.recipes if parsed else []
+    if not recipes and "\n" in text:
+        recipe_rows = sum(bool(kitchen.LINE.fullmatch(line.strip().removeprefix("- "))) for line in text.splitlines())
+        if recipe_rows >= 1:
+            first = text.splitlines()[0].strip()
+            recipe_input = "Pasted recipe (1)\n" + text if kitchen.LINE.fullmatch(first.removeprefix("- ")) else text
+            try:
+                recipes = kitchen.recipes_from_text(recipe_input, 1)
+            except (ValidationError, service.GatewayError) as exc:
+                raise service.GatewayError(422, "Paste recipe quantities in metric units, such as 500 g tomato.") from exc
+    if recipes:
+        servings = parsed.servings if parsed and parsed.servings else recipes[0].servings
+        result = await _kitchen_result(KitchenChatRequest(
+            kind="recipes", text=text, servings=servings, delivery_date=request.delivery_date,
+            draft=draft_requested), p, recipes=recipes)
+        return {"recipe": result, "draft": result.get("draft"), "mode": mode,
+                "message": "Recipe ingredients compiled." if not draft_requested else "Recipe draft ready for review."}
+    need = parsed.need if parsed and parsed.need else _lookup(text, today)
+    if request.delivery_date:
+        need.delivery_date = request.delivery_date
     need.exclude_allergens = sorted(set(need.exclude_allergens + p.mandate.forbidden_allergens))
     entry = await anyio.to_thread.run_sync(lambda: audit.log(
         "CLIENT_INQUIRY", p.actor, {"text": text, "action": "draft" if draft_requested else "lookup"},
@@ -116,7 +139,7 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
         response["message"] += " No orderable plan meets this request."
         return response
     if draft_requested:
-        if mode == "guided" and not explicit_quantity(text):
+        if mode != gemini.MODEL and not explicit_quantity(text):
             return {**response, "message": "Include a quantity and unit before drafting, such as 5 litres or 2 boxes."}
         best = plans[0]
         if request.plan_lines is not None:
@@ -141,6 +164,7 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
 class KitchenChatRequest(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
     kind: Literal["menu", "recipes"]
+    draft: bool = False
     servings: int = Field(ge=1, le=5000)
     delivery_date: date | None = None
     exclude_allergens: list[kitchen.Text] = Field(default_factory=list, max_length=20)
@@ -150,20 +174,58 @@ class KitchenChatRequest(BaseModel):
 
 @router.post("/kitchen")
 async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(require_client)):
+    return await _kitchen_result(request, p)
+
+
+async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=None):
     try:
         dishes = [line.strip().removeprefix("- ").strip() for line in request.text.splitlines() if line.strip()]
         args = kitchen.KitchenRequest(
             servings=request.servings,
             dishes=dishes if request.kind == "menu" else [],
-            recipes=kitchen.recipes_from_text(request.text, request.servings) if request.kind == "recipes" else [],
+            recipes=recipes if recipes is not None else (kitchen.recipes_from_text(request.text, request.servings)
+                                                         if request.kind == "recipes" else []),
         ).model_dump(mode="json")
     except ValidationError as exc:
         raise service.GatewayError(422, exc.errors()[0]["msg"]) from exc
     if request.delivery_date is None:
+        if request.draft:
+            raise service.GatewayError(422, "Choose a delivery date before drafting")
         return await _read_tool("compile_ingredients", args, p)
     args.update(delivery_date=request.delivery_date.isoformat(), exclude_allergens=request.exclude_allergens,
                 required_claims=request.required_claims, unavailable_ingredients=request.unavailable_ingredients)
-    return await _read_tool("source_ingredients", args, p)
+    if not request.draft:
+        return await _read_tool("source_ingredients", args, p)
+    entry = await anyio.to_thread.run_sync(lambda: audit.log(
+        "CLIENT_INQUIRY", p.actor, {"text": "Menu draft", "action": "draft",
+                                    "dishes": args["dishes"] or [recipe["name"] for recipe in args["recipes"]]},
+        buyer_id=p.buyer_id))
+    token = audit.inquiry_sequence.set(entry["seq"])
+    try:
+        result = await _read_tool("source_ingredients", args, p)
+        basket = kitchen.basket_request(result)
+        basket.exclude_allergens = request.exclude_allergens
+        basket.required_claims = request.required_claims
+        quote = await anyio.to_thread.run_sync(service.create_quote, p, basket)
+        result["draft"] = quote.model_dump(mode="json")
+        return result
+    finally:
+        audit.inquiry_sequence.reset(token)
+
+
+@router.get("/seasonal")
+async def seasonal_products(delivery_date: date, p: Principal = Depends(require_client)):
+    return await _read_tool("discover_seasonal_products", {"delivery_date": delivery_date.isoformat()}, p)
+
+
+@router.post("/tickets/{order_id}/repeat")
+def repeat_ticket(order_id: str, delivery_date: date, p: Principal = Depends(require_client)):
+    return service.repeat_quote(p, order_id, delivery_date)
+
+
+@router.get("/tickets/{quote_id}/recurring")
+def recurring_ticket(quote_id: str, p: Principal = Depends(require_client)):
+    return service.check_recurring_quote(p, quote_id)
 
 
 @router.post("/tickets/submit")

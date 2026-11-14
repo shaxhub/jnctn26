@@ -78,6 +78,7 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
     import asyncio
     from httpx import ASGITransport, AsyncClient
     from gateway.api import app
+    from gateway.admin_app import app as admin_app
     from gateway.models import ProductSummary, SearchResult
 
     monkeypatch.setattr(service, "search", lambda _: SearchResult(results=[
@@ -90,9 +91,12 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
     buyer = {"X-API-Key": "demo-hotel-client-key"}
     admin = {"X-API-Key": "test-admin-credential"}
     async def verify():
-        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as http:
-            assert (await http.get("/operations/activity", headers=buyer)).status_code == 401
-            assert (await http.post("/demo/reset", headers=buyer)).status_code == 401
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as http,
+            AsyncClient(transport=ASGITransport(app=admin_app), base_url='http://admin') as ops,
+        ):
+            assert (await ops.get("/operations/activity", headers=buyer)).status_code == 401
+            assert (await ops.post("/demo/reset", headers=buyer)).status_code == 401
             lookup = await http.post("/client/chat", headers=buyer, json={"text": "5 litres of lactose-free milk by Monday"})
             assert lookup.status_code == 200, lookup.text
             assert lookup.json()["draft"] is None
@@ -120,18 +124,18 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             replay = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
             assert replay.status_code == 200 and replay.json()["order_id"] == result.json()["order_id"]
             assert len((await http.get("/orders", headers=buyer)).json()) == 1
-            analytics = (await http.get("/operations/analytics", headers=admin)).json()
+            analytics = (await ops.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10
             assert analytics["inquiries"] == 5
-            detail = (await http.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
+            detail = (await ops.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
             history = detail["audit"]["events"]
             assert [event["data"]["text"] for event in history if event["event_type"] == "CLIENT_INQUIRY"] == [
                 "Create a ticket for 5 litres of lactose-free milk by Monday"]
             assert sum(event["event_type"] == "OFFERS_CHECKED" for event in history) == 1
-            decisions = (await http.get("/operations/activity?kind=decisions", headers=admin)).json()["events"]
+            decisions = (await ops.get("/operations/activity?kind=decisions", headers=admin)).json()["events"]
             assert "ORDER_CONFIRMED" in {event["event_type"] for event in decisions}
-            assert (await http.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]
+            assert (await ops.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]
 
     asyncio.run(verify())
 
@@ -296,3 +300,43 @@ def test_concurrent_submissions_reserve_weekly_limit_atomically(gateway):
     with ThreadPoolExecutor(2) as pool:
         assert sorted(pool.map(submit, quotes)) == ["confirmed", "pending_approval"]
     assert store.verify_chain()["ok"]
+
+def test_approval_rejects_newly_reported_forbidden_allergen(gateway, monkeypatch):
+    buyer = principal_for_key("demo-hospital-key")
+    admin = admin_for_key("test-admin-credential")
+    offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, available_qty=2000,
+                  category="10400", orderable=True, reason=OrderableReason.ok, logistic_model="Terminal",
+                  unlimited=True)
+    monkeypatch.setattr(service, "get_offers", lambda *args, **kwargs: ([offer], store.now()))
+    request = QuoteRequest(delivery_date=date(2026, 11, 16), lines=[{"product_id": "milk", "quantity": 5}])
+    order = service.place_order(buyer, service.create_quote(buyer, request).quote_id)
+    assert order.status == "pending_approval"
+    offer.allergens_contains = ["AM"]
+    reviewed = service.decide_approval(admin, order.approval_id, "approve")
+    assert reviewed.status == "rejected"
+    assert "forbidden allergen" in service.get_audit_log(admin, reviewed.order_id)["text"]
+
+
+def test_signing_key_creation_reuses_the_winner(monkeypatch, tmp_path):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from gateway import quotes
+
+    destination = tmp_path / "signing.pem"
+    monkeypatch.setattr(quotes, "settings", replace(quotes.settings, signing_key_path=destination))
+    winner = Ed25519PrivateKey.generate()
+    pem = winner.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                               serialization.NoEncryption())
+
+    def publish_other_key(candidate, path):
+        assert candidate.read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
+        path.write_bytes(pem)
+        raise FileExistsError
+
+    monkeypatch.setattr(quotes.os, "link", publish_other_key)
+    quotes.private_key.cache_clear()
+    try:
+        assert quotes.public_key().public_bytes_raw() == winner.public_key().public_bytes_raw()
+        assert list(tmp_path.iterdir()) == [destination]
+    finally:
+        quotes.private_key.cache_clear()

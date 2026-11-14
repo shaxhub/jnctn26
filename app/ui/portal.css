@@ -137,3 +137,9 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 .ingredient-offers .ticket-lines { margin-top:.35rem; padding-left:1.2rem; overflow-wrap:anywhere }
 .ingredient-swap { border-left:2px solid #00846a; padding-left:.55rem }
 @media(max-width:650px) { .kitchen-hero { align-items:start } .kitchen-hero .dispatch { display:none } }
+
+
+.seasonal-panel { margin-top:1.25rem; border-top:3px solid var(--green) }
+.seasonal-form { display:flex; align-items:end; gap:.75rem; flex-wrap:wrap; margin:.75rem 0 }
+.seasonal-form input { margin-top:.25rem }
+.seasonal-form .feedback { flex:1 0 100%; margin:0 }

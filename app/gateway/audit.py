@@ -27,8 +27,14 @@ def _summary(ev: dict) -> str:
     d, t = ev["data"], ev["event_type"]
     if t == "CLIENT_INQUIRY":
         return f"{d.get('action', 'lookup')}: {d.get('text', '')}"
+    if t == "SEASONAL_DISCOVERY":
+        return f"Checked {d['season']} produce for {d['delivery_date']}"
     if t == "KITCHEN_PLAN":
         return f"Planned {d['ingredient_count']} ingredients for {', '.join(d['dishes'])}"
+    if t == "FULFILLMENT_STAGE":
+        return "Fulfillment advanced to " + d["stage"].replace("_", " ")
+    if t == "ORDER_MESSAGE":
+        return f"{d['side']} posted a request message"
     if t == "SEARCH":
         return f"searched '{d.get('text', '')}' filters={d.get('filters')} -> {d.get('matches')} matches"
     if t == "OFFERS_CHECKED":
@@ -74,7 +80,7 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
     if inquiry_seq is not None and order_row:
         rows = store.fetchall(
             "SELECT * FROM audit_events WHERE buyer_id=? AND (seq=? OR (seq>? AND "
-            "event_type IN ('SEARCH','OFFERS_CHECKED') AND json_extract(data_json, '$.inquiry_seq')=?)) "
+            "event_type IN ('SEARCH','OFFERS_CHECKED','KITCHEN_PLAN') AND json_extract(data_json, '$.inquiry_seq')=?)) "
             "ORDER BY seq LIMIT 30", (order_row["buyer_id"], inquiry_seq, inquiry_seq, inquiry_seq))
         evs = sorted(evs + [store._row_event(row) for row in rows], key=lambda event: event["seq"])
     elif order_id and order_row:

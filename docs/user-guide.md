@@ -1,0 +1,63 @@
+# Agent Dairy user guide
+
+Agent Dairy turns a kitchen’s product request or recipe into a quote the buyer can check before sending it to Aimo. Start both apps using the [local setup](../README.md#run-locally).
+
+## Client workspace
+
+Open [the client app](http://127.0.0.1:8000/) and choose **Hotel kitchen** or **Hospital kitchen** in the Workspace selector. Each demo buyer has a separate mandate, drafts, orders, settings, and request conversations.
+
+| Page | What you can do |
+| --- | --- |
+| **Dashboard** | See draft and submitted-request counts and how requests are distributed across fulfillment stages. |
+| **Product Search** | Ask for a product, paste a recipe, compare live offers, or browse seasonal Finnish produce for a delivery date. |
+| **Draft Tickets** | Reopen saved quotes, adjust quantities or delivery dates, and review a draft before submitting. |
+| **Submitted Requests** | Track an order, inspect its policy and audit history, and exchange messages with Aimo. |
+| **Analytics** | View orders and net spend by delivery year, observed availability by month and SKU, frequently ordered items, and average fulfillment times. |
+| **Settings** | Set theme and default language, record client and invoice details, control agent ordering, and configure next-day order reminders. |
+
+The sidebar includes **EN** and **FI**, help and FAQs, and demo sign-out. Finnish covers navigation, key headings, and fulfillment stages. Some secondary text remains in English.
+
+### Find a product or paste a recipe
+
+1. Open **Product Search** and use the **Ask Agent Dairy** box. Try `I need 200 litres of lactose-free milk by Monday`. You can also enter a delivery date explicitly to override the interpreted date.
+2. To source a recipe, paste a name with its yield followed by measured ingredients. Select a delivery date for stock and price results. Without a date, the recipe flow compiles quantities.
+
+   ```text
+   Tomato salad (4)
+   500 g tomato
+   80 g red onion
+   12 g basil
+   ```
+
+   The guided parser accepts `g`, `kg`, `ml`, `dl`, `l`, and `pcs`. Put a blank line between recipes. Gemini 4 Carbon can interpret less structured input when configured. Review the interpreted quantities and units.
+
+3. Choose **Check offers**. Check net prices, sales units, stock, earliest dates, and alternatives. Where available, the offers include origin, delivery reliability, and a carbon intensity estimate. The postcode can add an estimated travel time from Rautatientori for supported Helsinki-area districts.
+4. Choose **Create ticket draft**, or **Draft this plan** on a ranked product plan. A recipe draft needs all ingredients sourced for the selected date. Review proposed culinary substitutions before using them in the recipe.
+
+### Review and submit a draft
+
+1. Open **Draft Tickets** and pick a saved draft, or use **Ticket review** directly after creating it.
+2. Check the line quantities, net total, delivery date, policy preview, and quote expiry. **AI Helper** can propose changes to existing items and their quantities. The local guided helper accepts a correction such as `Set 464306 to 12`. Review the proposed values and choose **Save revised draft** to refresh prices and stock.
+3. Choose **Review and submit**, then **Submit ticket to Aimo**. An expired draft needs a fresh quote. Repeating the submit request for the same quote returns the existing ticket.
+4. Check **Submitted Requests**. Routine orders register automatically. Exceptions remain pending until Aimo reviews them. Registered orders progress through **Retrieving goods**, **On delivery**, **Almost there**, and **Arrived**. Rejected and expired requests have separate outcomes.
+5. Open a request to see its timeline and conversation. Use **Refresh conversation** to load updates. A buyer’s authenticated MCP agent can read or post to the same thread. The request also displays its policy decision and audit trail.
+6. To reorder, open a confirmed ticket and use **Create repeat draft** with the new delivery date. Check the recurring comparison before submitting. This obtains a fresh quote for the existing lines.
+
+### Control agent access and plan recurring orders
+
+Under **Settings**, clear **Allow agents to place orders** to block ordering by that buyer’s external agents. Product and status lookups remain available. The browser still gives the buyer a separate draft review and submission step.
+
+A daily reminder appears in the signed-in workspace from the chosen Helsinki time onward and refers to the next day. It creates no ticket on its own. Billing settings store a payment method, billing email, and invoice reference for the demo. Orders are simulated locally.
+
+Analytics use available observations. Monthly product availability is based on recorded quote-independent offer checks and counts products that were orderable at those checks. Months with no observations have no percentage. Submission-to-arrival averages use requests marked **Arrived**.
+
+## Aimo operations
+
+Open [the separate operations app](http://127.0.0.1:8001/) and sign in with the local `AIMO_ADMIN_API_KEY`.
+
+1. In **Review queue**, filter by client, status, product, or ticket. Open a request to inspect policy reasons, order details, and the audit trail.
+2. Approve or reject a pending exception. Approval checks expiry and rechecks current orderability. A request can expire or fail that recheck before registration.
+3. Advance a registered request one fulfillment stage at a time. Use its conversation to tell the buyer or their agent about changes.
+4. Use **Activity log** to search across clients and **Analytics** to compare order volumes, spend, estimated product emissions, and the most active sectors, buyers, and products over a selected period.
+
+See the [architecture and decisions](architecture.md) for the rules behind approvals, quote signing, and audit evidence.

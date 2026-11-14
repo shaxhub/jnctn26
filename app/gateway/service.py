@@ -11,7 +11,7 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from . import audit, policy, quotes, store, substitutions
+from . import audit, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ
 from .delivery import estimate
@@ -19,7 +19,7 @@ from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, 
                      PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult, expand_allergens)
 from .offers import get_offers
 from .planner import amount_per_sales_unit, constraint_violations, make_plans, round_qty
-from .search import get_products, search
+from .search import get_products, normalize_claims, search
 
 QUOTE_FALLBACK_TTL = timedelta(hours=2)
 # Reasons a product cannot be quoted at all. `no_availability_data` is quotable but goes to a human.
@@ -116,6 +116,8 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
     audit.log("OFFERS_CHECKED", p.actor, {"count": len(offers), "delivery_date": req.delivery_date.isoformat(),
                                           "orderable": sum(o.orderable for o in offers), "excluded": excluded,
                                           "product_ids": req.product_ids,
+                                          "observed_product_ids": [o.product_id for o in offers],
+                                          "orderable_product_ids": [o.product_id for o in offers if o.orderable],
                                           "categories": sorted({o.category for o in offers if o.category})},
               buyer_id=p.buyer_id)
     return result
@@ -156,7 +158,7 @@ def weekly_spent(buyer_id: str, at: datetime | None = None, *, conn=None) -> flo
     return float(row["s"])
 
 
-def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], total: float, need: Need | None, *, conn=None) -> PolicyResult:
+def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], total: float, need: Need | None, *, delivery: date, conn=None) -> PolicyResult:
     coverage = None
     if need is not None:
         covered = sum(l.covers or 0 for l in lines)
@@ -179,17 +181,35 @@ def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], to
             result.decision = Decision.needs_approval
             result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."] + [message]
             result.fired_rules.append(FiredRule(rule_id=rule, effect=Decision.needs_approval, message=message))
+    for entry in recurring.compare(p.buyer_id, delivery, lines, conn=conn):
+        if entry["changes"]:
+            message = (f"Recurring SKU {entry['product_id']} differs from its usual order. "
+                       f"Quantity {entry['quantity_change_pct']:+g}%. "
+                       + (f"Unit price {entry['price_change_pct']:+g}%." if entry["price_change_pct"] is not None else ""))
+            result.decision = Decision.needs_approval
+            result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."] + [message]
+            result.fired_rules.append(FiredRule(rule_id="standing_order_drift", effect=Decision.needs_approval, message=message))
     return result
 
 
-def create_quote(p: Principal, req: QuoteRequest) -> Quote:
+def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[str]) -> list[str]:
+    forbidden = set(expand_allergens(allergens))
+    required = set(normalize_claims(claims))
+    return [offer.product_id for offer in offers if
+            forbidden.intersection(offer.allergens_contains + offer.allergens_may_contain)
+            or not required.issubset(offer.claims)]
+
+
+def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
     offers_list, now = get_offers(ids, req.delivery_date, fresh=True)
     offers = {o.product_id: o for o in offers_list}
     catalog = get_products(list(req.need.preferred_product_ids) if req.need else [])
-    errors, warnings, lines = [], [], []
+    conflicts = _dietary_conflicts(offers_list, req.exclude_allergens, req.required_claims)
+    errors = [f"{sku}: conflicts with requested dietary constraints" for sku in conflicts]
+    warnings, lines = [], []
     qty_by_pid: dict[str, float] = {}
     for l in req.lines:
         o = offers.get(l.product_id)
@@ -235,22 +255,35 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
 
     total = round(sum(l.line_total for l in lines), 2)
     gross = round(sum(l.quantity * (l.unit_price_with_tax or l.unit_price) for l in lines), 2)
-    preview = _evaluate(p, lines, offers, total, req.need)
+    preview = _evaluate(p, lines, offers, total, req.need, delivery=req.delivery_date)
     expires = quotes.expiry([offers[l.product_id].price_valid_to for l in lines],
                             [l.closing_time for l in lines], now + QUOTE_FALLBACK_TTL)
     quote_id = _id("q")
     payload = {"quote_id": quote_id, "buyer_id": p.buyer_id, "delivery_date": req.delivery_date.isoformat(),
                "lines": [l.model_dump(mode="json") for l in lines], "total_net": total, "total_gross": gross,
                "currency": "EUR", "created_at": now.isoformat(), "expires_at": expires.isoformat(),
-               "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role}
+               "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role,
+               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims}
     jws = quotes.sign(payload)
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
-    store.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
-                  " VALUES (?,?,?,?,?,?,?,?)", (quote_id, p.buyer_id, now.isoformat(), expires.isoformat(), "open",
-                                                total, json.dumps(payload), jws))
-    audit.log("QUOTE_CREATED", p.actor, {"lines": payload["lines"], "total_net": total, "expires_at": payload["expires_at"],
-                                         "decision": preview.decision.value, "warnings": warnings},
-              buyer_id=p.buyer_id, quote_id=quote_id)
+    with store.transaction() as conn:
+        if supersedes:
+            changed = conn.execute("UPDATE quotes SET status='superseded' WHERE quote_id=? AND buyer_id=? "
+                                   "AND status='open' AND json_extract(payload_json,'$.order_channel')='client'",
+                                   (supersedes, p.buyer_id))
+            if changed.rowcount != 1:
+                raise GatewayError(409, "The original draft changed. Refresh and try again.")
+        conn.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
+                     " VALUES (?,?,?,?,?,?,?,?)",
+                     (quote_id, p.buyer_id, now.isoformat(), expires.isoformat(), "open", total, json.dumps(payload), jws))
+        evidence = {"lines": payload["lines"], "total_net": total, "expires_at": payload["expires_at"],
+                    "decision": preview.decision.value, "policy_preview": preview.model_dump(mode="json"),
+                    "warnings": warnings}
+        if audit.inquiry_sequence.get() is not None:
+            evidence["inquiry_seq"] = audit.inquiry_sequence.get()
+        if supersedes:
+            evidence["supersedes"] = supersedes
+        store.append_in_transaction(conn, "QUOTE_CREATED", p.actor, evidence, buyer_id=p.buyer_id, quote_id=quote_id)
     return quote
 
 
@@ -267,6 +300,44 @@ def _quote_invalid(p: Principal, quote_id: str, status: int, msg: str) -> Gatewa
     """Rule quote_invalid: unknown, reused, tampered or expired quotes never become orders."""
     audit.log("QUOTE_INVALID", p.actor, {"rule_id": "quote_invalid", "reason": msg}, buyer_id=p.buyer_id, quote_id=quote_id)
     return GatewayError(status, f"quote_invalid: {msg}")
+
+
+def repeat_quote(p: Principal, order_id: str, delivery_date: date) -> Quote:
+    if p.role not in {"agent", "client"} or not p.can_order:
+        raise GatewayError(403, "Use a purchasing agent or client workspace key")
+    if delivery_date < store.now().date():
+        raise GatewayError(422, "Choose today or a future delivery date")
+    original = get_order(p, order_id)
+    if original.status != "confirmed":
+        raise GatewayError(409, "Choose a confirmed ticket to repeat")
+    signed = store.fetchone("SELECT jws FROM quotes WHERE quote_id=?", (original.quote_id,))
+    if signed is None:
+        raise GatewayError(409, "The original signed quote is unavailable")
+    try:
+        payload = quotes.verify(signed["jws"])
+    except ValueError as exc:
+        raise GatewayError(409, "The original quote could not be verified") from exc
+    need = payload.get("need")
+    if need:
+        need["delivery_date"] = delivery_date.isoformat()
+    return create_quote(p, QuoteRequest(delivery_date=delivery_date, need=need,
+        exclude_allergens=payload.get("exclude_allergens", []), required_claims=payload.get("required_claims", []), lines=[
+        {"product_id": line.product_id, "quantity": line.quantity} for line in original.lines
+    ]))
+
+
+
+def check_recurring_quote(p: Principal, quote_id: str) -> dict:
+    row = store.fetchone("SELECT buyer_id, jws FROM quotes WHERE quote_id=?", (quote_id,))
+    if row is None or row["buyer_id"] != p.buyer_id:
+        raise GatewayError(404, "Quote not found for this buyer")
+    payload = quotes.verify(row["jws"])
+    delivery = date.fromisoformat(payload["delivery_date"])
+    lines = [QuoteLine.model_validate(line) for line in payload["lines"]]
+    return {"quote_id": quote_id, "delivery_date": delivery.isoformat(),
+            "quantity_threshold_pct": recurring.QUANTITY_LIMIT * 100,
+            "price_threshold_pct": recurring.PRICE_LIMIT * 100,
+            "baselines": recurring.compare(p.buyer_id, delivery, lines)}
 
 
 def _recheck_stock(lines: list[QuoteLine], delivery: date) -> tuple[dict[str, Offer], list[str]]:
@@ -288,7 +359,7 @@ def _recheck_stock(lines: list[QuoteLine], delivery: date) -> tuple[dict[str, Of
 
 
 _APPROVAL_QUERY = (
-    "SELECT a.*, o.quote_id, o.delivery_date, o.lines_json, q.expires_at, "
+    "SELECT a.*, o.quote_id, o.delivery_date, o.lines_json, q.expires_at, q.payload_json, "
     "json_extract(q.payload_json, '$.order_channel') AS channel "
     "FROM approvals a JOIN orders o USING(order_id) JOIN quotes q USING(quote_id) WHERE a.approval_id=?"
 )
@@ -331,6 +402,8 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
     need = Need(**payload["need"]) if payload.get("need") else None
     delivery = date.fromisoformat(payload["delivery_date"])
     offers, stale = _recheck_stock(lines, delivery)
+    stale.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
+        list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
     order_id = _id("ord")
     ids = dict(buyer_id=p.buyer_id, order_id=order_id, quote_id=quote_id)
     with store.transaction() as conn:
@@ -346,7 +419,7 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                 if existing:
                     return _order_from_row(existing)
             raise GatewayError(409, f"quote_invalid: quote {quote_id} was already used")
-        result = _evaluate(p, lines, offers, payload["total_net"], need, conn=conn)
+        result = _evaluate(p, lines, offers, payload["total_net"], need, delivery=delivery, conn=conn)
         if stale:
             message = f"No longer orderable since the quote: {', '.join(stale)}"
             result = PolicyResult(decision=Decision.reject, mandate_id=result.mandate_id,
@@ -440,7 +513,16 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
     problems = []
     if decision == "approve" and store.now() < _aware(datetime.fromisoformat(row["expires_at"])):
         lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
-        _, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
+        offers, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
+        payload = json.loads(row["payload_json"])
+        problems.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
+            list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
+        current_policy = policy.evaluate(
+            policy.load_mandate(row["buyer_id"]), lines, offers, total_net=payload["total_net"],
+            need=Need.model_validate(payload["need"]) if payload.get("need") else None,
+            today=store.now().date(),
+        )
+        problems.extend(rule.message for rule in current_policy.fired_rules if rule.effect == Decision.reject)
     with store.transaction() as conn:
         row = _pending_approval(p, conn.execute(_APPROVAL_QUERY, (approval_id,)).fetchone(), approval_id)
         now = store.now()

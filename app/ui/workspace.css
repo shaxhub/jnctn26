@@ -13,8 +13,13 @@ body { grid-template-columns: 248px minmax(0, 1fr) }
 .delivery-pipeline strong { font-size:1.45rem }
 .workspace-form { display:grid; gap:.75rem; margin-top:1rem }
 .workspace-form input,.workspace-form select { margin-top:.25rem }
-.settings-grid { grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr)); align-items:end }
-.settings-grid .feedback { grid-column:1/-1 }
+.settings-form { gap:1.15rem }
+.settings-form > button { justify-self:start }
+.settings-group { min-width:0; margin:0; border:1px solid var(--line); border-radius:.75rem; padding:.8rem 1rem 1rem }
+.settings-group legend { padding:0 .4rem; font-weight:700; color:var(--ink) }
+.settings-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr)); gap:.9rem 1rem }
+.settings-fields select { display:block; width:100% }
+.settings-fields .settings-permission { grid-column:1/-1; display:flex; align-items:center; gap:.5rem }
 .workspace-metrics-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr)); gap:.9rem; margin:1rem 0 }
 .workspace-chart { display:grid; gap:.4rem; margin:.75rem 0 0; padding:0; list-style:none; font-size:.84rem }
 .workspace-chart li { display:grid; grid-template-columns: minmax(4rem,1fr) minmax(3rem,1.2fr) auto; align-items:center; gap:.4rem }

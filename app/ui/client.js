@@ -1,5 +1,5 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, pill, portalUrl, request, table} from "./common.js";
+import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, pill, portalUrl, request, table, translate} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
@@ -115,7 +115,8 @@ export function showDraft(quote, outcome, target = $("draft")) {
     return;
   }
   if (!quote) {
-    target.append("Create a ticket draft to review quantities, prices and the delivery date.");
+    target.append(tr("Create a ticket draft to review quantities, prices and the delivery date.",
+      "Luo tilausluonnos tarkistaaksesi määrät, hinnat ja toimituspäivän."));
     return;
   }
   target.append(node("h3", quote.name || tr("Order draft", "Tilausluonnos")), node("p", tr("Delivery ", "Toimitus ") + date(quote.delivery_date)),
@@ -149,7 +150,7 @@ export function showDraft(quote, outcome, target = $("draft")) {
   });
   target.append(history);
   if (quote.policy_preview.reasons.length) {
-    target.append(node("p", quote.policy_preview.reasons.join(" "), "cell-note"));
+    target.append(node("p", quote.policy_preview.reasons.map(translate).join(" "), "cell-note"));
   }
   const button = node("button", "Submit ticket to Aimo", "primary");
   if (new Date(quote.expires_at) <= new Date()) {

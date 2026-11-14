@@ -21,6 +21,7 @@ export const parseInputDate = value => {
 export const statusText = {confirmed:"Confirmed", pending_approval:"Needs review", rejected:"Rejected", expired:"Expired"};
 
 const finnish = {
+  "All mandate rules passed.":"Kaikki hankintasäännöt täyttyvät.",
   "Confirmed":"Vahvistettu", "Needs review":"Tarkistettava", "Rejected":"Hylätty", "Expired":"Vanhentunut",
   "Product":"Tuote", "Ingredient":"Raaka-aine", "Quantity":"Määrä", "Net price / unit":"Veroton yksikköhinta",
   "Net total":"Veroton summa", "Availability":"Saatavuus", "Earliest date":"Aikaisin toimitus",

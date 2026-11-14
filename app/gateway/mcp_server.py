@@ -162,7 +162,7 @@ async def get_my_mandate(ctx: Context = None) -> dict:
         "name": p.name,
         "mandate": p.mandate.model_dump(mode="json"),
         "weekly_spent": spent,
-        "allowed_tools": list(READ_TOOLS) + (["create_quote", "place_order"] if p.role == "agent" and p.can_order else []),
+        "allowed_tools": list(READ_TOOLS) + (["create_quote", "repeat_quote", "place_order"] if p.role == "agent" and p.can_order else []),
     }
 
 
@@ -263,6 +263,17 @@ async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None) 
         raise ToolError("Rationale must be at most 1,000 characters")
     order = await _run(service.place_order, p, quote_id, agent_rationale)
     return order.model_dump(mode="json")
+
+
+@mcp.tool()
+async def repeat_quote(order_id: str, delivery_date: str, ctx: Context = None) -> dict:
+    """Create a new signed quote for a confirmed order on a new delivery date.
+    Checks current stock, pricing, dietary constraints and recurring-order drift. Requires ordering permission.
+    """
+    principal = _principal(ctx, write=True)
+    delivery = _parse_args(lambda: date.fromisoformat(delivery_date))
+    quote = await _run(service.repeat_quote, principal, order_id, delivery)
+    return quote.model_dump(mode="json")
 
 
 @mcp.tool()

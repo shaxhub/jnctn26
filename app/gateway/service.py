@@ -288,6 +288,31 @@ def _quote_invalid(p: Principal, quote_id: str, status: int, msg: str) -> Gatewa
     return GatewayError(status, f"quote_invalid: {msg}")
 
 
+def repeat_quote(p: Principal, order_id: str, delivery_date: date) -> Quote:
+    if p.role not in {"agent", "client"} or not p.can_order:
+        raise GatewayError(403, "Use a purchasing agent or client workspace key")
+    if delivery_date < store.now().date():
+        raise GatewayError(422, "Choose today or a future delivery date")
+    original = get_order(p, order_id)
+    if original.status != "confirmed":
+        raise GatewayError(409, "Choose a confirmed ticket to repeat")
+    signed = store.fetchone("SELECT jws FROM quotes WHERE quote_id=?", (original.quote_id,))
+    if signed is None:
+        raise GatewayError(409, "The original signed quote is unavailable")
+    try:
+        payload = quotes.verify(signed["jws"])
+    except ValueError as exc:
+        raise GatewayError(409, "The original quote could not be verified") from exc
+    need = payload.get("need")
+    if need:
+        need["delivery_date"] = delivery_date.isoformat()
+    return create_quote(p, QuoteRequest(delivery_date=delivery_date, need=need,
+        exclude_allergens=payload.get("exclude_allergens", []), required_claims=payload.get("required_claims", []), lines=[
+        {"product_id": line.product_id, "quantity": line.quantity} for line in original.lines
+    ]))
+
+
+
 def check_recurring_quote(p: Principal, quote_id: str) -> dict:
     row = store.fetchone("SELECT buyer_id, jws FROM quotes WHERE quote_id=?", (quote_id,))
     if row is None or row["buyer_id"] != p.buyer_id:

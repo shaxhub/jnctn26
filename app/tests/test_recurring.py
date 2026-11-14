@@ -29,3 +29,26 @@ def test_recurring_drift_uses_same_buyer_weekday_and_sku(gateway):
     assert service.place_order(buyer, quote.quote_id).status == "pending_approval"
     lower_price = QuoteLine(product_id="milk", quantity=25, sales_unit="ST", unit_price=1.5, line_total=37.5)
     assert recurring.compare("hotel", req.delivery_date, [lower_price])[0]["changes"] == ["price"]
+
+
+def test_repeat_preserves_dietary_constraints_and_checks_ownership(gateway):
+    import pytest
+    from gateway import quotes
+    from gateway.auth import principal_for_key
+
+    buyer = principal_for_key("demo-hotel-key")
+    other = principal_for_key("demo-hospital-key")
+    read_only = principal_for_key("demo-hotel-lookup-key")
+    first_day = date(2026, 11, 16)
+    first_quote = service.create_quote(buyer, QuoteRequest(delivery_date=first_day,
+        lines=[{"product_id": "milk", "quantity": 10}], exclude_allergens=["nuts"]))
+    original = service.place_order(buyer, first_quote.quote_id)
+    next_day = first_day + timedelta(days=7)
+    with pytest.raises(service.GatewayError, match="not found"):
+        service.repeat_quote(other, original.order_id, next_day)
+    with pytest.raises(service.GatewayError, match="workspace key"):
+        service.repeat_quote(read_only, original.order_id, next_day)
+    repeat = service.repeat_quote(buyer, original.order_id, next_day)
+    assert repeat.delivery_date == next_day
+    assert quotes.verify(repeat.signature)["exclude_allergens"] == ["nuts"]
+    assert len(service.list_orders(buyer)) == 1

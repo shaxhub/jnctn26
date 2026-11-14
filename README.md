@@ -44,12 +44,12 @@ cd app && uv run pytest -q && uv run python evals/run_evals.py
 
 ```
   Buyer's AI Agent (Claude / any MCP client / ERP)        Human Approver (Browser)
-         |  MCP (/mcp, 14 tools) or REST (/docs)                   |  Web UI / + /approvals
+         |  MCP (/mcp, 15 tools) or REST (/docs)                   |  Web UI / + /approvals
          |  X-API-Key or Authorization: Bearer                    |  Out-of-band approver key
          v                                                        v
   +-----------------------------------------------------------------------------------+
   | FastAPI app (app/gateway/api.py)          auth.py: API key -> Principal -> Mandate |
-  |   mcp_server.py (14 tools)   REST routes   ui/index.html   agent.py (LLM/scripted) |
+  |   mcp_server.py (15 tools)   REST routes   ui/index.html   agent.py (LLM/scripted) |
   |                         \         |         /                                     |
   |                      app/gateway/service.py  (one core)                           |
   |     search.py --- offers.py --- planner.py --- quotes.py --- policy.py            |
@@ -103,6 +103,6 @@ The client assistant uses the shared MCP tools for lookup. It extracts structure
 
 Use Seasonal produce in the client workspace or call `discover_seasonal_products` in MCP. Suggestions use a labeled Finnish demo calendar and check origin, current offers, and buyer constraints.
 
-Open a confirmed ticket to create a repeat draft for a new delivery date. The gateway recalculates current price and stock. The recurring-order comparison uses the prior six weeks and requires three confirmed same-weekday delivery dates for the same SKU and sales unit. Changes of at least 25% in quantity or 15% in unit price route to human review. MCP clients can inspect a signed quote with `check_recurring_quote`.
+Open a confirmed ticket to create a repeat draft for a new delivery date. The gateway recalculates current price and stock. The recurring-order comparison uses the prior six weeks and requires three confirmed same-weekday delivery dates for the same SKU and sales unit. Changes of at least 25% in quantity or 15% in unit price route to human review. Order-enabled MCP clients can re-quote a confirmed order with `repeat_quote`. The `check_recurring_quote` tool explains the drift on a signed quote.
 
 A fully sourced menu can be turned into one client ticket draft. Agent Dairy checks combined quantities and dietary constraints against fresh offers before signing. The buyer reviews and submits the draft.

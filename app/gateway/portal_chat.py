@@ -192,20 +192,7 @@ async def seasonal_products(delivery_date: date, p: Principal = Depends(require_
 
 @router.post("/tickets/{order_id}/repeat")
 def repeat_ticket(order_id: str, delivery_date: date, p: Principal = Depends(require_client)):
-    if delivery_date < store.now().date():
-        raise service.GatewayError(422, "Choose today or a future delivery date")
-    original = service.get_order(p, order_id)
-    if original.status != "confirmed":
-        raise service.GatewayError(409, "Choose a confirmed ticket to repeat")
-    signed = store.fetchone("SELECT payload_json FROM quotes WHERE quote_id=?", (original.quote_id,))
-    payload = json.loads(signed["payload_json"]) if signed else {}
-    need = payload.get("need")
-    if need:
-        need["delivery_date"] = delivery_date.isoformat()
-    return service.create_quote(p, QuoteRequest(delivery_date=delivery_date, need=need,
-        exclude_allergens=payload.get("exclude_allergens", []), required_claims=payload.get("required_claims", []), lines=[
-        {"product_id": line.product_id, "quantity": line.quantity} for line in original.lines
-    ]))
+    return service.repeat_quote(p, order_id, delivery_date)
 
 
 @router.get("/tickets/{quote_id}/recurring")

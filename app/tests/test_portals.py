@@ -5,7 +5,7 @@ import pytest
 
 from gateway import service, store
 from gateway.auth import admin_for_key, principal_for_key
-from gateway.models import Offer, OrderableReason, QuoteRequest
+from gateway.models import Offer, OffersRequest, OrderableReason, QuoteRequest
 
 
 @pytest.fixture
@@ -54,3 +54,21 @@ def test_aimo_reviews_external_orders_and_upstream_failure_preserves_quote(gatew
         service.decide_approval(buyer_approver, order.approval_id, "approve")
     assert service.decide_approval(admin, order.approval_id, "approve").status == "confirmed"
     assert store.verify_chain()["ok"]
+
+
+def test_live_alternatives_filter_trace_allergens(gateway, monkeypatch):
+    buyer = principal_for_key("demo-hotel-key")
+    original = Offer(product_id="a", sales_unit="ST", unit_price=2, available_qty=0,
+                     orderable=False, reason=OrderableReason.insufficient_stock, substitutes=["b", "c"])
+    safe = Offer(product_id="b", sales_unit="ST", unit_price=2, available_qty=10,
+                 orderable=True, reason=OrderableReason.ok, claims=["FREE_FROM_GLUTEN"])
+    trace = safe.model_copy(update={"product_id": "c", "allergens_may_contain": ["AW"]})
+    offers = {"a": original, "b": safe, "c": trace}
+    monkeypatch.setattr(service, "get_offers", lambda ids, _: ([offers[pid] for pid in ids], store.now()))
+    result = service.check_offers(buyer, OffersRequest(
+        product_ids=["a"], delivery_date=date(2026, 11, 16), quantity=2, unit="ST",
+        include_substitutes=True, required_claims=["FREE_FROM_GLUTEN"], exclude_allergens=["gluten"],
+        postal_code="00100"))
+    assert [offer["product_id"] for offer in result["alternatives"]["a"]] == ["b"]
+    assert result["plan"]["plans"][0]["lines"][0]["product_id"] == "b"
+    assert result["delivery_estimate"]["travel_minutes_max"] > result["delivery_estimate"]["travel_minutes_min"]

@@ -61,7 +61,7 @@ def _split(codes: str | None) -> list[str]:
 def row_to_summary(r: sqlite3.Row) -> ProductSummary:
     return ProductSummary(
         id=r["id"], name_fi=r["name_fi"], name_en=r["name_en"], brand=r["brand"], vendor=r["vendor"],
-        category=r["category"], sales_unit=r["sales_unit"], base_unit=r["base_unit"],
+        country=r["country"], category=r["category"], sales_unit=r["sales_unit"], base_unit=r["base_unit"],
         base_units_per_sales_unit=r["base_units_per_sales_unit"] or 1.0,
         volume_l=r["volume_l"], net_weight_kg=r["net_weight_kg"], allowed_lot_size=r["allowed_lot_size"],
         allergens_contains=_split(r["allergens_contains"]), allergens_may_contain=_split(r["allergens_may_contain"]),

@@ -24,8 +24,7 @@ from .models import (AgentRunRequest, ApprovalDecisionRequest, Need, OffersReque
                      SearchRequest)
 
 # stateless + JSON responses: every MCP request is independent, which suits a horizontally scaled gateway.
-# DNS-rebinding protection is off so the app works behind any host name.
-# TODO(C): set allowed_hosts/allowed_origins for the deployed host name.
+# McpAuthMiddleware enforces the configured browser Origin allowlist.
 mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp", stateless_http=True, json_response=True,
                                   transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
 

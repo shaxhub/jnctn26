@@ -91,10 +91,12 @@ def build_offer(p: ProductSummary, raw: dict, delivery_date: date, now: datetime
 
     if unit_price is None or (valid_to is not None and valid_to <= now):
         reason = OrderableReason.no_price
-    elif not avail or closing is None or not (avail or {}).get("logisticModel") or line is None:
-        reason = OrderableReason.no_availability_data
     elif blocked:
         reason = OrderableReason.sales_block
+    elif not avail or closing is None or not (avail or {}).get("logisticModel"):
+        reason = OrderableReason.no_availability_data
+    elif line is None:
+        reason = OrderableReason.insufficient_stock
     elif closing <= now:
         reason = OrderableReason.cutoff_passed
     elif not unlimited and (amount or 0) <= 0:

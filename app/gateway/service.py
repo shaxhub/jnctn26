@@ -13,10 +13,11 @@ from datetime import date, datetime, timedelta
 from . import audit, policy, quotes, store
 from .auth import Admin, Principal
 from .config import TZ
+from .delivery import estimate
 from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, Order, OrderableReason, OrderStatus, PlanResult,
-                     PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult)
+                     PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult, expand_allergens)
 from .offers import get_offers
-from .planner import amount_per_sales_unit, make_plans, round_qty
+from .planner import amount_per_sales_unit, constraint_violations, make_plans, round_qty
 from .search import get_products, search
 
 QUOTE_FALLBACK_TTL = timedelta(hours=2)
@@ -43,7 +44,7 @@ def _aware(dt: datetime) -> datetime:
 def search_products(p: Principal, req: SearchRequest) -> SearchResult:
     res = search(req)
     audit.log("SEARCH", p.actor, {"text": req.text, "matches": res.total_matches,
-                                  "filters": req.model_dump(exclude={"text", "limit"}, exclude_defaults=True)},
+                                  "categories": res.category_counts, "filters": req.model_dump(exclude={"text", "limit"}, exclude_defaults=True)},
               buyer_id=p.buyer_id)
     return res
 
@@ -53,29 +54,64 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
     unknown = sorted(set(req.product_ids) - {o.product_id for o in offers})
     result: dict = {"delivery_date": req.delivery_date.isoformat(), "checked_at": now.isoformat(),
                     "offers": [o.model_dump(mode="json") for o in offers], "unknown_product_ids": unknown}
-    # substitution hints: Valio's own substitution list for products that cannot be delivered
-    hints = {o.product_id: o.substitutes for o in offers if not o.orderable and o.substitutes}
+    need = Need(item="Requested products", quantity=req.quantity or 1, unit=req.unit or "PCS",
+                delivery_date=req.delivery_date, free_from=req.required_claims,
+                exclude_allergens=req.exclude_allergens, preferred_product_ids=req.product_ids)
+    hints = {o.product_id: o.substitutes for o in offers if o.substitutes and _needs_alternatives(o, need)}
     if hints:
         result["substitution_hints"] = hints
+    candidates = offers
+    if req.include_substitutes:
+        candidates = _with_listed_substitutes(offers, hints, need)
+        requested = set(req.product_ids)
+        alternatives = {offer.product_id: offer for offer in candidates if offer.orderable and offer.product_id not in requested}
+        forbidden = set(expand_allergens(req.exclude_allergens + p.mandate.forbidden_allergens))
+        result["alternatives"] = {
+            pid: [alternatives[sid].model_dump(mode="json") for sid in ids if sid in alternatives
+                  and not constraint_violations(alternatives[sid], need)
+                  and not forbidden.intersection(alternatives[sid].allergens_contains + alternatives[sid].allergens_may_contain)
+                  and (p.mandate.allowed_categories is None or any(
+                      (alternatives[sid].category or "").startswith(category) for category in p.mandate.allowed_categories))]
+            for pid, ids in hints.items()
+        }
+        allowed_alternatives = {item["product_id"] for group in result["alternatives"].values() for item in group}
+        candidates = offers + [offer for pid, offer in alternatives.items() if pid in allowed_alternatives]
     if req.quantity and req.unit:
-        need = Need(item="ad-hoc", quantity=req.quantity, unit=req.unit, delivery_date=req.delivery_date)
-        result["plan"] = make_plans(need, offers, mandate=p.mandate).model_dump(mode="json")
+        result["plan"] = make_plans(need, candidates, mandate=p.mandate).model_dump(mode="json")
+    if req.postal_code:
+        result["delivery_estimate"] = estimate(req.postal_code)
+    result["sources"] = {"price_and_availability": "Valio Aimo mock API",
+                         "product_attributes": "Valio Aimo challenge catalog",
+                         "co2_per_kg": "Challenge carbon data, category estimate",
+                         "reliability": "Challenge delivery reliability data"}
     excluded = [f"{o.product_id}:{o.reason.value}" for o in offers if not o.orderable]
     audit.log("OFFERS_CHECKED", p.actor, {"count": len(offers), "delivery_date": req.delivery_date.isoformat(),
-                                          "orderable": sum(o.orderable for o in offers), "excluded": excluded},
+                                          "orderable": sum(o.orderable for o in offers), "excluded": excluded,
+                                          "product_ids": req.product_ids,
+                                          "categories": sorted({o.category for o in offers if o.category})},
               buyer_id=p.buyer_id)
     return result
 
 
+def _needs_alternatives(offer: Offer, need: Need) -> bool:
+    per = amount_per_sales_unit(offer, need.unit)
+    return not offer.orderable or bool(per and offer.available_qty is not None
+                                       and offer.available_qty * per < need.quantity)
+
+
+def _with_listed_substitutes(offers: list[Offer], hints: dict[str, list[str]], need: Need) -> list[Offer]:
+    seen = {offer.product_id for offer in offers}
+    missing = list(dict.fromkeys(sid for ids in hints.values() for sid in ids if sid not in seen))
+    if missing:
+        extra, _ = get_offers(missing[:1000], need.delivery_date)
+        return offers + extra
+    return offers
+
+
 def plan_need(p: Principal, need: Need, product_ids: list[str]) -> tuple[PlanResult, list[Offer]]:
     offers, _ = get_offers(product_ids, need.delivery_date)
-    seen_ids = {o.product_id for o in offers}
-    missing_sub_ids = list(dict.fromkeys(
-        sid for o in offers if not o.orderable for sid in o.substitutes if sid not in seen_ids
-    ))
-    if missing_sub_ids:
-        sub_offers, _ = get_offers(missing_sub_ids, need.delivery_date)
-        offers = offers + sub_offers
+    hints = {offer.product_id: offer.substitutes for offer in offers if _needs_alternatives(offer, need)}
+    offers = _with_listed_substitutes(offers, hints, need)
     return make_plans(need, offers, mandate=p.mandate), offers
 
 
@@ -129,11 +165,13 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
         pref = need.preferred_product_ids if need else []
         is_sub = bool(pref) and o.product_id not in pref
         per = amount_per_sales_unit(o, need.unit) if need else None
+        kg = amount_per_sales_unit(o, "KG")
+        emissions = round(qty * kg * o.co2_per_kg, 3) if kg is not None and o.co2_per_kg is not None else None
         lines.append(QuoteLine(
             product_id=o.product_id, name=o.name, category=o.category, quantity=qty, sales_unit=o.sales_unit,
             unit_price=o.unit_price, unit_price_with_tax=o.unit_price_with_tax,
             line_total=round(qty * o.unit_price, 2), closing_time=o.closing_time,
-            covers=round(qty * per, 3) if per else None, is_substitute=is_sub,
+            covers=round(qty * per, 3) if per else None, is_substitute=is_sub, estimated_kg_co2e=emissions,
             substitute_for=pref[0] if is_sub else None,
             substitute_for_category=catalog[pref[0]].category if is_sub and pref[0] in catalog else None))
     if errors:

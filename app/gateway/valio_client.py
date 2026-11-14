@@ -38,6 +38,11 @@ class ValioClient:
         self._lock = threading.Lock()
         self._http = httpx.Client(timeout=20.0, headers={"X-API-Key": self.api_key})
 
+    def ping(self) -> bool:
+        response = self._http.get(f"{self.base_url}/ping", timeout=5)
+        response.raise_for_status()
+        return response.json().get("status") == "ok"
+
     def _post(self, path: str, customer: str, day: str, ids: list[str]) -> dict:
         if not self.api_key:
             raise RuntimeError("VALIO_API_KEY is not set (copy .env.example to .env)")

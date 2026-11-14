@@ -185,7 +185,7 @@ def compact_offers(result: dict) -> dict:
         "unit_price_with_tax", "tax_rate", "price_per_content_unit", "available_qty", "unlimited",
         "available_date", "allowed_lot_size", "closing_time", "price_valid_to", "logistic_model",
         "category", "orderable", "reason", "reliability", "co2_per_kg", "allergens_contains",
-        "allergens_may_contain", "claims", "substitutes",
+        "allergens_may_contain", "claims", "labels", "substitutes", "currency", "net_price_found", "net_weight_kg",
     )
     out = dict(result)
     out["offers"] = [{k: o.get(k) for k in keep} for o in result.get("offers", [])]

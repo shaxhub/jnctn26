@@ -90,6 +90,7 @@ class ProductSummary(BaseModel):
     name_en: str | None = None
     brand: str | None = None
     vendor: str | None = None
+    country: str | None = None
     category: str | None = None
     sales_unit: str
     base_unit: str
@@ -168,6 +169,10 @@ class OffersRequest(BaseModel):
     delivery_date: date
     quantity: float | None = Field(None, gt=0, description="Optional: needed amount, to also get a plan.")
     unit: str | None = Field(None, description="Unit of quantity: L, KG, PCS or a sales unit code.")
+    include_substitutes: bool = False
+    required_claims: list[str] = Field(default_factory=list, max_length=30)
+    exclude_allergens: list[str] = Field(default_factory=list, max_length=30)
+    postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
 
 
 # --- need / plan ------------------------------------------------------------------------------
@@ -246,12 +251,12 @@ class PolicyResult(BaseModel):
 # --- quotes / orders --------------------------------------------------------------------------
 class LineRequest(BaseModel):
     product_id: str
-    quantity: float = Field(..., gt=0, description="In sales units.")
+    quantity: float = Field(..., gt=0, allow_inf_nan=False, description="In sales units.")
 
 
 class QuoteRequest(BaseModel):
     delivery_date: date
-    lines: list[LineRequest] = Field(..., min_length=1)
+    lines: list[LineRequest] = Field(..., min_length=1, max_length=1000)
     need: Need | None = Field(None, description="Optional original need, so the gateway can check the match.")
 
 
@@ -269,6 +274,7 @@ class QuoteLine(BaseModel):
     is_substitute: bool = False
     substitute_for: str | None = None
     substitute_for_category: str | None = None
+    estimated_kg_co2e: float | None = None
 
 
 class Quote(BaseModel):
@@ -329,7 +335,7 @@ class Approval(BaseModel):
 
 class ApprovalDecisionRequest(BaseModel):
     decision: Literal["approve", "reject"]
-    comment: str = ""
+    comment: str = Field("", max_length=1000)
 
 
 class AuditEvent(BaseModel):

@@ -1,4 +1,4 @@
-"""MCP server: seven tools for external purchasing agents (Streamable HTTP, mounted at /mcp by api.py).
+"""MCP server: tools for external purchasing agents (Streamable HTTP, mounted at /mcp by api.py).
 
 Uses the official MCP Python SDK v2 (`mcp` 2.x), where FastMCP is called `MCPServer`
 (`from mcp.server.mcpserver import MCPServer`). The tools are thin wrappers over gateway.service.
@@ -19,10 +19,15 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
-from . import service
+from . import service, store
 from .agent import compact_offers
 from .auth import Principal, current_principal, key_from_headers, principal_for_key
+from .delivery import estimate
+from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
+
+READ_TOOLS = ("ping", "get_my_mandate", "search_products", "check_offers",
+              "estimate_delivery", "get_order_status", "get_audit_log")
 
 INSTRUCTIONS = """Valio Aimo trade gateway for food-service purchasing agents.
 Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+unit to get plans)
@@ -34,7 +39,7 @@ mcp = MCPServer(name="valio-aimo-gateway", title="Agent Dairy — Valio Aimo Tra
                 instructions=INSTRUCTIONS, version="0.1.0")
 
 
-def _principal(ctx: Context | None) -> Principal:
+def _principal(ctx: Context | None, *, write: bool = False) -> Principal:
     p = current_principal.get()
     if p is None and ctx is not None:
         try:
@@ -43,8 +48,8 @@ def _principal(ctx: Context | None) -> Principal:
             p = None
     if p is None:
         raise ToolError("Unauthenticated: send X-API-Key or Authorization: Bearer <key>")
-    if p.role != "agent":
-        raise ToolError("This key is an approver key; MCP tools are for purchasing agents")
+    if p.role not in {"agent", "client"} or (write and p.role != "agent"):
+        raise ToolError("This credential does not have permission to perform this action")
     return p
 
 
@@ -67,6 +72,26 @@ async def _run(fn, *args, **kwargs):
 
 
 @mcp.tool()
+async def ping(ctx: Context = None) -> dict:
+    """Report the gateway and Valio mock API status."""
+    _principal(ctx)
+    try:
+        upstream = "ok" if await _run(get_client().ping) else "unexpected_response"
+    except ToolError:
+        upstream = "unavailable"
+    return {"status": "ok", "valio": upstream, "checked_at": store.now().isoformat()}
+
+
+@mcp.tool()
+async def estimate_delivery(postal_code: str, ctx: Context = None) -> dict:
+    """Estimate dispatch-to-door travel time from Rautatientori to a supported Finnish postal district."""
+    _principal(ctx)
+    if len(postal_code) != 5 or not postal_code.isascii() or not postal_code.isdecimal():
+        raise ToolError("Enter a five-digit Finnish postal code")
+    return estimate(postal_code)
+
+
+@mcp.tool()
 async def get_my_mandate(ctx: Context = None) -> dict:
     """Inspect your buyer identity, purchasing mandate (limits, forbidden allergens, allowed claims,
     substitution rules, approval thresholds) and current weekly spend."""
@@ -78,6 +103,7 @@ async def get_my_mandate(ctx: Context = None) -> dict:
         "name": p.name,
         "mandate": p.mandate.model_dump(mode="json"),
         "weekly_spent": spent,
+        "allowed_tools": list(READ_TOOLS) + (["create_quote", "place_order"] if p.role == "agent" else []),
     }
 
 
@@ -112,7 +138,9 @@ async def search_products(text: str = "", free_from: list[str] | None = None, ex
 
 @mcp.tool()
 async def check_offers(product_ids: list[str], delivery_date: str, quantity: float | None = None,
-                       unit: str | None = None, ctx: Context = None) -> dict:
+                       unit: str | None = None, ctx: Context = None, include_substitutes: bool = False,
+                       required_claims: list[str] | None = None, exclude_allergens: list[str] | None = None,
+                       postal_code: str | None = None) -> dict:
     """Live price and availability for specific products (max 1000) and one delivery date (YYYY-MM-DD).
 
     Each offer has: unit_price (EUR per sales unit, without VAT), price_per_content_unit (EUR per L or KG),
@@ -123,10 +151,14 @@ async def check_offers(product_ids: list[str], delivery_date: str, quantity: flo
     Only orderable offers can be quoted (no_availability_data can be quoted but needs human approval).
     If you pass quantity and unit (L, KG, PCS or a sales unit code), the result also contains `plan`:
     up to three ranked plans (best, better, good) in sales units, split across products when stock is limited.
-    `substitution_hints` lists Valio's own substitutes for products that cannot be delivered.
+    Set include_substitutes to fetch live listed replacements for unavailable or insufficient stock.
+    Use required_claims and exclude_allergens for dietary constraints. Postal code adds a travel estimate.
     """
     p = _principal(ctx)
-    req = _parse_args(lambda: OffersRequest(product_ids=product_ids, delivery_date=delivery_date, quantity=quantity, unit=unit))
+    req = _parse_args(lambda: OffersRequest(
+        product_ids=product_ids, delivery_date=delivery_date, quantity=quantity, unit=unit,
+        include_substitutes=include_substitutes, required_claims=required_claims or [],
+        exclude_allergens=exclude_allergens or [], postal_code=postal_code))
     return compact_offers(await _run(service.check_offers, p, req))
 
 
@@ -143,7 +175,7 @@ async def create_quote(delivery_date: str, lines: list[dict], need: dict | None 
     Returns totals, expires_at (= earliest of price validity and order cutoffs) and policy_preview: what the
     buyer's mandate will decide (auto / needs_approval / reject) and why. Fails if a line is not orderable.
     """
-    p = _principal(ctx)
+    p = _principal(ctx, write=True)
     req = _parse_args(
         lambda: QuoteRequest(
             delivery_date=delivery_date,
@@ -164,7 +196,9 @@ async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None) 
     confirmed (auto-approved), pending_approval (a human must approve; this is normal, do not retry or split
     the order), or rejected (with reasons). A quote can be used once.
     """
-    p = _principal(ctx)
+    p = _principal(ctx, write=True)
+    if len(agent_rationale) > 1000:
+        raise ToolError("Rationale must be at most 1,000 characters")
     order = await _run(service.place_order, p, quote_id, agent_rationale)
     return order.model_dump(mode="json")
 

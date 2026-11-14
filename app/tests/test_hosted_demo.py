@@ -43,6 +43,22 @@ def test_hosted_accounts_and_synthetic_purchase(gateway, monkeypatch, tmp_path):
             assert signed_in.status_code == 200, signed_in.text
             assert "HttpOnly" in signed_in.headers["set-cookie"] and "Secure" in signed_in.headers["set-cookie"]
             assert (await kitchen.get("/session")).json()["offline_demo"]
+            school = await kitchen.post("/client/chat", headers={"Origin": buyer_origin}, json={"action": "draft",
+                "text": "I need to feed 200 children (7-9 years old) on Wednesday. Dietary wise:\n"
+                        "- 27 portions for lactose intolerance children\n- 67 portions without peanuts\n"
+                        "- Follows strict Finnish dietary restrictions required by law for schools and institutions to follow\n"
+                        "Draft up the recipe and give me everything I need to order. "
+                        "My soft budget is 1000 euros, and hard budget is 2000 euros."})
+            assert school.status_code == 200, school.text
+            meal = school.json()
+            assert meal["mode"] == "guided_meal"
+            assert meal["meal"]["servings"] == 200
+            assert meal["meal"]["delivery_date"] == "2026-11-18"
+            assert meal["meal"]["budgets"] == {"soft": 1000, "hard": 2000}
+            assert meal["meal"]["matched_total_net"] > 0
+            assert meal["draft"] is None and not meal["meal"]["complete"]
+            assert any(item["ingredient"] == "potato" and item["quantity"] == 25
+                       for item in meal["recipe"]["ingredients"])
             chat = {"text": "I need 1000 litres of lactose-free milk", "delivery_date": "2026-11-16", "action": "draft"}
             assert (await kitchen.post("/client/chat", json=chat, headers={"Origin": admin_origin})).status_code == 403
             draft = await kitchen.post("/client/chat", json=chat, headers={"Origin": buyer_origin})

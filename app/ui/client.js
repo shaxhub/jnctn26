@@ -162,9 +162,27 @@ export async function inspectTicket(id) {
   }
 }
 
-function showRecipe(recipe) {
+function showRecipe(recipe, meal) {
   const target = $("results");
   target.replaceChildren(node("h3", "Recipe ingredients", "results"));
+  if (meal) {
+    const heading = node("h4", "School lunch for " + number.format(meal.servings) + " · " + date(meal.delivery_date));
+    const methods = node("ul");
+    for (const recipe of meal.recipes) methods.append(node("li", recipe.name + " — " + recipe.method));
+    const guidance = node("a", "Finnish Food Authority school meal guidance");
+    guidance.href = meal.guidance_url;
+    const cost = meal.matched_total_net;
+    const budget = meal.budgets;
+    const summary = [meal.complete ? "Matched basket estimate" : "Matched items only", money.format(cost) + " excl. VAT"];
+    if (budget.soft != null) summary.push("Soft budget " + money.format(budget.soft));
+    if (budget.hard != null) summary.push("Hard budget " + money.format(budget.hard));
+    target.append(heading, node("p", meal.dietary_note), methods, node("p", meal.serving_note),
+      node("p", summary.join(" · "), "feedback"));
+    if (budget.hard != null && cost > budget.hard) target.append(node("p", "Matched items already exceed the hard budget.", "feedback error"));
+    else if (budget.soft != null && cost > budget.soft) target.append(node("p", "Matched items already exceed the soft budget.", "feedback"));
+    if (!meal.complete) target.append(node("p", "Some ingredients could not be sourced. The price shown is a subtotal.", "feedback"));
+    target.append(node("p", meal.verification, "feedback"), guidance);
+  }
   const data = recipe.ingredients.map(row => [
     row.ingredient, number.format(row.quantity) + " " + row.unit, row.dishes.join(", "),
     row.status ?? "Add a delivery date to check stock",
@@ -191,10 +209,11 @@ async function sendChat(requestData) {
     const result = await request("/client/chat", buyerKey(), requestData);
     if (current !== queryVersion) return;
     feedback($("chat-status"), result.message);
-    $("assistant-mode").textContent = result.mode === "gemini-4-hydrogen" ? "Interpreted by Gemini 4 Hydrogen (Medium)." :
+    $("assistant-mode").textContent = result.mode === "guided_meal" ? "School meal planning with catalog sourcing." :
+      result.mode === "gemini-4-hydrogen" ? "Interpreted by Gemini 4 Hydrogen (Medium)." :
       result.mode === "guided_fallback" ? "Gemini was unavailable. Guided search handled this request." :
       "Guided search handled this request.";
-    if (result.recipe) showRecipe(result.recipe);
+    if (result.recipe) showRecipe(result.recipe, result.meal);
     else showResults(result, requestData);
     if (result.draft) showDraft(result.draft);
   } catch (error) {

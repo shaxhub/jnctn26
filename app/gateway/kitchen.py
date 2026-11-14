@@ -139,7 +139,7 @@ def recipes_from_text(text: str, servings: int) -> list[Recipe]:
 
 
 def _candidate_ids(name: str, excluded: list[str], claims: list[str]) -> list[str]:
-    term = SEARCH_TERMS.get(name, name)
+    term = SEARCH_TERMS.get(name, {"red lentils": "punainen linssi", "wholegrain bread": "täysjyväleipä"}.get(name, name))
     if len(term) < 3:
         return []
     result = search(SearchRequest(text=term, category=CATEGORIES.get(name), limit=8,

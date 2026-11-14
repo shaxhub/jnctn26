@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field, ValidationError
 
-from . import audit, gemini, kitchen, service, store
+from . import audit, gemini, kitchen, meal_planning, service, store
 from .agent import explicit_quantity, parse_need_heuristic
 from .auth import Principal, current_principal, require_client
 from .delivery import postal_code_from_address
@@ -71,6 +71,16 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         raise service.GatewayError(422, "Enter a product request")
     draft_requested = request.action == "draft" or bool(DRAFT_COMMAND.match(text))
     today = store.now().date()
+    school_meal = meal_planning.school_lunch(text, today, request.delivery_date)
+    if school_meal:
+        sourcing, meal = school_meal
+        result = await _read_tool("source_ingredients", sourcing.model_dump(mode="json"), p)
+        partial_total = round(sum(row["sourcing"]["plan"]["total_net"] for row in result["ingredients"]
+                                  if row.get("sourcing")), 2)
+        meal["matched_total_net"] = partial_total
+        meal["complete"] = all(row["status"] == "available" for row in result["ingredients"])
+        return {"recipe": result, "meal": meal, "draft": None, "mode": "guided_meal",
+                "message": "School lunch proposal and purchasing list ready for kitchen review."}
     mode = "guided"
     parsed = None
     if gemini.enabled():
@@ -92,7 +102,8 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     if recipes:
         servings = parsed.servings if parsed and parsed.servings else recipes[0].servings
         result = await _kitchen_result(KitchenChatRequest(
-            kind="recipes", text=text, servings=servings, delivery_date=request.delivery_date,
+            kind="recipes", text=text, servings=servings,
+            delivery_date=request.delivery_date or (parsed.delivery_date if parsed else None),
             draft=draft_requested), p, recipes=recipes)
         return {"recipe": result, "draft": result.get("draft"), "mode": mode,
                 "message": "Recipe ingredients compiled." if not draft_requested else "Recipe draft ready for review."}

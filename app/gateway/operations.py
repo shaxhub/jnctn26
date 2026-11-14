@@ -15,7 +15,7 @@ from .models import ApprovalDecisionRequest
 
 router = APIRouter(prefix="/operations", dependencies=[Depends(require_admin)])
 SECTORS = {"hotel": "Hospitality", "hospital": "Healthcare"}
-INQUIRIES = ("CLIENT_INQUIRY", "SEARCH", "OFFERS_CHECKED", "AGENT_RUN")
+INQUIRIES = ("CLIENT_INQUIRY", "SEARCH", "OFFERS_CHECKED", "AGENT_RUN", "KITCHEN_PLAN")
 DECISIONS = ("POLICY_EVALUATED", "APPROVAL_GRANTED", "APPROVAL_DENIED",
              "ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED")
 EVENT_TYPES = {"all": INQUIRIES + DECISIONS + ("ORDER_RECEIVED", "APPROVAL_REQUESTED", "QUOTE_REJECTED", "QUOTE_INVALID"),
@@ -96,7 +96,7 @@ def analytics(period: Period = "month"):
         conn.execute("BEGIN")
         events = conn.execute(
             "SELECT buyer_id, event_type, data_json FROM audit_events WHERE julianday(ts) BETWEEN julianday(?) AND julianday(?) "
-            "AND event_type IN ('CLIENT_INQUIRY','SEARCH','OFFERS_CHECKED')", window)
+            "AND event_type IN ('CLIENT_INQUIRY','SEARCH','OFFERS_CHECKED','KITCHEN_PLAN')", window)
         for event in events:
             data = json.loads(event["data_json"])
             if event["event_type"] == "CLIENT_INQUIRY" or "inquiry_seq" not in data:

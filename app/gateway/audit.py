@@ -27,6 +27,8 @@ def _summary(ev: dict) -> str:
     d, t = ev["data"], ev["event_type"]
     if t == "CLIENT_INQUIRY":
         return f"{d.get('action', 'lookup')}: {d.get('text', '')}"
+    if t == "KITCHEN_PLAN":
+        return f"Planned {d['ingredient_count']} ingredients for {', '.join(d['dishes'])}"
     if t == "SEARCH":
         return f"searched '{d.get('text', '')}' filters={d.get('filters')} -> {d.get('matches')} matches"
     if t == "OFFERS_CHECKED":

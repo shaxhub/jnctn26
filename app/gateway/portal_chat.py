@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from typing import Literal
 
 import anyio
 from fastapi import APIRouter, Depends
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from . import audit, service, store
+from . import audit, kitchen, service, store
 from .agent import explicit_quantity, parse_need_heuristic, parse_need_llm
 from .auth import Principal, current_principal, require_client
 from .config import settings
@@ -52,7 +53,7 @@ async def _lookup(p: Principal, text: str) -> tuple[Need, str]:
     return need, "guided"
 
 
-async def _read_tool(name: Literal["search_products", "check_offers"], args: dict, p: Principal) -> dict:
+async def _read_tool(name: Literal["search_products", "check_offers", "compile_ingredients", "source_ingredients"], args: dict, p: Principal) -> dict:
     token = current_principal.set(p)
     try:
         result = await mcp.call_tool(name, args)
@@ -135,6 +136,34 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
         response["draft"] = draft.model_dump(mode="json")
         response["message"] = "Ticket draft created. Review the quantities and total before submitting."
     return response
+
+
+class KitchenChatRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=6000)
+    kind: Literal["menu", "recipes"]
+    servings: int = Field(ge=1, le=5000)
+    delivery_date: date | None = None
+    exclude_allergens: list[kitchen.Text] = Field(default_factory=list, max_length=20)
+    required_claims: list[kitchen.Text] = Field(default_factory=list, max_length=10)
+    unavailable_ingredients: list[kitchen.Text] = Field(default_factory=list, max_length=30)
+
+
+@router.post("/kitchen")
+async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(require_client)):
+    try:
+        dishes = [line.strip().removeprefix("- ").strip() for line in request.text.splitlines() if line.strip()]
+        args = kitchen.KitchenRequest(
+            servings=request.servings,
+            dishes=dishes if request.kind == "menu" else [],
+            recipes=kitchen.recipes_from_text(request.text, request.servings) if request.kind == "recipes" else [],
+        ).model_dump(mode="json")
+    except ValidationError as exc:
+        raise service.GatewayError(422, exc.errors()[0]["msg"]) from exc
+    if request.delivery_date is None:
+        return await _read_tool("compile_ingredients", args, p)
+    args.update(delivery_date=request.delivery_date.isoformat(), exclude_allergens=request.exclude_allergens,
+                required_claims=request.required_claims, unavailable_ingredients=request.unavailable_ingredients)
+    return await _read_tool("source_ingredients", args, p)
 
 
 @router.post("/tickets/submit")

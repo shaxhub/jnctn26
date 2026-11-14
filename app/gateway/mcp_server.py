@@ -19,7 +19,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
-from . import service, store
+from . import kitchen, service, store
 from .agent import compact_offers
 from .auth import Principal, current_principal, key_from_headers, principal_for_key
 from .delivery import estimate, postal_code_from_address
@@ -27,11 +27,12 @@ from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
 
 READ_TOOLS = ("ping", "get_my_mandate", "search_products", "check_offers",
-              "estimate_delivery", "get_order_status", "get_audit_log")
+              "estimate_delivery", "get_order_status", "get_audit_log", "compile_ingredients", "source_ingredients")
 
 INSTRUCTIONS = """Valio Aimo trade gateway for food-service purchasing agents.
 Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+unit to get plans)
 -> create_quote -> place_order -> get_order_status / get_audit_log.
+For menu planning use compile_ingredients and source_ingredients. These are read-only.
 Quantities in quotes and orders are in SALES units (see sales_unit).
 Your buyer's mandate is enforced server-side; orders may be confirmed, wait for human approval, or be rejected."""
 
@@ -80,6 +81,40 @@ async def ping(ctx: Context = None) -> dict:
     except ToolError:
         upstream = "unavailable"
     return {"status": "ok", "valio": upstream, "checked_at": store.now().isoformat()}
+
+
+@mcp.tool()
+async def compile_ingredients(servings: int, dishes: list[str] | None = None,
+                              recipes: list[kitchen.Recipe] | None = None, ctx: Context = None) -> dict:
+    """Compile a shopping list for dish names and/or recipes. Servings apply per dish.
+    Recipe quantities refer to the recipe's own servings and use g, kg, ml, dl, l, or pcs.
+    Dish-name templates are estimates. Unrecognized dishes are returned for clarification.
+    Supply a recipe with the same name to override a template. Does not create tickets.
+    """
+    principal = _principal(ctx)
+    request = _parse_args(lambda: kitchen.KitchenRequest(servings=servings, dishes=dishes or [], recipes=recipes or []))
+    result = await _run(kitchen.compile_ingredients, request)
+    await _run(kitchen.log_plan, principal, request, result)
+    return result
+
+
+@mcp.tool()
+async def source_ingredients(servings: int, delivery_date: str, dishes: list[str] | None = None,
+                             recipes: list[kitchen.Recipe] | None = None, exclude_allergens: list[str] | None = None,
+                             required_claims: list[str] | None = None, unavailable_ingredients: list[str] | None = None,
+                             ctx: Context = None) -> dict:
+    """Compile a menu or recipe list, check Valio offers and suggest dish-specific alternatives.
+    Add unavailable_ingredients to request replacements for ingredients known to be out of stock.
+    Returned options include coverage, pack quantities, price, stock, carbon and reliability when present.
+    Ingredients are sourced independently. Culinary swaps apply to the listed dishes and require review.
+    This is a read-only planning operation.
+    """
+    principal = _principal(ctx)
+    request = _parse_args(lambda: kitchen.SourceRequest(
+        servings=servings, delivery_date=delivery_date, dishes=dishes or [], recipes=recipes or [],
+        exclude_allergens=exclude_allergens or [], required_claims=required_claims or [],
+        unavailable_ingredients=unavailable_ingredients or []))
+    return await _run(kitchen.source_ingredients, principal, request)
 
 
 @mcp.tool()

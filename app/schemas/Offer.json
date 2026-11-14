@@ -209,6 +209,12 @@
       "title": "Currency",
       "type": "string"
     },
+    "stale": {
+      "default": false,
+      "description": "Price or availability came from the short outage cache.",
+      "title": "Stale",
+      "type": "boolean"
+    },
     "price_valid_to": {
       "anyOf": [
         {

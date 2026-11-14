@@ -77,6 +77,10 @@ function showResults(result, requestData) {
   const target = $("results");
   target.replaceChildren();
   if (!result.offers?.length) return;
+  if (result.offers.some(offer => offer.stale) ||
+      Object.values(result.alternatives ?? {}).some(group => group.some(offer => offer.stale))) {
+    target.append(node("p", "Valio is temporarily unavailable. Some offers use recently cached data. Drafting requires a live check.", "feedback"));
+  }
   const eta = result.delivery_estimate;
   if (eta) {
     target.append(node("p", eta.status === "estimated"

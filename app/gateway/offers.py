@@ -138,4 +138,7 @@ def get_offers(product_ids: list[str], delivery_date: date, *, fresh: bool = Fal
     raw = get_client().get_offers_raw(list(products), delivery_date, fresh=fresh)
     now = effective_now(raw)
     offers = [build_offer(products[pid], raw.products.get(pid, {}), delivery_date, now) for pid in products]
+    if raw.stale:
+        for offer in offers:
+            offer.stale = True
     return offers, now

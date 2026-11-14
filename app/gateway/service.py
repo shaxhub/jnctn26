@@ -171,7 +171,7 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
-    offers_list, now = get_offers(ids, req.delivery_date)
+    offers_list, now = get_offers(ids, req.delivery_date, fresh=True)
     offers = {o.product_id: o for o in offers_list}
     catalog = get_products(list(req.need.preferred_product_ids) if req.need else [])
     errors, warnings, lines = [], [], []

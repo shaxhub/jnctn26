@@ -25,6 +25,7 @@ _RETRY_DELAYS = (0.3, 0.6)
 class RawOffers:
     time_now: str | None                           # server time from /availability (Helsinki, ISO 8601)
     requested_date: str
+    stale: bool = False
     products: dict[str, dict] = field(default_factory=dict)   # id -> {"price": ..., "availability": ...}
 
 
@@ -61,9 +62,10 @@ class ValioClient:
                 time.sleep(_RETRY_DELAYS[attempt])
         raise RuntimeError("unreachable")  # pragma: no cover
 
-    def _fetch(self, kind: str, ids: list[str], day: str, customer: str, *, fresh: bool) -> dict[str, dict]:
+    def _fetch(self, kind: str, ids: list[str], day: str, customer: str, *, fresh: bool) -> tuple[dict[str, dict], bool]:
         now = time.monotonic()
         out, missing = {}, []
+        stale = False
         with self._lock:
             for pid in ids:
                 hit = self._cache.get((customer, kind, day, pid))
@@ -77,7 +79,11 @@ class ValioClient:
                 data = self._post(f"/{kind}", customer, day, chunk)
             except httpx.HTTPError:
                 with self._lock:
-                    if not fresh and all((customer, kind, day, pid) in self._cache for pid in chunk):
+                    # Allow a bounded fallback for browsing during short interruptions.
+                    oldest = time.monotonic() - 300
+                    if not fresh and all(self._cache.get((customer, kind, day, pid), (float("-inf"),))[0] > oldest
+                                         for pid in chunk):
+                        stale = True
                         for pid in chunk:
                             out[pid] = self._cache[(customer, kind, day, pid)][1]
                         continue
@@ -93,18 +99,18 @@ class ValioClient:
                     pid = str(raw_pid)
                     self._cache[(customer, kind, day, pid)] = (fetched_at + self.ttl_s, item)
                     out[pid] = item
-        return out
+        return out, stale
 
     def get_offers_raw(self, product_ids: list[str], delivery_date: date, customer: str | None = None, *, fresh: bool = False) -> RawOffers:
         ids = list(dict.fromkeys(str(p) for p in product_ids))
         day = delivery_date.isoformat()
         customer = customer or settings.valio_customer_id
-        prices = self._fetch("price", ids, day, customer, fresh=fresh)
-        avail = self._fetch("availability", ids, day, customer, fresh=fresh)
+        prices, stale_price = self._fetch("price", ids, day, customer, fresh=fresh)
+        avail, stale_availability = self._fetch("availability", ids, day, customer, fresh=fresh)
         with self._lock:
             tn = self._time_now.get((customer, day))
         time_now = tn[1] if tn and tn[0] > time.monotonic() else None
-        return RawOffers(time_now=time_now, requested_date=day,
+        return RawOffers(time_now=time_now, requested_date=day, stale=stale_price or stale_availability,
                          products={pid: {"price": prices.get(pid), "availability": avail.get(pid)} for pid in ids})
 
 

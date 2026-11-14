@@ -146,6 +146,7 @@ class Offer(BaseModel):
     tax_rate: float | None = None
     price_per_content_unit: float | None = Field(None, description="EUR per L or KG without VAT.")
     currency: str = "EUR"
+    stale: bool = Field(False, description="Price or availability came from the short outage cache.")
     price_valid_to: datetime | None = None
     net_price_found: bool | None = None
     available_qty: float | None = Field(None, description="Sales units available; None when unlimited or unknown.")

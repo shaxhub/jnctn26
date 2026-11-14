@@ -215,6 +215,11 @@ def test_fresh_valio_reads_bypass_cache_and_propagate_failure(monkeypatch):
         monkeypatch.setattr(client, "_post", down)
         with pytest.raises(httpx.ConnectError):
             client.get_offers_raw(["milk"], delivery, fresh=True)
+        client._cache = {key: (expiry - 61, data) for key, (expiry, data) in client._cache.items()}
+        assert client.get_offers_raw(["milk"], delivery).stale
+        client._cache = {key: (expiry - 301, data) for key, (expiry, data) in client._cache.items()}
+        with pytest.raises(httpx.ConnectError):
+            client.get_offers_raw(["milk"], delivery)
     finally:
         client._http.close()
 

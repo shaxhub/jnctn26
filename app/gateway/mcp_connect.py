@@ -172,7 +172,7 @@ def oauth_routes(provider: OAuthProvider) -> list[Route]:
         Route("/token", RequestBodyLimitMiddleware(request_response(token), 8192), methods=["POST"]),
     ]
     if issuer_path:
-        # Tailscale strips a mounted /.well-known prefix before forwarding to the app.
+        # The Funnel maps the two public discovery URLs to these internal paths.
         routes += [
             Route("/oauth-protected-resource" + issuer_path + "/mcp", resource_metadata, methods=["GET"]),
             Route("/oauth-authorization-server" + issuer_path, metadata, methods=["GET"]),

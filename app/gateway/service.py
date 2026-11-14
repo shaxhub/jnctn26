@@ -62,6 +62,19 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
     if hints:
         result["substitution_hints"] = hints
     candidates = offers
+    forbidden = set(expand_allergens(req.exclude_allergens + p.mandate.forbidden_allergens))
+    explicit_exclusions = set(expand_allergens(req.exclude_allergens))
+
+    def eligible(offer: Offer, *, alternative: bool = False) -> bool:
+        trace_exclusions = forbidden if alternative else explicit_exclusions
+        return (
+            not forbidden.intersection(offer.allergens_contains)
+            and not trace_exclusions.intersection(offer.allergens_may_contain)
+            and not constraint_violations(offer, need)
+            and (p.mandate.allowed_categories is None or any(
+                (offer.category or "").startswith(category) for category in p.mandate.allowed_categories))
+        )
+
     if req.include_substitutes:
         catalog_hints = {
             offer.product_id: substitutions.candidates(offer, req.required_claims, req.exclude_allergens)
@@ -70,27 +83,16 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
         candidates = _with_substitutes(offers, hints | catalog_hints, need)
         requested = set(req.product_ids)
         alternatives = {offer.product_id: offer for offer in candidates if offer.orderable and offer.product_id not in requested}
-        forbidden = set(expand_allergens(req.exclude_allergens + p.mandate.forbidden_allergens))
         result["alternatives"] = {
             pid: [{**alternatives[sid].model_dump(mode="json"),
                    "substitution_source": "valio_listed" if pid in hints else "catalog_ingredient_match"}
-                  for sid in ids if sid in alternatives
-                  and not constraint_violations(alternatives[sid], need)
-                  and not forbidden.intersection(alternatives[sid].allergens_contains + alternatives[sid].allergens_may_contain)
-                  and (p.mandate.allowed_categories is None or any(
-                      (alternatives[sid].category or "").startswith(category) for category in p.mandate.allowed_categories))]
+                  for sid in ids if sid in alternatives and eligible(alternatives[sid], alternative=True)]
             for pid, ids in (hints | catalog_hints).items() if ids
         }
         allowed_alternatives = {item["product_id"] for group in result["alternatives"].values() for item in group}
         candidates = offers + [offer for pid, offer in alternatives.items() if pid in allowed_alternatives]
     if req.quantity and req.unit:
-        forbidden = set(expand_allergens(req.exclude_allergens + p.mandate.forbidden_allergens))
-        safe_candidates = [
-            offer for offer in candidates if not forbidden.intersection(offer.allergens_contains)
-            and not set(expand_allergens(req.exclude_allergens)).intersection(offer.allergens_may_contain)
-            and (p.mandate.allowed_categories is None or any(
-                (offer.category or "").startswith(category) for category in p.mandate.allowed_categories))
-        ]
+        safe_candidates = [offer for offer in candidates if eligible(offer)]
         result["plan"] = make_plans(need, safe_candidates, mandate=p.mandate).model_dump(mode="json")
     if req.include_next_delivery:
         by_date: dict[date, list[str]] = defaultdict(list)
@@ -102,7 +104,7 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
         for day in sorted(by_date)[:3]:
             checked, _ = get_offers(by_date[day], day)
             later.extend({"delivery_date": day.isoformat(), "offer": offer.model_dump(mode="json")}
-                         for offer in checked if offer.orderable and offer.available_date)
+                         for offer in checked if offer.orderable and offer.available_date and eligible(offer))
         result["next_delivery_options"] = later
     if req.postal_code:
         result["delivery_estimate"] = estimate(req.postal_code)

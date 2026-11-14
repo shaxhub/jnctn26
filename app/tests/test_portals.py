@@ -260,3 +260,15 @@ def test_offer_lookup_checks_later_dates_only_when_requested(gateway, monkeypatc
     assert result["delivery_date"] == monday.isoformat()
     assert result["next_delivery_options"][0]["delivery_date"] == tuesday.isoformat()
     assert dates == [monday, monday, tuesday]
+
+
+def test_later_delivery_does_not_suggest_an_excluded_allergen(gateway, monkeypatch):
+    buyer = principal_for_key("demo-hospital-key")
+    later = date(2026, 11, 17)
+    def lookup(ids, day):
+        return [Offer(product_id="milk", sales_unit="ST", unit_price=2, available_date=later,
+                      allergens_contains=["AM"], orderable=day == later,
+                      reason=OrderableReason.ok if day == later else OrderableReason.later_date)], store.now()
+    monkeypatch.setattr(service, "get_offers", lookup)
+    request = OffersRequest(product_ids=["milk"], delivery_date=date(2026, 11, 16), include_next_delivery=True)
+    assert service.check_offers(buyer, request)["next_delivery_options"] == []

@@ -1,5 +1,5 @@
-import {$, date, feedback, money, node, number, request, table} from "./common.js";
-import {buyerKey, inspectTicket, showDraft} from "./client.js";
+import {$, date, feedback, inputDate, money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
+import {buyerKey, editBasket, inspectTicket, showDraft, ticketNameForm} from "./client.js";
 import {stageName, stages} from "./order_thread.js";
 
 const views = {
@@ -27,8 +27,75 @@ const translations = {
   "Billing email":"Laskutussähköposti", "Payment method":"Maksutapa", "Invoice reference":"Laskuviite",
   "Allow agents to place orders":"Salli agenttien tehdä tilauksia", "Reminder time (Helsinki)":"Muistutusaika (Helsinki)",
   "Daily reminder for tomorrow’s order":"Päivittäinen muistutus huomisen tilauksesta", "Save settings":"Tallenna asetukset",
+  "Delivery year":"Toimitusvuosi", "Registered orders":"Rekisteröidyt tilaukset", "Registered offers":"Rekisteröidyt tarjoukset",
+  "Net spend":"Verottomat kulut", "Monthly availability by product":"Kuukausittainen saatavuus tuotteittain",
+  "Most checked product codes":"Eniten tarkistetut tuotteet", "Update":"Päivitä", "No observations":"Ei havaintoja",
+  "Submission to arrival":"Lähetyksestä saapumiseen", "Sales unit":"Myyntiyksikkö",
+  "No confirmed orders for this year.":"Ei vahvistettuja tilauksia tälle vuodelle.",
+  "Display and language":"Näyttö ja kieli", "Business and delivery":"Yritys ja toimitus",
+  "Billing":"Laskutus", "Agent permissions and reminders":"Agentin oikeudet ja muistutukset",
+  "Agent integration":"Agentin tiedot", "Light":"Vaalea", "Dark":"Tumma", "Invoice":"Lasku",
+  "Bank transfer":"Tilisiirto", "Purchase order":"Ostotilaus", "Settings saved.":"Asetukset tallennettu.",
+  "Agent access is managed by the Aimo deployment. Ask Aimo operations for a workspace key.":
+    "Agentin käyttöoikeuksia hallinnoi Aimo. Pyydä työtilan avain Aimon asiakaspalvelusta.",
+  "Connect an external purchasing agent with this workspace’s demo key. Keep the key private.":
+    "Yhdistä ulkoinen ostoagentti työtilan demoavaimella. Pidä avain salassa.",
+  "Copy command":"Kopioi komento", "API reference":"API-ohjeet", "Command copied.":"Komento kopioitu.",
+  "Clipboard unavailable. Select and copy the command.":"Leikepöytä ei ole käytettävissä. Valitse ja kopioi komento.",
+  "over ":"yli ", "all substitutions":"kaikki korvaavat tuotteet",
+  "substitutions outside category":"korvaavat tuotteet muista tuoteryhmistä",
+  "partial stock":"osittainen saatavuus", "unverified stock":"vahvistamaton saatavuus", "trace allergens":"allergeenijäämät",
+  "None":"Ei mitään", "Any amount":"Ei rajaa", " net":" veroton", "Automatic orders":"Automaattiset tilaukset",
+  "Weekly limit":"Viikkoraja", "Used this week":"Käytetty tällä viikolla", "Needs approval":"Vaatii hyväksynnän",
+  "Blocked allergens":"Poissuljetut allergeenit", "Mandate ":"Hankintasäännöt ", " · issued by ":" · laatija ",
 };
 const t = text => language() === "fi" ? translations[text] || text : text;
+let draftSelection;
+
+async function loadDraftFlyout() {
+  const flyout = $("draft-flyout");
+  if (flyout.hidden) return;
+  flyout.replaceChildren(node("h2", t("Saved drafts")));
+  try {
+    const drafts = await request("/client/drafts", buyerKey());
+    if (flyout.hidden) return;
+    if (!drafts.length) flyout.append(node("p", language() === "fi" ? "Ei luonnoksia." : "No saved drafts."));
+    for (const quote of drafts) {
+      const button = node("button", quote.name || quote.quote_id);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        draftSelection = quote.quote_id;
+        $("draft-flyout-toggle").click();
+        if (viewName() === "drafts") showDrafts(draftSelection);
+        else location.hash = "drafts";
+      });
+      flyout.append(button);
+    }
+  } catch (error) { flyout.append(node("p", error.message, "feedback error")); }
+}
+
+const draftsNav = document.querySelector('[data-view="drafts"]');
+const flyoutToggle = node("button", "›", "draft-flyout-toggle");
+flyoutToggle.id = "draft-flyout-toggle";
+flyoutToggle.type = "button";
+flyoutToggle.setAttribute("aria-label", "Saved drafts / Tallennetut luonnokset");
+flyoutToggle.setAttribute("aria-controls", "draft-flyout");
+flyoutToggle.setAttribute("aria-expanded", "false");
+const draftNavRow = node("div", "", "draft-nav-row");
+draftsNav.replaceWith(draftNavRow);
+draftNavRow.append(draftsNav, flyoutToggle);
+flyoutToggle.addEventListener("click", () => {
+  const flyout = $("draft-flyout");
+  flyout.hidden = !flyout.hidden;
+  $("draft-flyout-toggle").setAttribute("aria-expanded", String(!flyout.hidden));
+  loadDraftFlyout();
+});
+window.addEventListener("draft-changed", loadDraftFlyout);
+window.addEventListener("ticket-renamed", event => {
+  loadDraftFlyout();
+  if (viewName() === "drafts") showDrafts(event.detail.url.split("/").at(-1));
+  if (viewName() === "requests") showRequests();
+});
 let settings = {};
 let version = 0;
 let year = Number(new Intl.DateTimeFormat("en", {year:"numeric", timeZone:"Europe/Helsinki"}).format(new Date()));
@@ -36,7 +103,7 @@ let preferenceWrites = Promise.resolve();
 
 function viewName() {
   const name = location.hash.slice(1);
-  return Object.hasOwn(views, name) ? name : "dashboard";
+  return Object.hasOwn(views, name) ? name : "products";
 }
 
 function language() { return settings.language || "en"; }
@@ -45,6 +112,12 @@ function applyPreferences() {
   document.documentElement.dataset.theme = settings.theme || "light";
   document.documentElement.lang = language();
   for (const label of document.querySelectorAll("[data-en][data-fi]")) label.textContent = label.dataset[language()];
+  const prompt = $("message");
+  prompt.placeholder = language() === "fi" ? "Tarvitsen 200 litraa laktoositonta maitoa maanantaiksi" :
+    "I need 200 litres of lactose-free milk by Monday";
+  prompt.setAttribute("aria-label", language() === "fi" ? "Mitä keittiösi tarvitsee?" : "What does your kitchen need?");
+  document.title = language() === "fi" ? "Agent Dairy | Hankintatyötila" : "Agent Dairy | Purchasing workspace";
+  if ($("draft").classList.contains("empty")) showDraft(null);
   for (const code of ["en", "fi"]) $("lang-" + code).setAttribute("aria-pressed", String(code === language()));
 }
 
@@ -73,7 +146,22 @@ function dashboard(data) {
   }
   section.append(totals, pipeline);
   const closed = (data.stages.rejected || 0) + (data.stages.expired || 0);
-  if (closed) section.append(node("p", closed + " rejected or expired requests", "muted"));
+  if (closed) section.append(node("p", closed + (language() === "fi" ?
+    (closed === 1 ? " hylätty tai vanhentunut pyyntö" : " hylättyä tai vanhentunutta pyyntöä") :
+    (closed === 1 ? " rejected or expired request" : " rejected or expired requests")), "muted"));
+  if (!data.drafts && !data.submitted) {
+    const empty = node("div", "", "empty dashboard-empty");
+    empty.append(node("p", language() === "fi"
+      ? "Ei vielä luonnoksia tai lähetettyjä pyyntöjä. Aloita etsimällä tuotteita tai liittämällä resepti."
+      : "No drafts or submitted requests yet. Start by finding products or pasting a recipe."));
+    const start = node("button", language() === "fi" ? "Aloita tuotehaku" : "Start a product search", "primary");
+    start.type = "button";
+    start.addEventListener("click", () => { location.hash = "products"; });
+    const actions = node("div", "", "actions");
+    actions.append(start);
+    empty.append(actions);
+    section.append(empty);
+  }
   root.replaceChildren(section);
 }
 
@@ -82,8 +170,10 @@ function draftEditor(quote, selected, state) {
   section.append(node("p", "Suggest changes to quantities or delivery date, then save a fresh quote.", "muted"));
   const form = node("form", "", "workspace-form");
   const input = node("input");
-  input.type = "date";
-  input.value = quote.delivery_date;
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.placeholder = "dd.mm.yyyy";
+  input.value = inputDate(quote.delivery_date);
   input.required = true;
   const label = node("label", "Delivery date");
   label.append(input);
@@ -127,7 +217,7 @@ function draftEditor(quote, selected, state) {
     propose.disabled = true;
     try {
       const suggestion = await request(base + "/help", key, {text:prompt.value});
-      input.value = suggestion.delivery_date;
+      input.value = inputDate(suggestion.delivery_date);
       for (const [sku, field] of fields) field.value = suggestion.quantities[sku] ?? 0;
       feedback(notice, "Suggestion applied to the fields. Save to refresh price and stock.");
     } catch (error) { feedback(notice, error.message, true); }
@@ -138,9 +228,12 @@ function draftEditor(quote, selected, state) {
     event.preventDefault();
     save.disabled = true;
     try {
+      const delivery = parseInputDate(input.value);
+      if (!delivery) throw new Error("Enter the delivery date as dd.mm.yyyy.");
       const quantities = Object.fromEntries([...fields].map(([sku, field]) => [sku, Number(field.value)]).filter(([, value]) => value > 0));
-      const fresh = await request(base + "/edit", key, {delivery_date:input.value, quantities});
+      const fresh = await request(base + "/edit", key, {delivery_date:delivery, quantities});
       if (state === version) showDrafts(fresh.quote_id);
+      window.dispatchEvent(new Event("draft-changed"));
     } catch (error) { feedback(notice, error.message, true); }
     finally { save.disabled = false; }
   });
@@ -159,7 +252,7 @@ async function showDrafts(select) {
   detail.append(review);
   if (!data.length) list.append(node("p", "Create a draft from Product Search to see it here.", "empty"));
   const rows = data.map(quote => {
-    const button = node("button", quote.quote_id);
+    const button = node("button", quote.name || quote.quote_id);
     button.addEventListener("click", () => showDrafts(quote.quote_id));
     const expired = new Date(quote.expires_at) <= new Date();
     return [button, date(quote.delivery_date), money.format(quote.total_net), expired ? "Needs fresh quote" : "Ready to review"];
@@ -169,7 +262,25 @@ async function showDrafts(select) {
   grid.append(list, sidebar);
   const quote = data.find(item => item.quote_id === select) || data[0];
   if (quote) {
-    sidebar.append(draftEditor(quote, review, state), detail);
+    const base = "/client/drafts/" + encodeURIComponent(quote.quote_id);
+    const edit = node("button", language() === "fi" ? "Muokkaa tuotehaussa" : "Edit in Product Search");
+    edit.addEventListener("click", () => editBasket(quote));
+    const remove = node("button", language() === "fi" ? "Poista luonnos" : "Delete draft");
+    const notice = node("p", "", "feedback");
+    notice.hidden = true;
+    remove.addEventListener("click", async () => {
+      if (!window.confirm(language() === "fi" ? "Poistetaanko tämä luonnos?" : "Delete this draft?")) return;
+      remove.disabled = true;
+      try {
+        await request(base + "/delete", buyerKey(), {});
+        window.dispatchEvent(new Event("draft-changed"));
+        if (state === version) showDrafts();
+      } catch (error) { feedback(notice, error.message, true); }
+      finally { remove.disabled = false; }
+    });
+    detail.prepend(ticketNameForm(quote.name, base, buyerKey()), edit, remove, notice);
+    showDraft(quote, undefined, review);
+    sidebar.append(detail, draftEditor(quote, review, state));
   }
   root.replaceChildren(grid);
 }
@@ -181,7 +292,7 @@ async function showRequests(offset = 0) {
   const section = panel("Request history");
   if (!data.requests.length) section.append(node("p", "Submitted tickets will appear here.", "empty"));
   const rows = data.requests.map(({order, stage}) => {
-    const button = node("button", order.order_id);
+    const button = node("button", order.name || order.order_id);
     button.addEventListener("click", () => inspectTicket(order.order_id));
     return [button, node("span", stageName(stage, language()), "tag"), date(order.delivery_date), money.format(order.total_net)];
   });
@@ -206,8 +317,8 @@ function chart(title, values, format, ceiling) {
     const measure = node("progress");
     measure.max = max;
     measure.value = value ?? 0;
-    measure.setAttribute("aria-label", label + ": " + (value == null ? "No observations" : format(value)));
-    row.append(node("span", label), measure, node("strong", value == null ? "—" : format(value)));
+    measure.setAttribute("aria-label", t(label) + ": " + (value == null ? t("No observations") : format(value)));
+    row.append(node("span", t(label)), measure, node("strong", value == null ? "—" : format(value)));
     list.append(row);
   }
   section.append(list);
@@ -222,13 +333,13 @@ async function analytics() {
   const input = node("input");
   Object.assign(input, {type:"number", min:"2000", max:"9998", value:year, required:true});
   const form = node("form", "", "actions");
-  const label = node("label", "Delivery year");
+  const label = node("label", t("Delivery year"));
   label.append(input);
-  form.append(label, node("button", "Update"));
+  form.append(label, node("button", t("Update")));
   form.addEventListener("submit", event => { event.preventDefault(); year = Number(input.value); render(); });
   const total = node("dl", "", "metrics");
-  total.append(metric("Registered orders", data.months.reduce((sum, month) => sum + month.orders, 0)),
-    metric("Net spend", money.format(data.months.reduce((sum, month) => sum + month.net, 0))));
+  total.append(metric(t("Registered orders"), data.months.reduce((sum, month) => sum + month.orders, 0)),
+    metric(t("Net spend"), money.format(data.months.reduce((sum, month) => sum + month.net, 0))));
   toolbar.append(form, total);
   const months = new Intl.DateTimeFormat(language(), {month:"short", timeZone:"UTC"});
   const byMonth = fn => data.months.map(m => [months.format(new Date(Date.UTC(year, m.month-1, 1))), fn(m)]);
@@ -243,11 +354,12 @@ async function analytics() {
   if (availability.length) {
     const section = panel("Monthly availability by product");
     const select = node("select");
-    const label = node("label", "Most checked product codes");
+    const label = node("label", t("Most checked product codes"));
     label.append(select);
-    for (const [sku] of availability) select.append(new Option(sku, sku));
+    const labelFor = sku => data.availability_product_names?.[sku] || ((language() === "fi" ? "Tuote " : "Product ") + sku);
+    for (const [sku] of availability) select.append(new Option(labelFor(sku) + " · " + sku, sku));
     const graph = node("div");
-    const draw = () => graph.replaceChildren(chart(select.value, data.availability_by_sku[select.value].map(month =>
+    const draw = () => graph.replaceChildren(chart(labelFor(select.value), data.availability_by_sku[select.value].map(month =>
       [months.format(new Date(Date.UTC(year, month.month-1, 1))), month.checked ? 100*month.available/month.checked : null]),
       v => number.format(v)+"%", 100));
     select.addEventListener("change", draw);
@@ -257,30 +369,43 @@ async function analytics() {
   }
   const items = panel("Most ordered products");
   items.append(data.products.length ? table(["Product","Quantity","Sales unit"], data.products.map(item =>
-    [item.name || item.id, number.format(item.quantity), item.unit])) : node("p", "No confirmed orders for this year.", "empty"));
+    [item.name || item.id, number.format(item.quantity), item.unit])) : node("p", t("No confirmed orders for this year."), "empty"));
   root.replaceChildren(toolbar, charts, items);
 }
 
 function settingsView() {
   const section = panel("Workspace preferences");
-  const form = node("form", "", "workspace-form settings-grid");
-  const fields = [
-    ["theme","Appearance",{light:"Light",dark:"Dark"}], ["language","Default language",{en:"English",fi:"Suomi"}],
-    ["business","Client business"], ["address","Delivery address"], ["billing_email","Billing email",null,"email"],
-    ["payment_method","Payment method",{invoice:"Invoice",bank_transfer:"Bank transfer",purchase_order:"Purchase order"}],
-    ["invoice_reference","Invoice reference"], ["agent_self_order","Allow agents to place orders",null,"checkbox"],
-    ["recurring_prompt","Daily reminder for tomorrow’s order"], ["recurring_time","Reminder time (Helsinki)",null,"time"]
+  const form = node("form", "", "workspace-form settings-form");
+  const groups = [
+    ["Display and language", [["theme","Appearance",{light:"Light",dark:"Dark"}], ["language","Default language",{en:"English",fi:"Suomi"}]]],
+    ["Business and delivery", [["business","Client business"], ["address","Delivery address"]]],
+    ["Billing", [["billing_email","Billing email",null,"email"],
+      ["payment_method","Payment method",{invoice:"Invoice",bank_transfer:"Bank transfer",purchase_order:"Purchase order"}],
+      ["invoice_reference","Invoice reference"]]],
+    ["Agent permissions and reminders", [["agent_self_order","Allow agents to place orders",null,"checkbox"],
+      ["recurring_prompt","Daily reminder for tomorrow’s order"], ["recurring_time","Reminder time (Helsinki)",null,"time"]]],
   ];
-  for (const [id, title, options, type] of fields) {
-    const label = node("label", t(title));
-    const control = node(options ? "select" : "input");
-    control.name = id;
-    if (options) for (const [key, name] of Object.entries(options)) control.append(new Option(name, key));
-    else control.type = type || "text";
-    if (type === "checkbox") control.checked = Boolean(settings[id]);
-    else control.value = settings[id] ?? "";
-    label.append(control);
-    form.append(label);
+  for (const [heading, fields] of groups) {
+    const group = node("fieldset", "", "settings-group");
+    group.append(node("legend", t(heading)));
+    const grid = node("div", "", "settings-fields");
+    for (const [id, title, options, type] of fields) {
+      const label = node("label", t(title), type === "checkbox" ? "settings-permission" : "");
+      const control = node(options ? "select" : "input");
+      control.name = id;
+      if (options) for (const [key, name] of Object.entries(options)) control.append(new Option(t(name), key));
+      else control.type = type || "text";
+      if (type === "checkbox") {
+        control.checked = Boolean(settings[id]);
+        label.prepend(control);
+      } else {
+        control.value = settings[id] ?? "";
+        label.append(control);
+      }
+      grid.append(label);
+    }
+    group.append(grid);
+    form.append(group);
   }
   const note = node("p", "", "feedback");
   note.hidden = true;
@@ -290,11 +415,139 @@ function settingsView() {
     event.preventDefault();
     const value = Object.fromEntries(new FormData(form));
     value.agent_self_order = form.elements.agent_self_order.checked;
-    try { await save(value); feedback(note, "Settings saved."); }
+    try {
+      await save(value);
+      if (viewName() === "settings") settingsView();
+      if ($("settings-status")) feedback($("settings-status"), t("Settings saved."));
+    }
     catch (error) { feedback(note, error.message, true); }
   });
+  note.id = "settings-status";
   section.append(form);
-  root.replaceChildren(section);
+  root.replaceChildren(section, agentIntegration());
+}
+
+function agentIntegration() {
+  const section = panel("Agent integration");
+  section.classList.add("settings-integration");
+  const local = (en, fi) => language() === "fi" ? fi : en;
+  const hosted = buyer.dataset.hosted === "true";
+  const url = hosted ? "https://agent-dairy-mcp.kienlebox.stream/mcp" : portalUrl("/mcp");
+  section.append(node("p", local("Create a separate key for each agent. Use Streamable HTTP and an Authorization Bearer header.",
+    "Luo jokaiselle agentille oma avain. Käytä Streamable HTTP -yhteyttä ja Authorization Bearer -otsaketta."), "muted"), node("pre", url));
+  const form = node("form", "", "workspace-form");
+  const label = node("label", local("Agent name", "Agentin nimi"));
+  const name = node("input");
+  name.required = true;
+  name.maxLength = 60;
+  label.append(name);
+  const permission = node("label", local("Allow this key to submit orders", "Salli tilausten lähettäminen tällä avaimella"), "settings-permission");
+  const canOrder = node("input");
+  canOrder.type = "checkbox";
+  permission.prepend(canOrder);
+  const create = node("button", local("Create agent key", "Luo agenttiavain"), "primary");
+  form.append(label, permission, create);
+  const secret = node("pre");
+  secret.hidden = true;
+  const list = node("ul");
+  const status = node("p", "", "feedback");
+  status.hidden = true;
+  status.setAttribute("role", "status");
+  const key = buyerKey();
+  async function loadKeys() {
+    try {
+      const keys = await request("/client/agent-credentials", key);
+      list.replaceChildren();
+      for (const item of keys) {
+        const row = node("li", item.label + " · " + item.id + " · " +
+          (item.can_order ? local("Ordering enabled for key", "Tilaaminen sallittu avaimelle") : local("Read-only", "Vain luku")) +
+          (item.last_used_at ? " · " + date(item.last_used_at) : ""));
+        const revoke = node("button", local("Revoke", "Mitätöi"));
+        revoke.type = "button";
+        revoke.addEventListener("click", async () => {
+          if (!window.confirm(local("Revoke this agent key?", "Mitätöidäänkö agenttiavain?"))) return;
+          revoke.disabled = true;
+          try {
+            await request("/client/agent-credentials/" + encodeURIComponent(item.id) + "/revoke", key, {});
+            secret.hidden = true;
+            secret.textContent = "";
+            await loadKeys();
+          } catch (error) { feedback(status, error.message, true); }
+          finally { revoke.disabled = false; }
+        });
+        row.append(" ", revoke);
+        list.append(row);
+      }
+    } catch (error) { feedback(status, error.message, true); }
+  }
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    create.disabled = true;
+    try {
+      const result = await request("/client/agent-credentials", key, {label:name.value, can_order:canOrder.checked});
+      secret.textContent = "Authorization: Bearer " + result.secret;
+      secret.hidden = false;
+      form.reset();
+      feedback(status, local("Copy this key now. It is shown once.", "Kopioi avain nyt. Se näytetään vain kerran."));
+      await loadKeys();
+    } catch (error) { feedback(status, error.message, true); }
+    finally { create.disabled = false; }
+  });
+  if (hosted) {
+    const fallback = node("p", local("Funnel endpoint", "Funnel-osoite") +
+      " · https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp", "cell-note");
+    section.append(fallback);
+    }
+  section.append(form, status, secret, list);
+  loadKeys();
+  return section;
+}
+
+async function loadTrust() {
+  const key = buyerKey();
+  const target = $("trust");
+  if (!target) return;
+  try {
+    const me = await request("/me", key);
+    if (key === buyerKey()) renderTrust(me);
+  } catch (error) {
+    if (key === buyerKey()) {
+      target.classList.add("empty");
+      target.replaceChildren(node("p", "Limits unavailable. " + error.message, "cell-note"));
+    }
+  }
+}
+
+function approvalSummary(m) {
+  const needs = [];
+  if (m.max_order_total != null) needs.push(t("over ") + money.format(m.max_order_total));
+  if (m.substitution_policy === "always_approval") needs.push(t("all substitutions"));
+  else if (m.substitution_policy === "same_category") needs.push(t("substitutions outside category"));
+  if (m.partial_coverage === "needs_approval") needs.push(t("partial stock"));
+  if (m.unknown_availability === "needs_approval") needs.push(t("unverified stock"));
+  if (m.may_contain_forbidden === "needs_approval" && m.forbidden_allergens.length) needs.push(t("trace allergens"));
+  return needs.length ? needs.join(", ") : t("None");
+}
+
+function renderTrust(me) {
+  const target = $("trust");
+  if (!target) return;
+  const m = me.mandate;
+  const values = [
+    ["Automatic orders", m.max_order_total == null ? t("Any amount") : money.format(m.max_order_total) + t(" net")],
+    ["Weekly limit", m.max_weekly_total == null ? t("None") : money.format(m.max_weekly_total) + t(" net")],
+    ["Used this week", money.format(me.weekly_spent || 0)],
+    ["Needs approval", approvalSummary(m)],
+    ["Blocked allergens", m.forbidden_allergens?.length ? m.forbidden_allergens.join(", ") : t("None")],
+  ];
+  const list = node("dl", "", "limits");
+  for (const [label, value] of values) {
+    const row = node("div", "", "limit-row");
+    row.append(node("dt", t(label)), node("dd", value));
+    list.append(row);
+  }
+  target.classList.remove("empty");
+  target.replaceChildren(list, node("p", t("Mandate ") + m.mandate_id + t(" · issued by ") + m.issued_by, "cell-note"));
 }
 
 async function save(value) {
@@ -314,6 +567,8 @@ function updateHeading() {
   const [en, fi, description] = views[active];
   $("view-title").textContent = language() === "fi" ? fi : en;
   $("view-description").textContent = t(description);
+  const crumb = $("crumb-current");
+  if (crumb) crumb.textContent = language() === "fi" ? fi : en;
   for (const link of document.querySelectorAll("[data-view]")) {
     if (link.dataset.view === active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -329,7 +584,7 @@ async function render() {
   if (root.hidden) return;
   root.replaceChildren(node("p", "Loading workspace…", "empty"));
   try {
-    if (view === "drafts") await showDrafts();
+    if (view === "drafts") await showDrafts(draftSelection);
     else if (view === "requests") await showRequests();
     else if (view === "analytics") await analytics();
     else if (view === "settings") settingsView();
@@ -366,15 +621,20 @@ async function connect() {
     applyPreferences();
     render();
     refreshReminder();
-  } catch (error) { root.replaceChildren(node("p", error.message, "feedback error")); }
+    loadTrust();
+  } catch (error) {
+    root.replaceChildren(node("p", error.message, "feedback error"));
+  } finally {
+    document.documentElement.classList.remove("booting");
+  }
 }
 
 window.addEventListener("hashchange", render);
-window.addEventListener("ticket-submitted", render);
+window.addEventListener("ticket-submitted", () => { render(); loadTrust(); });
 window.setInterval(refreshReminder, 60000);
 buyer.addEventListener("change", connect);
 for (const code of ["en", "fi"]) $("lang-" + code).addEventListener("click", async () => {
-  try { await save({...settings, language:code}); render(); }
+  try { await save({...settings, language:code}); render(); loadTrust(); loadDraftFlyout(); }
   catch (error) { feedback($("reminder"), error.message, true); }
 });
 $("help-open").addEventListener("click", () => $("client-help").showModal());
@@ -403,16 +663,15 @@ $("client-sign-out").addEventListener("click", async () => {
   else sessionStorage.setItem("agent-dairy-signed-out", "true");
   window.location.reload();
 });
-
 async function initialize() {
   const session = await request("/session", "");
   $("offline-demo-banner").hidden = !session.offline_demo;
   if (session.required) {
     buyer.dataset.hosted = "true";
     buyer.disabled = true;
-    $("connect-title").closest(".panel").hidden = true;
     if (!session.username) {
       loginScreen(true);
+      document.documentElement.classList.remove("booting");
       return;
     }
     buyer.value = session.buyer_id;
@@ -431,6 +690,7 @@ async function initialize() {
     signedOut.append(button);
     document.querySelector(".rail").hidden = true;
     $("main").append(signedOut);
+    document.documentElement.classList.remove("booting");
   } else {
     await connect();
   }

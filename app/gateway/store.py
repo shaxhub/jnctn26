@@ -25,6 +25,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS portal_accounts (
     username TEXT PRIMARY KEY, role TEXT NOT NULL, buyer_id TEXT, salt BLOB NOT NULL, password_hash BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_credentials (
+    id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL, label TEXT NOT NULL,
+    secret_hash TEXT NOT NULL UNIQUE, can_order INTEGER NOT NULL,
+    created_at TEXT NOT NULL, last_used_at TEXT, revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_credentials_buyer ON agent_credentials(buyer_id);
 CREATE TABLE IF NOT EXISTS portal_sessions (
     token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES portal_accounts(username), expires_at TEXT NOT NULL
 );
@@ -33,6 +39,10 @@ CREATE TABLE IF NOT EXISTS portal_login_attempts (
 );
 CREATE TABLE IF NOT EXISTS workspace_preferences (
     buyer_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fulfillment_evidence (
+    delivery_date TEXT NOT NULL, product_id TEXT NOT NULL, evidence_json TEXT NOT NULL,
+    PRIMARY KEY (delivery_date, product_id)
 );
 CREATE TABLE IF NOT EXISTS quotes (
     quote_id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
@@ -44,6 +54,9 @@ CREATE TABLE IF NOT EXISTS orders (
     status TEXT NOT NULL, total_net REAL NOT NULL, currency TEXT NOT NULL, delivery_date TEXT NOT NULL,
     lines_json TEXT NOT NULL, policy_json TEXT NOT NULL, approval_id TEXT, agent_rationale TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ticket_names (
+    quote_id TEXT PRIMARY KEY, name TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS approvals (
     approval_id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(order_id), buyer_id TEXT NOT NULL,
@@ -180,6 +193,16 @@ def events(order_id: str | None = None, quote_id: str | None = None, buyer_id: s
     sql = "SELECT * FROM audit_events" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY seq LIMIT ?"
     with connect(db_path) as conn:
         return [_row_event(r) for r in conn.execute(sql, params + [limit]).fetchall()]
+
+
+def committed_quantities(delivery, exclude_order_id: str | None = None, *, conn=None) -> dict[tuple[str, str], float]:
+    """Quantity per (SKU, sales unit) held by other confirmed or pending orders for a delivery date."""
+    rows = (conn.execute if conn is not None else fetchall)(
+        "SELECT json_extract(l.value,'$.product_id') AS product_id, json_extract(l.value,'$.sales_unit') AS unit, "
+        "sum(json_extract(l.value,'$.quantity')) AS quantity FROM orders o, json_each(o.lines_json) l "
+        "WHERE o.delivery_date=? AND o.status IN ('confirmed','pending_approval') AND o.order_id IS NOT ? "
+        "GROUP BY 1, 2", (delivery.isoformat(), exclude_order_id))
+    return {(row["product_id"], row["unit"]): row["quantity"] for row in rows}
 
 
 def verify_chain(db_path: Path | None = None) -> dict:

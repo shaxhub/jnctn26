@@ -11,7 +11,9 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from . import audit, policy, quotes, recurring, store, substitutions
+import httpx
+
+from . import audit, decisions, fulfillment, gemini, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ, demo_catalog_enabled
 from .delivery import estimate
@@ -22,6 +24,8 @@ from .planner import amount_per_sales_unit, constraint_violations, make_plans, r
 from .search import get_products, normalize_claims, search
 
 QUOTE_FALLBACK_TTL = timedelta(hours=2)
+# An order covering more than this multiple of the stated need goes to a human. Pack rounding stays well below it.
+OVER_COVERAGE = 3
 # Reasons a product cannot be quoted at all. `no_availability_data` is quotable but goes to a human.
 _BLOCKING = {OrderableReason.cutoff_passed, OrderableReason.sales_block, OrderableReason.insufficient_stock,
              OrderableReason.later_date, OrderableReason.no_price}
@@ -171,7 +175,11 @@ def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], to
         offer.unlimited and (offer.logistic_model or "").casefold() == "terminal"
         for offer in offers.values()
     )
+    # One sales unit is the least a buyer can order, so a single large pack is not an over-order.
+    excess = need is not None and covered > OVER_COVERAGE * need.quantity and sum(l.quantity for l in lines) > 1
     review = {
+        "over_coverage": (excess, f"Quote covers {covered:g} {need.unit}, more than {OVER_COVERAGE:g} times the requested "
+                                  f"{need.quantity:g} {need.unit}. Confirm the quantity with the buyer." if excess else ""),
         "catalog_substitution": (any(line.substitution_source == "catalog_ingredient_match" for line in lines),
                                  "Aimo review is required for a catalog-suggested substitute."),
         "supplier_stock_unverified": (supplier_stock, "Aimo review is required to confirm supplier stock quantities."),
@@ -200,7 +208,8 @@ def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[s
             or not required.issubset(offer.claims)]
 
 
-def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None) -> Quote:
+def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None,
+                 max_total_gross: float | None = None, name: str | None = None) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
@@ -255,6 +264,8 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
 
     total = round(sum(l.line_total for l in lines), 2)
     gross = round(sum(l.quantity * (l.unit_price_with_tax or l.unit_price) for l in lines), 2)
+    if max_total_gross is not None and gross > max_total_gross:
+        raise GatewayError(409, f"The checked basket costs €{gross:,.2f} incl. VAT and exceeds the hard budget of €{max_total_gross:,.2f}.")
     preview = _evaluate(p, lines, offers, total, req.need, delivery=req.delivery_date)
     expires = quotes.expiry([offers[l.product_id].price_valid_to for l in lines],
                             [l.closing_time for l in lines], now + QUOTE_FALLBACK_TTL)
@@ -263,7 +274,8 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
                "lines": [l.model_dump(mode="json") for l in lines], "total_net": total, "total_gross": gross,
                "currency": "EUR", "created_at": now.isoformat(), "expires_at": expires.isoformat(),
                "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role,
-               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims}
+               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims,
+               "max_total_gross": max_total_gross}
     jws = quotes.sign(payload)
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
     with store.transaction() as conn:
@@ -276,6 +288,9 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
         conn.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
                      " VALUES (?,?,?,?,?,?,?,?)",
                      (quote_id, p.buyer_id, now.isoformat(), expires.isoformat(), "open", total, json.dumps(payload), jws))
+        previous = conn.execute("SELECT name FROM ticket_names WHERE quote_id=?", (supersedes,)).fetchone()
+        quote.name = previous["name"] if previous else name or ticket_label(lines)
+        conn.execute("INSERT INTO ticket_names VALUES (?,?)", (quote_id, quote.name))
         evidence = {"lines": payload["lines"], "total_net": total, "expires_at": payload["expires_at"],
                     "decision": preview.decision.value, "policy_preview": preview.model_dump(mode="json"),
                     "warnings": warnings}
@@ -288,10 +303,22 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
 
 
 # --- orders ------------------------------------------------------------------------------------
+def ticket_label(lines) -> str:
+    names = list(dict.fromkeys(line.name or line.product_id for line in lines))
+    return " + ".join(names[:2])[:100]
+
+
+def ticket_name(quote_id: str, lines) -> str:
+    row = store.fetchone("SELECT name FROM ticket_names WHERE quote_id=?", (quote_id,))
+    return row["name"] if row else ticket_label(lines)
+
+
 def _order_from_row(r) -> Order:
-    return Order(order_id=r["order_id"], quote_id=r["quote_id"], buyer_id=r["buyer_id"], status=r["status"],
+    lines = [QuoteLine.model_validate(line) for line in json.loads(r["lines_json"])]
+    return Order(order_id=r["order_id"], quote_id=r["quote_id"], name=ticket_name(r["quote_id"], lines),
+                 buyer_id=r["buyer_id"], status=r["status"],
                  total_net=r["total_net"], currency=r["currency"], delivery_date=r["delivery_date"],
-                 lines=json.loads(r["lines_json"]), policy=json.loads(r["policy_json"]),
+                 lines=lines, policy=json.loads(r["policy_json"]),
                  approval_id=r["approval_id"], agent_rationale=r["agent_rationale"] or "",
                  created_at=r["created_at"], updated_at=r["updated_at"])
 
@@ -404,6 +431,24 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
     offers, stale = _recheck_stock(lines, delivery)
     stale.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
         list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
+    check_fulfillment = fulfillment.enabled()
+    advice = None
+    review_source = "rules_only"
+    if gemini.enabled() and not stale:
+        operational_rules = fulfillment.assess(lines, delivery, store.now())[1] if check_fulfillment else []
+        preliminary = _evaluate(p, lines, offers, payload["total_net"], need, delivery=delivery)
+        if preliminary.decision == Decision.auto and not operational_rules:
+            try:
+                # The client portal sends a fixed rationale, so only an agent's own words are reviewed.
+                advice = decisions.review(decisions.context(
+                    p.buyer_id, lines, need,
+                    {"required_claims": payload.get("required_claims", []),
+                     "exclude_allergens": payload.get("exclude_allergens", [])},
+                    agent_rationale if p.role == "agent" else "", delivery, store.now()))
+                if advice:
+                    review_source = "gemini_decision"
+            except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+                review_source = "rules_fallback"
     order_id = _id("ord")
     ids = dict(buyer_id=p.buyer_id, order_id=order_id, quote_id=quote_id)
     with store.transaction() as conn:
@@ -426,6 +471,15 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                                   fired_rules=result.fired_rules + [
                                       FiredRule(rule_id="quote_invalid", effect=Decision.reject, message=message)],
                                   reasons=[r for r in result.reasons if r != "All mandate rules passed."] + [message])
+        snapshot, rules = fulfillment.assess(lines, delivery, now, conn=conn) if check_fulfillment else (None, [])
+        if advice:
+            rules.extend(advice.rules())
+        if rules:
+            enforced = {result.decision, *(rule.effect for rule in rules)}
+            result.decision = Decision.reject if Decision.reject in enforced else Decision.needs_approval
+            result.fired_rules.extend(rules)
+            result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."]
+            result.reasons.extend(rule.message for rule in rules)
         status = {Decision.auto: "confirmed", Decision.needs_approval: "pending_approval",
                   Decision.reject: "rejected"}[result.decision]
         approval_id = _id("apr") if status == "pending_approval" else None
@@ -439,6 +493,13 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                                     {"agent_rationale": agent_rationale, "total_net": payload["total_net"],
                                      "channel": p.role}, **ids)
         store.append_in_transaction(conn, "POLICY_EVALUATED", "gateway:policy", result.model_dump(mode="json"), **ids)
+        if check_fulfillment or review_source != "rules_only":
+            store.append_in_transaction(conn, "AIMO_APPROVAL_EVALUATED", "aimo:approval-agent", {
+                "decision": result.decision.value, "method": review_source,
+                "model": decisions.MODEL if advice else None, "answers": advice.answers if advice else None,
+                "checks": [rule.model_dump(mode="json") for rule in rules],
+                "evidence": snapshot,
+            }, **ids)
         if approval_id:
             conn.execute("INSERT INTO approvals (approval_id,order_id,buyer_id,status,reasons_json,created_at)"
                          " VALUES (?,?,?,?,?,?)", (approval_id, order_id, p.buyer_id, "pending",
@@ -510,9 +571,9 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
     if decision not in ("approve", "reject"):
         raise GatewayError(400, "Decision must be 'approve' or 'reject'")
     row = _pending_approval(p, store.fetchone(_APPROVAL_QUERY, (approval_id,)), approval_id)
+    lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
     problems = []
     if decision == "approve" and store.now() < _aware(datetime.fromisoformat(row["expires_at"])):
-        lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
         offers, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
         payload = json.loads(row["payload_json"])
         problems.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
@@ -527,6 +588,19 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         row = _pending_approval(p, conn.execute(_APPROVAL_QUERY, (approval_id,)).fetchone(), approval_id)
         now = store.now()
         expired = decision == "approve" and now >= _aware(datetime.fromisoformat(row["expires_at"]))
+        if decision == "approve" and not expired and fulfillment.enabled():
+            snapshot, warehouse_rules = fulfillment.assess(lines, date.fromisoformat(row["delivery_date"]), now,
+                                                           conn=conn, exclude_order_id=row["order_id"])
+            # Evidence can be corrected, so a failing snapshot blocks approval without rejecting the order.
+            unresolved = {"warehouse_evidence_missing", "warehouse_unit_mismatch", "warehouse_capacity"}
+            failing = sorted({rule.rule_id for rule in warehouse_rules
+                              if rule.effect == Decision.reject or rule.rule_id in unresolved})
+            if failing and not problems:
+                raise GatewayError(409, f"Warehouse checks failed ({', '.join(failing)}). Record current warehouse evidence "
+                                        "and confirm handling and capacity before approving, or reject the order.")
+            store.append_in_transaction(conn, "AIMO_APPROVAL_RECHECKED", p.actor, {
+                "evidence": snapshot, "checks": [rule.model_dump(mode="json") for rule in warehouse_rules],
+            }, buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
         approved = decision == "approve" and not expired and not problems
         status = "expired" if expired else "confirmed" if approved else "rejected"
         if expired:
@@ -552,5 +626,8 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
 # --- audit -------------------------------------------------------------------------------------
 def get_audit_log(p: Principal | Admin, order_id: str) -> dict:
     get_order(p, order_id)  # ownership check
-    return {"order_id": order_id, "events": audit.timeline(order_id), "text": audit.render_text(order_id),
-            "chain": store.verify_chain()}
+    events, chain = audit.timeline(order_id), store.verify_chain()
+    if not isinstance(p, Admin):
+        events = audit.buyer_view(events)
+    return {"order_id": order_id, "events": events, "text": audit.render_text(order_id, events=events, chain=chain),
+            "chain": chain}

@@ -98,8 +98,9 @@ def router(role: str) -> APIRouter:
         since = (now - timedelta(minutes=5)).isoformat()
         with store.transaction() as conn:
             conn.execute("DELETE FROM portal_login_attempts WHERE julianday(at)<julianday(?)", (since,))
-            attempts = conn.execute("SELECT count(*) FROM portal_login_attempts WHERE source=? OR username=?",
-                                    (source, username)).fetchone()[0]
+            # Count per source only. A username-wide count would let any source lock an account out.
+            attempts = conn.execute("SELECT count(*) FROM portal_login_attempts WHERE source=?",
+                                    (source,)).fetchone()[0]
             if attempts >= 12:
                 raise HTTPException(429, "Too many attempts. Try again in a few minutes.")
             attempt = conn.execute("INSERT INTO portal_login_attempts (source,username,at) VALUES (?,?,?)",

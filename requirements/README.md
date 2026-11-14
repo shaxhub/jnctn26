@@ -14,7 +14,7 @@ Everything you need to run **Agent Dairy** locally.
 
 Optional:
 
-- `GEMINI_API_KEY` enables Gemini 4 Carbon in the client workspace. The client uses guided parsing with an empty key.
+- `GEMINI_API_KEY` enables Gemini 4 Hydrogen in the client workspace. The client uses guided parsing with an empty key.
 - `ANTHROPIC_API_KEY` enables LLM mode for the separate reference buyer agent.
 - `DEMO_NOW` pins the demo clock.
 

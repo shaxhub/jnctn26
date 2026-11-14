@@ -13,7 +13,7 @@ export REQUIRE_PORTAL_LOGIN=1 OFFLINE_DEMO=1
 export CATALOG_DB_PATH=data/synthetic.db
 export DB_PATH=data/hosted-gateway.db
 export SIGNING_KEY_PATH=data/hosted-signing.pem
-export VALIO_API_KEY= GEMINI_API_KEY= ANTHROPIC_API_KEY=
+export VALIO_API_KEY= ANTHROPIC_API_KEY= GEMINI_API_KEY=
 export MCP_ALLOWED_ORIGINS="http://$host:8000"
 if [[ "$app_dir" == *'"'* || "$app_dir" == *%* || "$app_dir" == *$'\n'* || "$app_dir" == *$'\r'* || "$app_dir" == *'\'* ]]; then
   printf 'Unsupported character in the deployment directory.\n' >&2
@@ -45,7 +45,7 @@ After=network-online.target
 WorkingDirectory=$app_dir
 Environment=REQUIRE_PORTAL_LOGIN=1 OFFLINE_DEMO=1
 Environment=CATALOG_DB_PATH=data/synthetic.db DB_PATH=data/hosted-gateway.db SIGNING_KEY_PATH=data/hosted-signing.pem
-Environment=VALIO_API_KEY= GEMINI_API_KEY= ANTHROPIC_API_KEY=
+Environment=VALIO_API_KEY= ANTHROPIC_API_KEY= GEMINI_API_KEY=
 Environment=MCP_ALLOWED_ORIGINS=http://$host:8000
 ExecStart="$python" -m uvicorn $module:app --host $bind --port $port $prefix
 Restart=on-failure

@@ -10,6 +10,8 @@ from gateway.models import Offer, OffersRequest, OrderableReason, QuoteRequest
 
 @pytest.fixture
 def gateway(monkeypatch, tmp_path):
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "0")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.setattr(store, "settings", replace(store.settings, db_path=tmp_path / "orders.db"))
     monkeypatch.setenv("AIMO_ADMIN_API_KEY", "test-admin-credential")
     store.set_demo_now(datetime.fromisoformat("2026-11-14T10:00:00+02:00"))
@@ -100,6 +102,13 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             lookup = await http.post("/client/chat", headers=buyer, json={"text": "5 litres of lactose-free milk by Monday"})
             assert lookup.status_code == 200, lookup.text
             assert lookup.json()["draft"] is None
+            shopping = await http.post("/client/chat", headers=buyer,
+                                       json={"text": "5 litres of lactose-free milk by Monday, postcode 00100", "action": "shop"})
+            assert shopping.status_code == 200 and shopping.json()["draft"]
+            missing_delivery = await http.post("/client/chat", headers=buyer,
+                                              json={"text": "5 litres of lactose-free milk", "action": "shop"})
+            assert missing_delivery.status_code == 422
+            assert "delivery date and five-digit delivery postcode" in missing_delivery.json()["detail"]
             assert (await http.get("/orders", headers=buyer)).json() == []
             response = await http.post("/client/chat", headers=buyer,
                                  json={"text": "Create a ticket for 5 litres of lactose-free milk by Monday"})
@@ -127,7 +136,7 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             analytics = (await ops.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10
-            assert analytics["inquiries"] == 5
+            assert analytics["inquiries"] == 6
             detail = (await ops.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
             history = detail["audit"]["events"]
             assert [event["data"]["text"] for event in history if event["event_type"] == "CLIENT_INQUIRY"] == [

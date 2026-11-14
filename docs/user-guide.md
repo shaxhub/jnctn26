@@ -29,7 +29,7 @@ The sidebar includes **EN** and **FI**, help and FAQs, and demo sign-out. Finnis
    12 g basil
    ```
 
-   The guided parser accepts `g`, `kg`, `ml`, `dl`, `l`, and `pcs`. Put a blank line between recipes. Gemini 4 Carbon can interpret less structured input when configured. Review the interpreted quantities and units.
+   The guided parser accepts `g`, `kg`, `ml`, `dl`, `l`, and `pcs`. Put a blank line between recipes. Gemini 4 Hydrogen can interpret less structured input when configured. Review the interpreted quantities and units.
 
 3. Choose **Check offers**. Check net prices, sales units, stock, earliest dates, and alternatives. Where available, the offers include origin, delivery reliability, and a carbon intensity estimate. The postcode can add an estimated travel time from Rautatientori for supported Helsinki-area districts.
 4. Choose **Create ticket draft**, or **Draft this plan** on a ranked product plan. A recipe draft needs all ingredients sourced for the selected date. Review proposed culinary substitutions before using them in the recipe.

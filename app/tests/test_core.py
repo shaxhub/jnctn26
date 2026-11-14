@@ -251,6 +251,7 @@ def test_policy_extended_rules_and_allergen_groups():
 # --- service: lifecycle, roles, concurrency/replay, expiry, stock re-check ------------------------
 def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "settings", replace(store.settings, db_path=tmp_path / "gw.db"))
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "0")
     store.set_demo_now(NOW)
     try:
         hotel_agent = principal_for_key("demo-hotel-key")

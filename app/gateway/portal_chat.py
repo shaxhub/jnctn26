@@ -78,10 +78,14 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     need.exclude_allergens = sorted(set(need.exclude_allergens + p.mandate.forbidden_allergens))
     audit.log("CLIENT_INQUIRY", p.actor, {"text": text, "action": "draft" if draft_requested else "lookup"},
               buyer_id=p.buyer_id)
-    search_args = {"text": need.search_text, "free_from": need.free_from,
+    if need.preferred_product_ids and need.search_text in need.preferred_product_ids:
+        # A bare SKU is an exact lookup. The MCP offer tool handles its alternatives.
+        found = {"results": []}
+    else:
+        search_args = {"text": need.search_text, "free_from": need.free_from,
                    "exclude_allergens": need.exclude_allergens, "category": need.category,
                    "exclude_terms": need.exclude_terms, "limit": 16}
-    found = await _read_tool("search_products", search_args, p)
+        found = await _read_tool("search_products", search_args, p)
     ids = list(dict.fromkeys(need.preferred_product_ids + [row["id"] for row in found["results"]]))
     response = {"mode": mode, "need": need.model_dump(mode="json"), "draft": None}
     if not ids:

@@ -83,7 +83,14 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
         allowed_alternatives = {item["product_id"] for group in result["alternatives"].values() for item in group}
         candidates = offers + [offer for pid, offer in alternatives.items() if pid in allowed_alternatives]
     if req.quantity and req.unit:
-        result["plan"] = make_plans(need, candidates, mandate=p.mandate).model_dump(mode="json")
+        forbidden = set(expand_allergens(req.exclude_allergens + p.mandate.forbidden_allergens))
+        safe_candidates = [
+            offer for offer in candidates if not forbidden.intersection(offer.allergens_contains)
+            and not set(expand_allergens(req.exclude_allergens)).intersection(offer.allergens_may_contain)
+            and (p.mandate.allowed_categories is None or any(
+                (offer.category or "").startswith(category) for category in p.mandate.allowed_categories))
+        ]
+        result["plan"] = make_plans(need, safe_candidates, mandate=p.mandate).model_dump(mode="json")
     if req.postal_code:
         result["delivery_estimate"] = estimate(req.postal_code)
     result["sources"] = {"price_and_availability": "Valio Aimo mock API",

@@ -1,3 +1,4 @@
+import json
 import asyncio
 from datetime import date
 
@@ -86,7 +87,7 @@ def test_submission_applies_warehouse_and_model_review(gateway, monkeypatch, cas
         assert service.decide_approval(admin, order.approval_id, "approve").status == "confirmed"
 
 
-def test_hard_warehouse_failure_takes_precedence_at_human_review(gateway, monkeypatch):
+def test_hard_warehouse_failure_blocks_human_review_without_rejecting(gateway, monkeypatch):
     monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
     monkeypatch.setenv("OFFLINE_DEMO", "0")
     buyer = principal_for_key("demo-hotel-client-key")
@@ -96,9 +97,120 @@ def test_hard_warehouse_failure_takes_precedence_at_human_review(gateway, monkey
     fulfillment.save("milk", DAY, _evidence(route_capacity_available=False,
                                              ready_to_pick_at="2026-11-16T09:45:00+02:00"))
     admin = admin_for_key("test-admin-credential")
-    result = service.decide_approval(admin, order.approval_id, "approve")
-    assert result.status == "rejected"
-    assert "Stock readiness" in service.get_audit_log(admin, order.order_id)["text"]
+    with pytest.raises(service.GatewayError, match="warehouse_capacity, warehouse_timing") as blocked:
+        service.decide_approval(admin, order.approval_id, "approve")
+    assert blocked.value.status == 409
+    assert service.get_order(admin, order.order_id).status == "pending_approval"
+    fulfillment.save("milk", DAY, _evidence(observed_at="2026-11-14T09:45:00+02:00"))
+    assert service.decide_approval(admin, order.approval_id, "approve").status == "confirmed"
+
+
+def test_hard_mandate_failure_still_rejects_at_human_review(gateway, monkeypatch):
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
+    monkeypatch.setenv("OFFLINE_DEMO", "0")
+    buyer = principal_for_key("demo-hotel-client-key")
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=DAY, lines=[{"product_id": "milk", "quantity": 5}]))
+    order = service.place_order(buyer, quote.quote_id)
+    assert order.status == "pending_approval"
+    monkeypatch.setattr(service, "get_offers", lambda *_, **_options: ([], store.now()))
+    admin = admin_for_key("test-admin-credential")
+    assert service.decide_approval(admin, order.approval_id, "approve").status == "rejected"
+
+
+def test_fulfillment_checks_default_follows_offline_demo(monkeypatch):
+    monkeypatch.delenv("AIMO_FULFILLMENT_CHECKS", raising=False)
+    monkeypatch.setenv("OFFLINE_DEMO", "0")
+    assert not fulfillment.enabled()
+    monkeypatch.setenv("OFFLINE_DEMO", "1")
+    assert fulfillment.enabled()
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "0")
+    assert not fulfillment.enabled()
+    monkeypatch.setenv("OFFLINE_DEMO", "0")
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
+    assert fulfillment.enabled()
+
+
+def test_evidence_observed_after_gateway_clock_is_refused(gateway):
+    with pytest.raises(ValueError, match=r"gateway clock \(2026-11-14T10:00:00\+02:00\)"):
+        fulfillment.save("milk", DAY, _evidence(observed_at="2026-11-14T10:30:00+02:00"))
+    assert not store.fetchone("SELECT 1 FROM fulfillment_evidence")
+
+
+def test_lot_quantity_is_net_of_other_orders(gateway, monkeypatch):
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
+    monkeypatch.setenv("OFFLINE_DEMO", "0")
+    lots = [{"lot_id": "milk-lot", "quantity": 8, "date_mark": "best_before", "marked_date": "2026-11-20"}]
+    fulfillment.save("milk", DAY, _evidence(lots=lots))
+    buyer = principal_for_key("demo-hotel-client-key")
+
+    def order(quantity):
+        quote = service.create_quote(buyer, QuoteRequest(
+            delivery_date=DAY, lines=[{"product_id": "milk", "quantity": quantity}]))
+        return service.place_order(buyer, quote.quote_id)
+
+    assert order(5).status == "confirmed"
+    second = order(5)
+    assert second.status == "rejected"
+    assert "only 3 ST" in " ".join(second.policy.reasons)
+    assert order(3).status == "confirmed"
+
+    # A pending order does not count against itself when it is approved.
+    fulfillment.save("milk", date(2026, 11, 17), _evidence(
+        route_capacity_available=False, dispatch_by="2026-11-17T10:00:00+02:00", deliver_by="2026-11-17T11:00:00+02:00",
+        lots=[{**lots[0], "quantity": 5}]))
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=date(2026, 11, 17),
+                                                    lines=[{"product_id": "milk", "quantity": 5}]))
+    pending = service.place_order(buyer, quote.quote_id)
+    assert pending.status == "pending_approval"
+    fulfillment.save("milk", date(2026, 11, 17), _evidence(
+        observed_at="2026-11-14T09:45:00+02:00", dispatch_by="2026-11-17T10:00:00+02:00",
+        deliver_by="2026-11-17T11:00:00+02:00", lots=[{**lots[0], "quantity": 5}]))
+    admin = admin_for_key("test-admin-credential")
+    assert service.decide_approval(admin, pending.approval_id, "approve").status == "confirmed"
+
+
+def test_buyer_audit_omits_warehouse_evidence_and_admin_identity(gateway, monkeypatch):
+    from gateway.api import app
+    from gateway.auth import Admin
+
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
+    monkeypatch.setenv("OFFLINE_DEMO", "0")
+    fulfillment.save("milk", DAY, _evidence(route_capacity_available=False))
+    buyer = principal_for_key("demo-hotel-client-key")
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=DAY, lines=[{"product_id": "milk", "quantity": 5}]))
+    order = service.place_order(buyer, quote.quote_id)
+    fulfillment.save("milk", DAY, _evidence(observed_at="2026-11-14T09:45:00+02:00"))
+    service.decide_approval(Admin(actor="admin:warehouse-reviewer"), order.approval_id, "approve")
+
+    async def fetch(order_id, key):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://client") as client:
+            return await client.get(f"/client/requests/{order_id}/audit", headers={"X-API-Key": key})
+
+    response = asyncio.run(fetch(order.order_id, "demo-hotel-client-key"))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert set(body) == {"order_id", "events"}
+    assert all(set(event) == {"event_type", "ts", "actor", "data"} for event in body["events"])
+    assert all(set(event["data"]) <= {"decision", "status", "rules"} for event in body["events"])
+    events = {event["event_type"]: event for event in body["events"]}
+    assert events["AIMO_APPROVAL_EVALUATED"]["data"] == {"decision": "needs_approval", "rules": ["warehouse_capacity"]}
+    assert events["AIMO_APPROVAL_RECHECKED"]["actor"] == "admin"
+    assert events["ORDER_CONFIRMED"]["data"] == {"status": "confirmed"}
+    for leaked in ("warehouse-reviewer", "evidence", "preparation_minutes", "pick", "eligible_quantity",
+                   "capacity_available", "dispatch_by", "milk-lot"):
+        assert leaked not in response.text
+    assert "preparation_minutes" in str(service.get_audit_log(admin_for_key("test-admin-credential"), order.order_id))
+    assert asyncio.run(fetch(order.order_id, "demo-hospital-client-key")).status_code == 404
+
+    # The agent-key routes (REST /audit, MCP and the reference agent) share service.get_audit_log.
+    shared = service.get_audit_log(buyer, order.order_id)
+    kinds = {event["event_type"]: event for event in shared["events"]}
+    assert kinds["AIMO_APPROVAL_EVALUATED"]["data"]["decision"] == "needs_approval"
+    assert kinds["AIMO_APPROVAL_RECHECKED"]["actor"] == "admin" and shared["chain"]["ok"]
+    assert "approved by admin" in shared["text"]
+    for leaked in ("warehouse-reviewer", "evidence", "preparation_minutes", "min picking", "eligible_quantity",
+                   "capacity_available", "dispatch_by", "milk-lot"):
+        assert leaked not in json.dumps(shared)
 
 
 def test_warehouse_evidence_endpoint_requires_admin(gateway):
@@ -114,6 +226,9 @@ def test_warehouse_evidence_endpoint_requires_admin(gateway):
             assert response.status_code == 204, response.text
             evidence["observed_at"] = "2026-11-14T09:00:00+02:00"
             assert (await client.put(path, json=evidence, headers=auth)).status_code == 422
+            evidence["observed_at"] = "2026-11-14T10:30:00+02:00"
+            future = await client.put(path, json=evidence, headers=auth)
+            assert future.status_code == 422 and "2026-11-14T10:00:00+02:00" in future.text
             assert store.fetchone("SELECT 1 FROM fulfillment_evidence WHERE product_id='milk'")
 
     asyncio.run(check())

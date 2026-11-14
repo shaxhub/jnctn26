@@ -21,7 +21,9 @@ GEMINI_CONCERNS = {
 
 
 def enabled() -> bool:
-    return os.getenv("AIMO_FULFILLMENT_CHECKS", "1") != "0"
+    # Live mode has no automatic evidence feed, so the checks are opt-in there.
+    value = os.getenv("AIMO_FULFILLMENT_CHECKS", "").strip()
+    return value != "0" if value else demo_catalog_enabled()
 
 
 class Lot(BaseModel):
@@ -70,6 +72,10 @@ class Evidence(BaseModel):
 def save(product_id: str, delivery: date, evidence: Evidence) -> None:
     if evidence.deliver_by.astimezone(TZ).date() != delivery:
         raise ValueError("The delivery deadline must match the requested date in Helsinki.")
+    now = store.now()
+    if evidence.observed_at > now:
+        raise ValueError(f"observed_at is later than the gateway clock ({now.isoformat()}). "
+                         "Evidence must be observed at or before the gateway's current time.")
     with store.transaction() as conn:
         current = conn.execute(
             "SELECT evidence_json FROM fulfillment_evidence WHERE product_id=? AND delivery_date=?",
@@ -99,7 +105,8 @@ def _demo(ids: list[str], delivery: date, now: datetime) -> dict[str, Evidence]:
     ) for sku, _, _, _, unit, _, _, stock in ITEMS if sku in ids}
 
 
-def assess(lines: list[QuoteLine], delivery: date, now: datetime, *, conn=None) -> tuple[dict, list[FiredRule]]:
+def assess(lines: list[QuoteLine], delivery: date, now: datetime, *, conn=None,
+           exclude_order_id: str | None = None) -> tuple[dict, list[FiredRule]]:
     by_product = defaultdict(list)
     for line in lines:
         by_product[line.product_id].append(line)
@@ -113,6 +120,7 @@ def assess(lines: list[QuoteLine], delivery: date, now: datetime, *, conn=None) 
         )
         sources = {row["product_id"]: Evidence.model_validate_json(row["evidence_json"]) for row in rows}
         source = "warehouse"
+    committed = store.committed_quantities(delivery, exclude_order_id, conn=conn)
     rules = []
     facts = []
     prep = 0
@@ -135,10 +143,12 @@ def assess(lines: list[QuoteLine], delivery: date, now: datetime, *, conn=None) 
             if ((lot.marked_date - delivery).days >= evidence.minimum_shelf_life_days if lot.marked_date is not None
                 else evidence.minimum_shelf_life_days == 0)
         ]
-        available = sum(lot.quantity for lot in eligible)
+        # Other confirmed or pending orders already draw on the same lots.
+        reserved = committed.get((sku, evidence.unit), 0)
+        available = max(sum(lot.quantity for lot in eligible) - reserved, 0)
         if available + 1e-9 < required:
-            flag("warehouse_shelf_life", f"{sku}: only {available:g} {evidence.unit} meet shelf-life requirements.",
-                 Decision.reject)
+            flag("warehouse_shelf_life", f"{sku}: only {available:g} {evidence.unit} meet shelf-life requirements"
+                 + (" after quantities committed to other orders." if reserved else "."), Decision.reject)
         if not evidence.route_capacity_available or not evidence.handling_ready:
             flag("warehouse_capacity", f"{sku}: route capacity or {evidence.handling} handling needs confirmation.")
         minutes = evidence.pick_setup_minutes + ceil(required / evidence.pick_units_per_minute) + evidence.load_minutes
@@ -146,6 +156,7 @@ def assess(lines: list[QuoteLine], delivery: date, now: datetime, *, conn=None) 
         ready = evidence.ready_to_pick_at
         work.append((max(now, ready) if ready else now, minutes, evidence))
         facts.append({"product_id": sku, "required": required, "unit": evidence.unit, "eligible_quantity": available,
+                      "committed_to_other_orders": reserved,
                       "earliest_eligible_date_mark": min((lot.marked_date.isoformat() for lot in eligible if lot.marked_date), default=None),
                       "minimum_shelf_life_days": evidence.minimum_shelf_life_days, "handling": evidence.handling,
                       "capacity_available": evidence.route_capacity_available, "handling_ready": evidence.handling_ready,

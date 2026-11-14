@@ -570,11 +570,15 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         now = store.now()
         expired = decision == "approve" and now >= _aware(datetime.fromisoformat(row["expires_at"]))
         if decision == "approve" and not expired and fulfillment.enabled():
-            snapshot, warehouse_rules = fulfillment.assess(lines, date.fromisoformat(row["delivery_date"]), now, conn=conn)
-            problems.extend(rule.message for rule in warehouse_rules if rule.effect == Decision.reject)
+            snapshot, warehouse_rules = fulfillment.assess(lines, date.fromisoformat(row["delivery_date"]), now,
+                                                           conn=conn, exclude_order_id=row["order_id"])
+            # Evidence can be corrected, so a failing snapshot blocks approval without rejecting the order.
             unresolved = {"warehouse_evidence_missing", "warehouse_unit_mismatch", "warehouse_capacity"}
-            if any(rule.rule_id in unresolved for rule in warehouse_rules) and not problems:
-                raise GatewayError(409, "Record current warehouse evidence and confirm handling and capacity before approving.")
+            failing = sorted({rule.rule_id for rule in warehouse_rules
+                              if rule.effect == Decision.reject or rule.rule_id in unresolved})
+            if failing and not problems:
+                raise GatewayError(409, f"Warehouse checks failed ({', '.join(failing)}). Record current warehouse evidence "
+                                        "and confirm handling and capacity before approving, or reject the order.")
             store.append_in_transaction(conn, "AIMO_APPROVAL_RECHECKED", p.actor, {
                 "evidence": snapshot, "checks": [rule.model_dump(mode="json") for rule in warehouse_rules],
             }, buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
@@ -604,5 +608,7 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
 def get_audit_log(p: Principal | Admin, order_id: str) -> dict:
     get_order(p, order_id)  # ownership check
     events, chain = audit.timeline(order_id), store.verify_chain()
+    if not isinstance(p, Admin):
+        events = audit.buyer_view(events)
     return {"order_id": order_id, "events": events, "text": audit.render_text(order_id, events=events, chain=chain),
             "chain": chain}

@@ -79,3 +79,27 @@ def test_hosted_accounts_and_synthetic_purchase(gateway, monkeypatch, tmp_path):
         asyncio.run(exercise())
     finally:
         search._catalog_path.cache_clear()
+
+
+def test_failed_logins_from_one_source_do_not_lock_the_account_elsewhere(gateway, monkeypatch):
+    from gateway.api import app
+
+    monkeypatch.setenv("REQUIRE_PORTAL_LOGIN", "1")
+    password = "a-local-test-only-password"
+    accounts.provision("kitchen-test", "client", "hotel", password)
+    origin = "https://client.test"
+
+    async def exercise():
+        def portal(source):
+            return AsyncClient(transport=ASGITransport(app=app, client=(source, 50000)), base_url=origin)
+
+        wrong = {"username": "kitchen-test", "password": "not-the-right-password"}
+        right = {"username": "kitchen-test", "password": password}
+        async with portal("203.0.113.9") as attacker, portal("198.51.100.4") as owner:
+            for _ in range(12):
+                assert (await attacker.post("/session/login", json=wrong, headers={"Origin": origin})).status_code == 401
+            # The throttled source is refused before its password is checked.
+            assert (await attacker.post("/session/login", json=right, headers={"Origin": origin})).status_code == 429
+            assert (await owner.post("/session/login", json=right, headers={"Origin": origin})).status_code == 200
+
+    asyncio.run(exercise())

@@ -58,7 +58,7 @@ def _summary(ev: dict) -> str:
     if t == "APPROVAL_REQUESTED":
         return f"waiting for a human approver ({d.get('approval_id')})"
     if t in ("AIMO_APPROVAL_EVALUATED", "AIMO_APPROVAL_RECHECKED"):
-        evidence = d["evidence"]
+        evidence = d.get("evidence") or {}  # absent in the buyer view
         subject = "Aimo fulfillment review"
         if d.get("decision"):
             subject += " → " + d["decision"].replace("_", " ")
@@ -72,7 +72,8 @@ def _summary(ev: dict) -> str:
             subject += (f". {evidence['preparation_minutes']} min picking and loading, "
                         f"{evidence['transit_minutes']} min transit, {evidence['margin_minutes']:g} min slack")
         checks = " ".join(rule["message"] for rule in d["checks"])
-        return f"{subject} ({evidence['source']} evidence)." + (f" {checks}" if checks else "")
+        source = f" ({evidence['source']} evidence)" if evidence else ""
+        return f"{subject}{source}." + (f" {checks}" if checks else "")
     if t in ("APPROVAL_GRANTED", "APPROVAL_DENIED"):
         return f"{'approved' if t == 'APPROVAL_GRANTED' else 'rejected'} by {ev['actor']}" + (f": \"{d.get('comment')}\"" if d.get("comment") else "")
     if t in ("ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED"):
@@ -144,6 +145,18 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
     for ev in evs:
         ev["summary"] = _summary(ev)
     return evs
+
+
+def buyer_view(events: list[dict]) -> list[dict]:
+    """Copy of a timeline without internal warehouse evidence or the names of Aimo operators."""
+    out = []
+    for ev in events:
+        ev = {**ev, "data": {key: value for key, value in ev["data"].items() if key != "evidence"}}
+        if ev["actor"].startswith("admin:"):
+            ev["actor"] = "admin"
+        ev["summary"] = _summary(ev)
+        out.append(ev)
+    return out
 
 
 def render_text(order_id: str, *, events: list[dict] | None = None, chain: dict | None = None) -> str:

@@ -1,4 +1,5 @@
 """Structured Gemini interactions for input interpretation and approval review."""
+import functools
 import json
 import os
 from typing import Literal
@@ -24,15 +25,28 @@ def enabled() -> bool:
     return bool(os.getenv("GEMINI_API_KEY", "").strip())
 
 
-def _provider_schema(value):
-    """Keep structural constraints in Gemini and enforce value bounds locally."""
+def _provider_schema(value, names=False):
+    """Keep structural constraints in Gemini and enforce value bounds locally.
+
+    `names` marks a mapping such as `properties`, whose keys are field names and not schema keywords.
+    """
     if isinstance(value, list):
         return [_provider_schema(item) for item in value]
     if not isinstance(value, dict):
         return value
     ignored = {"title", "default", "format", "pattern", "minimum", "maximum",
                "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems"}
-    return {key: _provider_schema(item) for key, item in value.items() if key not in ignored}
+    schema = {key: _provider_schema(item, not names and key in ("properties", "$defs"))
+              for key, item in value.items() if names or key not in ignored}
+    if not names and value.get("format") == "date":
+        # The format keyword is not sent, so state the expected form in the description.
+        schema["description"] = " ".join(filter(None, [value.get("description"), "ISO 8601 date, YYYY-MM-DD."]))
+    return schema
+
+
+@functools.cache
+def _schema(model) -> dict:
+    return _provider_schema(model.model_json_schema())
 
 
 def _request(text: str, instruction: str, schema) -> dict:
@@ -41,7 +55,7 @@ def _request(text: str, instruction: str, schema) -> dict:
         "json": {"model": MODEL, "input": text, "system_instruction": instruction, "store": False,
                  "generation_config": {"thinking_level": "medium"},
                  "response_format": {"type": "text", "mime_type": "application/json",
-                                     "schema": _provider_schema(schema.model_json_schema())}},
+                                     "schema": _schema(schema)}},
     }
 
 
@@ -75,19 +89,24 @@ def review_approval(evidence: dict) -> ApprovalAdvice:
     return result
 
 
-async def extract(text: str, today):
-    from .kitchen import Recipe
+@functools.cache
+def _interpretation():
+    from .kitchen import Recipe  # kitchen imports service, which imports this module
 
     class Interpretation(BaseModel):
         need: Need | None = None
         recipes: list[Recipe] = Field(default_factory=list, max_length=12)
         servings: int | None = Field(None, ge=1, le=5000)
 
+    return Interpretation
+
+
+async def extract(text: str, today):
     return await _structured(text, (
         f"Today is {today}. Extract one purchasing Need or pasted recipes. Use Finnish catalog terms. "
         "Extract explicitly stated yields and metric ingredients. Use recipe yield if no target is stated. "
         "Never invent products or submit orders."
-    ), Interpretation)
+    ), _interpretation())
 
 
 async def suggest_edit(text: str, draft: dict):

@@ -186,6 +186,16 @@ def events(order_id: str | None = None, quote_id: str | None = None, buyer_id: s
         return [_row_event(r) for r in conn.execute(sql, params + [limit]).fetchall()]
 
 
+def committed_quantities(delivery, exclude_order_id: str | None = None, *, conn=None) -> dict[tuple[str, str], float]:
+    """Quantity per (SKU, sales unit) held by other confirmed or pending orders for a delivery date."""
+    rows = (conn.execute if conn is not None else fetchall)(
+        "SELECT json_extract(l.value,'$.product_id') AS product_id, json_extract(l.value,'$.sales_unit') AS unit, "
+        "sum(json_extract(l.value,'$.quantity')) AS quantity FROM orders o, json_each(o.lines_json) l "
+        "WHERE o.delivery_date=? AND o.status IN ('confirmed','pending_approval') AND o.order_id IS NOT ? "
+        "GROUP BY 1, 2", (delivery.isoformat(), exclude_order_id))
+    return {(row["product_id"], row["unit"]): row["quantity"] for row in rows}
+
+
 def verify_chain(db_path: Path | None = None) -> dict:
     prev = GENESIS
     with connect(db_path) as conn:

@@ -200,7 +200,7 @@ async function sendChat(requestData) {
     const result = await request("/client/chat", buyerKey(), requestData);
     if (current !== queryVersion) return;
     feedback($("chat-status"), result.message);
-    $("assistant-mode").textContent = result.mode === "gemini-4-carbon" ? "Gemini 4 Carbon" :
+    $("assistant-mode").textContent = result.mode === "gemini-4-hydrogen" ? "Gemini 4 Hydrogen" :
       result.mode === "guided_fallback" ? "Gemini unavailable. Using guided search." : "Guided search";
     if (result.recipe) showRecipe(result.recipe);
     else showResults(result, requestData);

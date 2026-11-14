@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from . import quotes, service, store
+from . import audit, quotes, service, store
 from .auth import Admin, Principal, require_client
 from .config import TZ
 from .models import QuoteRequest
@@ -108,9 +108,20 @@ def request_detail(order_id: str, p: Principal = Depends(require_client)):
     return {"order": order, **ticket_activity(order)}
 
 
+def _buyer_event(event: dict) -> dict:
+    """Outcome-level view of an audit event, without warehouse evidence or operator names."""
+    data, kind = event["data"], event["event_type"]
+    status = kind.split("_", 1)[1].lower() if kind in ("ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED") else None
+    outcome = {"decision": data.get("decision"), "status": status,
+               "rules": [rule["rule_id"] for rule in data.get("fired_rules") or data.get("checks") or []]}
+    return {"event_type": kind, "ts": event["ts"], "actor": event["actor"].split(":", 1)[0],
+            "data": {key: value for key, value in outcome.items() if value}}
+
+
 @router.get("/requests/{order_id}/audit")
 def request_audit(order_id: str, p: Principal = Depends(require_client)):
-    return service.get_audit_log(p, order_id)
+    service.get_order(p, order_id)  # ownership check
+    return {"order_id": order_id, "events": [_buyer_event(event) for event in audit.timeline(order_id)]}
 
 
 @router.post("/requests/{order_id}/messages")

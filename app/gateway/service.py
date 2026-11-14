@@ -198,7 +198,7 @@ def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[s
             or not required.issubset(offer.claims)]
 
 
-def create_quote(p: Principal, req: QuoteRequest) -> Quote:
+def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
@@ -264,12 +264,24 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
                "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims}
     jws = quotes.sign(payload)
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
-    store.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
-                  " VALUES (?,?,?,?,?,?,?,?)", (quote_id, p.buyer_id, now.isoformat(), expires.isoformat(), "open",
-                                                total, json.dumps(payload), jws))
-    audit.log("QUOTE_CREATED", p.actor, {"lines": payload["lines"], "total_net": total, "expires_at": payload["expires_at"],
-                                         "decision": preview.decision.value, "warnings": warnings},
-              buyer_id=p.buyer_id, quote_id=quote_id)
+    with store.transaction() as conn:
+        if supersedes:
+            changed = conn.execute("UPDATE quotes SET status='superseded' WHERE quote_id=? AND buyer_id=? "
+                                   "AND status='open' AND json_extract(payload_json,'$.order_channel')='client'",
+                                   (supersedes, p.buyer_id))
+            if changed.rowcount != 1:
+                raise GatewayError(409, "The original draft changed. Refresh and try again.")
+        conn.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
+                     " VALUES (?,?,?,?,?,?,?,?)",
+                     (quote_id, p.buyer_id, now.isoformat(), expires.isoformat(), "open", total, json.dumps(payload), jws))
+        evidence = {"lines": payload["lines"], "total_net": total, "expires_at": payload["expires_at"],
+                    "decision": preview.decision.value, "policy_preview": preview.model_dump(mode="json"),
+                    "warnings": warnings}
+        if audit.inquiry_sequence.get() is not None:
+            evidence["inquiry_seq"] = audit.inquiry_sequence.get()
+        if supersedes:
+            evidence["supersedes"] = supersedes
+        store.append_in_transaction(conn, "QUOTE_CREATED", p.actor, evidence, buyer_id=p.buyer_id, quote_id=quote_id)
     return quote
 
 

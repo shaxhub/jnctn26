@@ -27,7 +27,7 @@ uv run uvicorn gateway.api:app --reload --port 8000
 
 Then open:
 - **Client workspace** at [localhost:8000](http://localhost:8000/). Pick a demo buyer, check offers, explicitly create a ticket draft, then review and submit.
-- **Aimo operations** at [localhost:8000/admin](http://localhost:8000/admin). Sign in with the local `AIMO_ADMIN_API_KEY`. Review pending tickets, filter activity, and switch analytics between month, quarter, year, and all time.
+- **Aimo operations** at [localhost:8001](http://localhost:8001/). Sign in with the local `AIMO_ADMIN_API_KEY`. Review pending tickets, filter activity, and switch analytics between month, quarter, year, and all time.
 - **OpenAPI docs:** `http://localhost:8000/docs`
 - **MCP endpoint (Streamable HTTP):** `http://localhost:8000/mcp` (header `X-API-Key: demo-hotel-key` or `Authorization: Bearer demo-hotel-key`)
 - **Quote JWKS public keys:** `http://localhost:8000/.well-known/jwks.json`
@@ -44,12 +44,12 @@ cd app && uv run pytest -q && uv run python evals/run_evals.py
 
 ```
   Buyer's AI Agent (Claude / any MCP client / ERP)        Human Approver (Browser)
-         |  MCP (/mcp, 15 tools) or REST (/docs)                   |  Web UI / + /approvals
+         |  MCP (/mcp, 17 tools) or REST (/docs)                   |  Web UI / + /approvals
          |  X-API-Key or Authorization: Bearer                    |  Out-of-band approver key
          v                                                        v
   +-----------------------------------------------------------------------------------+
   | FastAPI app (app/gateway/api.py)          auth.py: API key -> Principal -> Mandate |
-  |   mcp_server.py (15 tools)   REST routes   ui/index.html   agent.py (LLM/scripted) |
+  |   mcp_server.py (17 tools)   REST routes   ui/index.html   agent.py (LLM/scripted) |
   |                         \         |         /                                     |
   |                      app/gateway/service.py  (one core)                           |
   |     search.py --- offers.py --- planner.py --- quotes.py --- policy.py            |
@@ -62,13 +62,13 @@ cd app && uv run pytest -q && uv run python evals/run_evals.py
             Valio Aimo Mock API (/price, /availability)
 ```
 
-The client workspace also has a **Menu planner** for dish names and recipe lists. Add servings and, for live sourcing, a delivery date. The planner groups ingredients and suggests dish-specific alternatives for shortages.
+The client workspace also has a **Ask Agent Dairy** for dish names and recipe lists. Add servings and, for live sourcing, a delivery date. The planner groups ingredients and suggests dish-specific alternatives for shortages.
 
 MCP tools include `ping`, `get_my_mandate`, `search_products`, `check_offers`, `estimate_delivery`, `create_quote`, `place_order`, `get_order_status`, `get_audit_log`, `get_kitchen_capabilities`, `compile_ingredients`, `source_ingredients`, `discover_seasonal_products`, and `check_recurring_quote`. Call `get_my_mandate` first to discover the actions your credential can perform. `check_offers` can return live Valio-listed alternatives and same-ingredient catalog suggestions for selected produce, with claim and allergen filtering when you set `include_substitutes`, and ranked plans when you supply quantity and unit.
 
 Valio’s [challenge API documentation](https://junction26.valioaimo.fi/docs) describes `GET /api/ping`, `POST /api/price` and `POST /api/availability`. Price and availability requests use the delivery date and at most 1,000 product codes. The challenge catalog and CSVs supply product origin, product-level average carbon intensity, and delivery reliability. Analytics estimate product emissions only when both weight and intensity are known. Inquiry analytics count each client chat request once and count standalone search and offer calls individually. Product category counts count a category once per call. Travel time uses selected Helsinki-region postal districts from Rautatientori and gives a dispatch-to-door range. Aimo’s rules engine handles routine requests and sends exceptions to the human review queue. Confirmed orders are stored locally for the demo.
 
-The client assistant uses the shared MCP tools for lookup. It extracts structured requests with Anthropic when configured and uses guided parsing otherwise. An explicit request to draft creates a signed quote. The client must submit that draft from the workspace. External agents use their own key. Order-enabled credentials can submit their own signed quotes directly. The demo key `demo-hotel-lookup-key` can inspect offers and permissions without ordering.
+The client assistant interprets requests and pasted recipes with Gemini 4 Carbon and calls the shared MCP tools for lookup. Set `GEMINI_API_KEY` in the ignored `app/.env`. An empty key enables local guided search and metric recipe parsing. An explicit request to draft creates a signed quote. The client must submit that draft from the workspace. External agents use their own key. Order-enabled credentials can submit their own signed quotes directly. The demo key `demo-hotel-lookup-key` can inspect offers and permissions without ordering.
 
 ---
 
@@ -106,3 +106,17 @@ Use Seasonal produce in the client workspace or call `discover_seasonal_products
 Open a confirmed ticket to create a repeat draft for a new delivery date. The gateway recalculates current price and stock. The recurring-order comparison uses the prior six weeks and requires three confirmed same-weekday delivery dates for the same SKU and sales unit. Changes of at least 25% in quantity or 15% in unit price route to human review. Order-enabled MCP clients can re-quote a confirmed order with `repeat_quote`. The `check_recurring_quote` tool explains the drift on a signed quote.
 
 A fully sourced menu can be turned into one client ticket draft. Agent Dairy checks combined quantities and dietary constraints against fresh offers before signing. The buyer reviews and submits the draft.
+
+
+## Client and operations hosts
+
+Run the two servers in separate terminals from `app/`. Both use the local gateway database.
+
+```sh
+uv run --locked uvicorn gateway.api:app --host 127.0.0.1 --port 8000
+uv run --locked uvicorn gateway.admin_app:app --host 127.0.0.1 --port 8001
+```
+
+The client host serves Product Search, Draft Tickets, Submitted Requests, Analytics, Settings and the Dashboard. Paste a metric recipe into **Ask Agent Dairy**, and provide a delivery date for live product matches. Gemini 4 Carbon is the only web assistant model. Add its API key to `app/.env`; use the placeholder in `app/.env.example` for a new checkout. With the key configured, assistant text and the selected draft details used by AI Helper are processed by Google. Client ticket submission stays an explicit action.
+
+The separate Aimo host uses `AIMO_ADMIN_API_KEY`. Operations can advance registered orders through fulfillment and respond in the request conversation. Client agents can use `get_request_thread` and `post_request_message` with their own buyer credentials. Recurring order reminders are displayed inside the signed-in client workspace at the configured Helsinki time, for the following day. Billing preferences record an invoice reference and payment method for the demo.

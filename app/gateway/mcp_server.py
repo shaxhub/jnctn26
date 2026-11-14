@@ -20,7 +20,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
-from . import kitchen, seasonal, service, store
+from . import kitchen, seasonal, service, store, workspace
 from .agent import compact_offers
 from .auth import Principal, current_principal, key_from_headers, principal_for_key
 from .delivery import estimate, postal_code_from_address
@@ -28,7 +28,7 @@ from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
 
 READ_TOOLS = ("ping", "get_my_mandate", "search_products", "check_offers",
-              "estimate_delivery", "discover_seasonal_products", "check_recurring_quote", "get_order_status", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
+              "estimate_delivery", "discover_seasonal_products", "check_recurring_quote", "get_order_status", "get_request_thread", "post_request_message", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
 
 INSTRUCTIONS = """Valio Aimo trade gateway for food-service purchasing agents.
 Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+unit to get plans)
@@ -300,3 +300,18 @@ async def get_audit_log(order_id: str, ctx: Context = None) -> dict:
     p = _principal(ctx)
     res = await _run(service.get_audit_log, p, order_id)
     return {"order_id": order_id, "text": res["text"], "events": res["events"], "chain": res["chain"]}
+
+@mcp.tool()
+async def get_request_thread(order_id: str, ctx: Context = None) -> dict:
+    """Read fulfillment status and the conversation for one of your buyer's submitted requests."""
+    principal = _principal(ctx)
+    order = await _run(service.get_order, principal, order_id)
+    return await _run(workspace.ticket_activity, order)
+
+
+@mcp.tool()
+async def post_request_message(order_id: str, text: str, ctx: Context = None) -> dict:
+    """Post a message to Aimo in the conversation for one of your buyer's submitted requests."""
+    principal = _principal(ctx)
+    message = _parse_args(lambda: workspace.Message(text=text))
+    return await _run(workspace.send_message, principal, order_id, message)

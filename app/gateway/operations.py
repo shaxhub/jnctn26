@@ -11,14 +11,15 @@ from fastapi import APIRouter, Depends, Query
 from . import audit, service, store
 from .auth import Admin, require_admin
 from .config import TZ
+from .workspace import Message, ShipmentUpdate, advance, send_message, ticket_activity
 from .models import ApprovalDecisionRequest
 
 router = APIRouter(prefix="/operations", dependencies=[Depends(require_admin)])
 SECTORS = {"hotel": "Hospitality", "hospital": "Healthcare"}
 INQUIRIES = ("CLIENT_INQUIRY", "SEARCH", "OFFERS_CHECKED", "AGENT_RUN", "KITCHEN_PLAN", "SEASONAL_DISCOVERY")
 DECISIONS = ("POLICY_EVALUATED", "APPROVAL_GRANTED", "APPROVAL_DENIED",
-             "ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED")
-EVENT_TYPES = {"all": INQUIRIES + DECISIONS + ("ORDER_RECEIVED", "APPROVAL_REQUESTED", "QUOTE_REJECTED", "QUOTE_INVALID"),
+             "ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED", "FULFILLMENT_STAGE")
+EVENT_TYPES = {"all": INQUIRIES + DECISIONS + ("ORDER_RECEIVED", "APPROVAL_REQUESTED", "QUOTE_REJECTED", "QUOTE_INVALID", "ORDER_MESSAGE"),
                "inquiries": INQUIRIES, "decisions": DECISIONS}
 Period = Literal["month", "quarter", "year", "all"]
 
@@ -66,7 +67,7 @@ def order_detail(order_id: str, admin: Admin = Depends(require_admin)):
     order = service.get_order(admin, order_id)
     details = service.get_audit_log(admin, order_id)
     row = store.fetchone("SELECT * FROM approvals WHERE approval_id=?", (order.approval_id,))
-    return {"order": order, "approval": service._approval_from_row(row) if row else None, "audit": details}
+    return {"order": order, **ticket_activity(order), "approval": service._approval_from_row(row) if row else None, "audit": details}
 
 
 @router.post("/approvals/{approval_id}")
@@ -142,3 +143,13 @@ def analytics(period: Period = "month"):
         "products": [{"product_id": pid, "name": product_names[pid], "sales_unit": unit, "quantity": round(qty, 4)}
                      for (pid, unit), qty in sorted(products.items(), key=lambda entry: -entry[1])[:8]],
     }
+
+
+@router.post("/orders/{order_id}/stage")
+def update_stage(order_id: str, body: ShipmentUpdate, admin: Admin = Depends(require_admin)):
+    return advance(admin, order_id, body)
+
+
+@router.post("/orders/{order_id}/messages")
+def post_order_message(order_id: str, body: Message, admin: Admin = Depends(require_admin)):
+    return send_message(admin, order_id, body)

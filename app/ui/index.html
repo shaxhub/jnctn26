@@ -6,65 +6,52 @@
   <meta name="theme-color" content="#10233c">
   <title>Agent Dairy | Purchasing workspace</title>
   <link rel="stylesheet" href="/assets/portal.css">
+  <link rel="stylesheet" href="/assets/workspace.css">
   <script type="module" src="/assets/client.js"></script>
-  <script type="module" src="/assets/kitchen.js"></script>
+  <script type="module" src="/assets/workspace.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <aside class="rail">
     <a class="brand" href="/"><span class="mark" aria-hidden="true">AD</span><span>Agent Dairy<small>Valio Aimo®</small></span></a>
-    <nav aria-label="Workspaces"><a aria-current="page" href="/">Purchasing workspace</a><a href="/admin">Aimo operations</a></nav>
-    <div class="rail-foot">Junction 2026 prototype</div>
+    <nav aria-label="Purchasing">
+      <a href="#dashboard" data-view="dashboard" data-en="Dashboard" data-fi="Etusivu">Dashboard</a>
+      <a href="#products" data-view="products" data-en="Product Search" data-fi="Tuotehaku">Product Search</a>
+      <a href="#drafts" data-view="drafts" data-en="Draft Tickets" data-fi="Luonnokset">Draft Tickets</a>
+      <a href="#requests" data-view="requests" data-en="Submitted Requests" data-fi="Lähetetyt pyynnöt">Submitted Requests</a>
+      <a href="#analytics" data-view="analytics" data-en="Analytics" data-fi="Analytiikka">Analytics</a>
+      <a href="#settings" data-view="settings" data-en="Settings" data-fi="Asetukset">Settings</a>
+    </nav>
+    <div class="rail-foot client-tools">
+      <div class="locale-buttons" aria-label="Language"><button id="lang-en" type="button" aria-label="English">EN</button><button id="lang-fi" type="button" aria-label="Suomi">FI</button></div>
+      <button id="help-open" type="button" data-en="Need help? / FAQs" data-fi="Tarvitsetko apua?">Need help? / FAQs</button>
+      <button id="client-sign-out" type="button" data-en="Sign out" data-fi="Kirjaudu ulos">Sign out</button>
+    </div>
   </aside>
   <main id="main">
     <header class="top"><span>Client portal</span><label>Workspace <select id="buyer"><option value="hotel">Hotel kitchen</option><option value="hospital">Hospital kitchen</option></select></label></header>
     <div class="content">
-      <section class="hero kitchen-hero">
-        <div><h1>Purchasing workspace</h1><p>Check live offers, turn a menu into a shopping list, and send order tickets to Aimo.</p><button type="button" id="open-kitchen" class="hero-action">Plan a menu <span aria-hidden="true">↗</span></button></div>
-        <ol class="dispatch" aria-label="Purchasing workflow"><li>Plan the menu</li><li>Check availability</li><li>Review a ticket</li></ol>
+      <section class="hero kitchen-hero client-hero">
+        <div><h1 id="view-title">Purchasing workspace</h1><p id="view-description">Your kitchen’s purchasing workspace.</p></div>
+        <div class="dispatch"><span>Valio Aimo®</span><span>Buyer workspace</span></div>
       </section>
+      <p id="reminder" class="feedback" role="status" hidden></p>
+      <div id="workspace-view" aria-live="polite"></div>
+      <div id="product-view" hidden>
       <div class="workspace">
-        <section class="panel workspace-studio" id="kitchen-workspace" aria-label="Purchasing assistant">
-          <div class="workspace-modes" role="group" aria-label="Assistant mode">
-            <button type="button" id="products-mode" aria-pressed="true" aria-controls="product-panel">Product search</button>
-            <button type="button" id="kitchen-mode" aria-pressed="false" aria-controls="kitchen-panel">Menu planner</button>
-          </div>
+        <section class="panel workspace-studio" id="kitchen-workspace" aria-label="Ask Agent Dairy">
           <section id="product-panel" aria-labelledby="ask-title">
-          <div class="panel-head"><h2 id="ask-title">Purchasing assistant</h2><span id="assistant-mode" class="tag">Catalog & offers</span></div>
+          <div class="panel-head"><h2 id="ask-title">Ask Agent Dairy</h2><label>Model <select id="assistant-model"><option value="gemini-4-carbon">Gemini 4 Carbon</option></select></label></div>
           <form id="chat">
-            <label for="message">What does your kitchen need?</label>
-            <textarea id="message" rows="3" maxlength="2000" required placeholder="I need 200 litres of lactose-free milk by Monday"></textarea>
-            <div class="suggestions" aria-label="Example requests"><button type="button" data-example="I need 200 litres of lactose-free milk by Monday">Milk for Monday</button><button type="button" data-example="Find 25 kg of potatoes by Monday">Seasonal produce</button><button type="button" data-example="Find 60 litres of gluten-free oat drink by Monday">Dietary requirements</button></div>
-            <div class="form-row"><label>Delivery postcode <input id="postcode" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="00100" title="Five-digit Finnish postal code"></label><label class="check"><input id="substitutes" type="checkbox" checked> Find alternatives</label></div>
-            <div class="actions"><button type="submit" value="lookup" class="primary">Check offers</button><button type="submit" value="draft">Create ticket draft</button></div>
+            <label for="message"><span data-en="What does your kitchen need?" data-fi="Mitä keittiösi tarvitsee?">What does your kitchen need?</span></label>
+            <textarea id="message" rows="5" maxlength="6000" required placeholder="I need 200 litres of lactose-free milk by Monday"></textarea>
+            <p class="cell-note" id="assistant-mode">Enter a request or paste a recipe with quantities.</p>
+            <div class="suggestions" aria-label="Example requests"><button type="button" data-recipe>Paste a recipe</button><button type="button" data-example="I need 200 litres of lactose-free milk by Monday">Milk for Monday</button><button type="button" data-example="Find 25 kg of potatoes by Monday">Seasonal produce</button><button type="button" data-example="Find 60 litres of gluten-free oat drink by Monday">Dietary requirements</button></div>
+            <div class="form-row"><label>Delivery date <input id="chat-delivery-date" type="date"></label><label>Delivery postcode <input id="postcode" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="00100" title="Five-digit Finnish postal code"></label><label class="check"><input id="substitutes" type="checkbox" checked> Find alternatives</label></div>
+            <div class="actions"><button type="submit" value="lookup" class="primary"><span data-en="Check offers" data-fi="Tarkista tarjoukset">Check offers</span></button><button type="submit" value="draft"><span data-en="Create ticket draft" data-fi="Luo tilausluonnos">Create ticket draft</span></button></div>
           </form>
           <p id="chat-status" class="feedback" role="status" hidden></p>
           <div id="results" aria-live="polite"></div>
-          </section>
-          <section id="kitchen-panel" aria-labelledby="kitchen-title" hidden>
-            <div class="panel-head"><h2 id="kitchen-title">Menu planner</h2></div>
-            <form id="kitchen-form">
-              <div class="kitchen-settings">
-                <label>Input format <select id="kitchen-format"><option value="menu">Dish names</option><option value="recipes">Recipe list</option></select></label>
-                <label>Servings per dish <input id="kitchen-servings" type="number" min="1" max="5000" value="20" required></label>
-                <label>Delivery date <input id="kitchen-date" type="date" aria-describedby="delivery-hint"></label>
-              </div>
-              <p id="delivery-hint" class="cell-note">Add a delivery date to check stock and see alternatives.</p>
-              <div class="kitchen-entry">
-                <label id="kitchen-text-label" for="kitchen-text">Dish names</label>
-                <button type="button" id="kitchen-example">Use example</button>
-              </div>
-              <textarea id="kitchen-text" rows="6" maxlength="6000" required aria-describedby="kitchen-hint"></textarea>
-              <p id="kitchen-hint" class="cell-note"></p>
-              <details class="plan-option kitchen-constraints">
-                <summary>Dietary needs and stock-outs</summary>
-                <label>Exclude allergens <input id="kitchen-allergens" placeholder="milk, gluten" maxlength="240"></label>
-                <label>Ingredients already out of stock <input id="kitchen-stockout" placeholder="potatoes, basil" maxlength="300"></label>
-              </details>
-              <div class="actions"><button class="primary" type="submit">Build ingredient list</button></div>
-            </form>
-            <p id="kitchen-status" class="feedback" role="status" hidden></p>
-            <div id="kitchen-result" aria-live="polite"></div>
           </section>
         </section>
         <aside class="side">
@@ -80,9 +67,14 @@
         </form>
         <div id="seasonal-results" aria-live="polite"></div>
       </section>
-      <section class="panel orders" aria-labelledby="orders-title"><div class="panel-head"><h2 id="orders-title">Your submitted tickets</h2><button id="refresh" type="button">Refresh</button></div><div id="orders" aria-live="polite"></div></section>
+      </div>
     </div>
   </main>
+  <dialog id="client-help" aria-labelledby="faq-title"><div class="panel-head"><h2 id="faq-title">Need help?</h2><form method="dialog"><button>Close</button></form></div>
+    <details open><summary>How do I check a recipe?</summary><p>Paste measured ingredients into Ask Agent Dairy. Add a delivery date for live sourcing.</p></details>
+    <details><summary>When is a draft submitted?</summary><p>Open Draft Tickets, review the signed quote, then choose Submit ticket to Aimo.</p></details>
+    <details><summary>Where can I talk to Aimo?</summary><p>Open a submitted request and use its conversation.</p></details>
+  </dialog>
   <dialog id="ticket-details" aria-labelledby="ticket-detail-title">
     <div class="panel-head"><h2 id="ticket-detail-title">Submitted ticket</h2><form method="dialog"><button>Close</button></form></div>
     <div id="ticket-detail-body" aria-live="polite"></div>

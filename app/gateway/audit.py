@@ -31,6 +31,10 @@ def _summary(ev: dict) -> str:
         return f"Checked {d['season']} produce for {d['delivery_date']}"
     if t == "KITCHEN_PLAN":
         return f"Planned {d['ingredient_count']} ingredients for {', '.join(d['dishes'])}"
+    if t == "FULFILLMENT_STAGE":
+        return "Fulfillment advanced to " + d["stage"].replace("_", " ")
+    if t == "ORDER_MESSAGE":
+        return f"{d['side']} posted a request message"
     if t == "SEARCH":
         return f"searched '{d.get('text', '')}' filters={d.get('filters')} -> {d.get('matches')} matches"
     if t == "OFFERS_CHECKED":

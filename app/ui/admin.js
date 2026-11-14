@@ -1,3 +1,4 @@
+import {orderThread} from "./order_thread.js";
 import {$, date, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
 
 let key = sessionStorage.getItem("aimo-operations-key") || "";
@@ -18,7 +19,9 @@ async function inspect(id) {
   target.replaceChildren(node("p", "Loading ticket…", "empty"));
   if (!dialog.open) dialog.showModal();
   try {
-    const detail = await request("/operations/orders/" + encodeURIComponent(id), key);
+    const credential = key;
+    const detail = await request("/operations/orders/" + encodeURIComponent(id), credential);
+    if (!dialog.open || credential !== key) return;
     const order = detail.order;
     target.replaceChildren(pill(order.status),
       node("p", order.buyer_id + " · Delivery " + date(order.delivery_date) + " · " + money.format(order.total_net), "cell-note"),
@@ -29,6 +32,7 @@ async function inspect(id) {
       target.append(node("p", "Reviewed " + date(detail.approval.decided_at) + " by " +
         detail.approval.decided_by + (detail.approval.comment ? " · " + detail.approval.comment : ""), "cell-note"));
     }
+    target.append(orderThread(detail, {url:"/operations/orders/" + encodeURIComponent(id), key, admin:true}));
     const timeline = node("ol", "", "timeline");
     for (const event of detail.audit.events) {
       timeline.append(node("li", event.summary || event.event_type.replaceAll("_", " ")));

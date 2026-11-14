@@ -78,6 +78,7 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
     import asyncio
     from httpx import ASGITransport, AsyncClient
     from gateway.api import app
+    from gateway.admin_app import app as admin_app
     from gateway.models import ProductSummary, SearchResult
 
     monkeypatch.setattr(service, "search", lambda _: SearchResult(results=[
@@ -90,9 +91,12 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
     buyer = {"X-API-Key": "demo-hotel-client-key"}
     admin = {"X-API-Key": "test-admin-credential"}
     async def verify():
-        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as http:
-            assert (await http.get("/operations/activity", headers=buyer)).status_code == 401
-            assert (await http.post("/demo/reset", headers=buyer)).status_code == 401
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as http,
+            AsyncClient(transport=ASGITransport(app=admin_app), base_url='http://admin') as ops,
+        ):
+            assert (await ops.get("/operations/activity", headers=buyer)).status_code == 401
+            assert (await ops.post("/demo/reset", headers=buyer)).status_code == 401
             lookup = await http.post("/client/chat", headers=buyer, json={"text": "5 litres of lactose-free milk by Monday"})
             assert lookup.status_code == 200, lookup.text
             assert lookup.json()["draft"] is None
@@ -120,18 +124,18 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             replay = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
             assert replay.status_code == 200 and replay.json()["order_id"] == result.json()["order_id"]
             assert len((await http.get("/orders", headers=buyer)).json()) == 1
-            analytics = (await http.get("/operations/analytics", headers=admin)).json()
+            analytics = (await ops.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10
             assert analytics["inquiries"] == 5
-            detail = (await http.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
+            detail = (await ops.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
             history = detail["audit"]["events"]
             assert [event["data"]["text"] for event in history if event["event_type"] == "CLIENT_INQUIRY"] == [
                 "Create a ticket for 5 litres of lactose-free milk by Monday"]
             assert sum(event["event_type"] == "OFFERS_CHECKED" for event in history) == 1
-            decisions = (await http.get("/operations/activity?kind=decisions", headers=admin)).json()["events"]
+            decisions = (await ops.get("/operations/activity?kind=decisions", headers=admin)).json()["events"]
             assert "ORDER_CONFIRMED" in {event["event_type"] for event in decisions}
-            assert (await http.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]
+            assert (await ops.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]
 
     asyncio.run(verify())
 

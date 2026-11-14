@@ -72,8 +72,12 @@ def principal_for_key(key: str | None) -> Principal | None:
     entry = _keys().get((key or "").strip())
     if not entry:
         return None
+    can_order = entry.get("can_order", True)
+    if can_order and entry["role"] == "agent":
+        from .preferences import preferences
+        can_order = preferences(entry["buyer_id"]).agent_self_order
     return Principal(buyer_id=entry["buyer_id"], role=entry["role"], name=entry.get("name", entry["buyer_id"]),
-                     mandate=load_mandate(entry["buyer_id"]), can_order=entry.get("can_order", True))
+                     mandate=load_mandate(entry["buyer_id"]), can_order=can_order)
 
 
 def key_from_headers(headers: Mapping[str, str] | None) -> str | None:

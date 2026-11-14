@@ -5,8 +5,8 @@ availability**, get a **signed fixed-price quote** and **place an order**. A buy
 decides whether the order is auto-approved, needs a human's approval or is rejected. Every step goes to a
 **hash-chained, human-readable audit log**.
 
-The same core is exposed three ways: an **MCP server** (`/mcp`, 15 tools for compatible clients), a **REST API** (`/docs`),
-and a build-free **web UI** with the client workspace (`/`) and Aimo operations (`/admin`). A reference
+The same core is exposed three ways: an **MCP server** (`/mcp`, 17 tools for compatible clients), a **REST API** (`/docs`),
+and a build-free **web UI** with the client workspace (`/`) and Aimo operations (second host). A reference
 **buyer agent** (Claude, `claude-opus-5-5`, via the Anthropic SDK tool runner) and a deterministic **scripted** mode
 are included.
 
@@ -23,7 +23,7 @@ See also the root [README.md](../README.md), [ASSUMPTIONS.md](ASSUMPTIONS.md),
         v                                           v
  +-----------------------------------------------------------------------+
  |  FastAPI app  (gateway/api.py)     auth.py: key -> buyer -> mandate   |
- |    mcp_server.py (15 tools)   REST endpoints   ui/index.html  agent.py |
+ |    mcp_server.py (17 tools)   REST endpoints   ui/index.html  agent.py |
  |                         \        |        /                           |
  |                          service.py  (one core for every channel)     |
  |   search.py --- offers.py --- planner.py --- quotes.py --- policy.py  |
@@ -51,7 +51,7 @@ Follow the [local setup in the root README](../README.md#local-setup) to configu
 
 Endpoints when running:
 - **Client workspace:** `http://localhost:8000/`
-- **Aimo operations:** `http://localhost:8000/admin` (uses the private `AIMO_ADMIN_API_KEY`)
+- **Aimo operations:** `http://localhost:8001/` (uses the private `AIMO_ADMIN_API_KEY`)
 - **OpenAPI:** `http://localhost:8000/docs`
 - **MCP:** `http://localhost:8000/mcp` (header `X-API-Key: demo-hotel-key` or `Authorization: Bearer demo-hotel-key`)
 - **JWKS:** `http://localhost:8000/.well-known/jwks.json`
@@ -110,7 +110,7 @@ Connect an MCP client, e.g. Claude Code:
 
 ## What is real and what is stubbed
 
-**Real:** catalog search over all **17,546** products (including `nonAllergen` `FREE_FROM` claims, `oats`/`PN`/plural allergen expansion, and 4,425 reliability + 11,033 CO2 CSV rows); live price and availability from the Valio mock API with retries and stale-cache fallback; cutoff, stock, and unknown-availability handling; Mandate-aware plans in sales units with stock splitting, CO2/reliability scoring, and automatic expansion of Valio's **189** listed substitutes; Ed25519-signed quotes with `/.well-known/jwks.json`; 12 mandate rules; strict agent/approver role separation; append-only SHA-256 hash-chained audit log; 15-tool MCP server, REST API, client workspace, and Aimo operations; **10** deterministic eval cases.
+**Real:** catalog search over all **17,546** products (including `nonAllergen` `FREE_FROM` claims, `oats`/`PN`/plural allergen expansion, and 4,425 reliability + 11,033 CO2 CSV rows); live price and availability from the Valio mock API with retries and stale-cache fallback; cutoff, stock, and unknown-availability handling; Mandate-aware plans in sales units with stock splitting, CO2/reliability scoring, and automatic expansion of Valio's **189** listed substitutes; Ed25519-signed quotes with `/.well-known/jwks.json`; 12 mandate rules; strict agent/approver role separation; append-only SHA-256 hash-chained audit log; 17-tool MCP server, REST API, client workspace, and Aimo operations; **10** deterministic eval cases.
 
 **Stubbed/simplified:** there is no Valio order API (confirmed orders are recorded locally in `gateway.db`); plaintext demo API keys in `buyers.json` instead of OAuth 2.1; heuristic planner; deterministic scripted agent mode when `ANTHROPIC_API_KEY` is unset (the LLM path is implemented for `claude-opus-5-5` and includes a hosted MCP connector option).
 
@@ -134,3 +134,17 @@ Use Seasonal produce in the client workspace or call `discover_seasonal_products
 Open a confirmed ticket to create a repeat draft for a new delivery date. The gateway recalculates current price and stock. The recurring-order comparison uses the prior six weeks and requires three confirmed same-weekday delivery dates for the same SKU and sales unit. Changes of at least 25% in quantity or 15% in unit price route to human review. Order-enabled MCP clients can re-quote a confirmed order with `repeat_quote`. The `check_recurring_quote` tool explains the drift on a signed quote.
 
 A fully sourced menu can be turned into one client ticket draft. Agent Dairy checks combined quantities and dietary constraints against fresh offers before signing. The buyer reviews and submits the draft.
+
+
+## Client and operations hosts
+
+Run the two servers in separate terminals from `app/`. Both use the local gateway database.
+
+```sh
+uv run --locked uvicorn gateway.api:app --host 127.0.0.1 --port 8000
+uv run --locked uvicorn gateway.admin_app:app --host 127.0.0.1 --port 8001
+```
+
+The client host serves Product Search, Draft Tickets, Submitted Requests, Analytics, Settings and the Dashboard. Paste a metric recipe into **Ask Agent Dairy**, and provide a delivery date for live product matches. Gemini 4 Carbon is the only web assistant model. Add its API key to `app/.env`; use the placeholder in `app/.env.example` for a new checkout. With the key configured, assistant text and the selected draft details used by AI Helper are processed by Google. Client ticket submission stays an explicit action.
+
+The separate Aimo host uses `AIMO_ADMIN_API_KEY`. Operations can advance registered orders through fulfillment and respond in the request conversation. Client agents can use `get_request_thread` and `post_request_message` with their own buyer credentials. Recurring order reminders are displayed inside the signed-in client workspace at the configured Helsinki time, for the following day. Billing preferences record an invoice reference and payment method for the demo.

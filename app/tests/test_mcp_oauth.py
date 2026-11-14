@@ -30,6 +30,7 @@ def oauth_app(gateway, monkeypatch):
     monkeypatch.setenv("REQUIRE_PORTAL_LOGIN", "1")
     monkeypatch.setenv("MCP_PUBLIC_URL", RESOURCE)
     monkeypatch.setenv("MCP_OAUTH_ENABLED", "1")
+    monkeypatch.setenv("MCP_ALLOWED_ORIGINS", "https://chatgpt.com")
     provision("kitchen-a", "client", "hotel", "hotel-password-test")
     provision("kitchen-b", "client", "hospital", "hospital-password-test")
     transport = mcp.streamable_http_app(
@@ -54,11 +55,22 @@ def test_chatgpt_oauth_link_refresh_and_disconnect(oauth_app):
                         headers={"Accept": "application/json, text/event-stream", "Origin": ORIGIN}) as http,
         ):
             http.headers.pop("Origin")
-            rejected = await http.post("/mcp", json={})
+            web = {"Origin": "https://chatgpt.com"}
+            preflight = await http.options("/mcp", headers={**web, "Access-Control-Request-Method": "POST",
+                                                           "Access-Control-Request-Headers": "Content-Type,MCP-Protocol-Version"})
+            assert preflight.status_code == 200
+            assert preflight.headers["access-control-allow-origin"] == web["Origin"]
+            denied_origin = await http.post("/mcp", json={}, headers={"Origin": "https://other.example"})
+            assert denied_origin.status_code == 403
+            rejected = await http.post("/mcp", json={}, headers=web)
             assert rejected.status_code == 401
+            assert rejected.headers["access-control-allow-origin"] == web["Origin"]
+            assert "WWW-Authenticate" in rejected.headers["access-control-expose-headers"]
             metadata_url = rejected.headers["www-authenticate"].split('"')[1]
             assert metadata_url == ORIGIN + "/.well-known/oauth-protected-resource/mcp"
-            metadata = (await http.get(metadata_url)).json()
+            resource_response = await http.get(metadata_url, headers=web)
+            assert resource_response.headers["access-control-allow-origin"] == web["Origin"]
+            metadata = resource_response.json()
             assert metadata["resource"] == RESOURCE
             issuer, = metadata["authorization_servers"]
             discovery = (await http.get(issuer + "/.well-known/oauth-authorization-server")).json()

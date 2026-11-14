@@ -20,6 +20,7 @@ from functools import lru_cache
 from typing import Mapping
 
 from fastapi import Depends, Header, HTTPException, Request
+from starlette.middleware.cors import CORSMiddleware
 
 from .accounts import hosted, identity, token_hash
 from . import store
@@ -161,22 +162,36 @@ class McpAuthMiddleware:
 
     def __init__(self, app, prefix: str = "/mcp"):
         self.app, self.prefix = app, prefix
+        self.allowed_origins = [value.strip() for value in os.getenv(
+            "MCP_ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+        ).split(",") if value.strip() and value.strip() != "*"]
+        self.browser_app = CORSMiddleware(
+            self.authenticate, allow_origins=self.allowed_origins, allow_methods=["GET", "POST", "DELETE"],
+            allow_headers=["Authorization", "MCP-Protocol-Version", "MCP-Session-Id", "Last-Event-ID", "X-API-Key"],
+            expose_headers=["WWW-Authenticate", "MCP-Protocol-Version", "MCP-Session-Id"],
+        )
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
         root_path = scope.get("root_path", "")
         if root_path and path.startswith(root_path + "/"):
             path = path[len(root_path):]
-        if scope["type"] != "http" or not (path == self.prefix or path.startswith(self.prefix + "/")):
+        if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
-        origin = headers.get("origin")
-        allowed_origins = {value.strip() for value in os.getenv(
-            "MCP_ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
-        ).split(",") if value.strip()}
-        if origin and origin not in allowed_origins:
+        is_mcp = path == self.prefix or path.startswith(self.prefix + "/")
+        if not is_mcp and path not in {"/.well-known/oauth-protected-resource/mcp",
+                                      "/.well-known/oauth-authorization-server", "/token"}:
+            return await self.app(scope, receive, send)
+        origin = dict(scope.get("headers", [])).get(b"origin")
+        if is_mcp and origin is not None and origin.decode("latin1") not in self.allowed_origins:
             await send({"type": "http.response.start", "status": 403, "headers": []})
             return await send({"type": "http.response.body", "body": b"Origin forbidden"})
+        return await self.browser_app({**scope, "agent_dairy_mcp": is_mcp}, receive, send)
+
+    async def authenticate(self, scope, receive, send):
+        if not scope["agent_dairy_mcp"]:
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
         import anyio
         p = await anyio.to_thread.run_sync(principal_for_mcp_request, headers)
         if p is None or p.role not in {"agent", "client"}:

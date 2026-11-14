@@ -9,6 +9,7 @@
    REQUIRE_PORTAL_LOGIN=1
    MCP_PUBLIC_URL=https://agent-dairy-mcp.kienlebox.stream/mcp
    MCP_OAUTH_ENABLED=1
+   MCP_ALLOWED_ORIGINS=https://chatgpt.com
    ```
 
 3. Verify that the public MCP endpoint returns HTTP 401 without credentials and includes a `WWW-Authenticate` challenge with the public metadata URL. Both discovery URLs should return 200. The protected resource must match the public MCP URL exactly.

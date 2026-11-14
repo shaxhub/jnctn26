@@ -19,7 +19,7 @@ from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, 
                      PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult, expand_allergens)
 from .offers import get_offers
 from .planner import amount_per_sales_unit, constraint_violations, make_plans, round_qty
-from .search import get_products, search
+from .search import get_products, normalize_claims, search
 
 QUOTE_FALLBACK_TTL = timedelta(hours=2)
 # Reasons a product cannot be quoted at all. `no_availability_data` is quotable but goes to a human.
@@ -190,6 +190,14 @@ def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], to
     return result
 
 
+def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[str]) -> list[str]:
+    forbidden = set(expand_allergens(allergens))
+    required = set(normalize_claims(claims))
+    return [offer.product_id for offer in offers if
+            forbidden.intersection(offer.allergens_contains + offer.allergens_may_contain)
+            or not required.issubset(offer.claims)]
+
+
 def create_quote(p: Principal, req: QuoteRequest) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
@@ -197,7 +205,9 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
     offers_list, now = get_offers(ids, req.delivery_date, fresh=True)
     offers = {o.product_id: o for o in offers_list}
     catalog = get_products(list(req.need.preferred_product_ids) if req.need else [])
-    errors, warnings, lines = [], [], []
+    conflicts = _dietary_conflicts(offers_list, req.exclude_allergens, req.required_claims)
+    errors = [f"{sku}: conflicts with requested dietary constraints" for sku in conflicts]
+    warnings, lines = [], []
     qty_by_pid: dict[str, float] = {}
     for l in req.lines:
         o = offers.get(l.product_id)
@@ -250,7 +260,8 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
     payload = {"quote_id": quote_id, "buyer_id": p.buyer_id, "delivery_date": req.delivery_date.isoformat(),
                "lines": [l.model_dump(mode="json") for l in lines], "total_net": total, "total_gross": gross,
                "currency": "EUR", "created_at": now.isoformat(), "expires_at": expires.isoformat(),
-               "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role}
+               "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role,
+               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims}
     jws = quotes.sign(payload)
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
     store.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
@@ -309,7 +320,7 @@ def _recheck_stock(lines: list[QuoteLine], delivery: date) -> tuple[dict[str, Of
 
 
 _APPROVAL_QUERY = (
-    "SELECT a.*, o.quote_id, o.delivery_date, o.lines_json, q.expires_at, "
+    "SELECT a.*, o.quote_id, o.delivery_date, o.lines_json, q.expires_at, q.payload_json, "
     "json_extract(q.payload_json, '$.order_channel') AS channel "
     "FROM approvals a JOIN orders o USING(order_id) JOIN quotes q USING(quote_id) WHERE a.approval_id=?"
 )
@@ -352,6 +363,8 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
     need = Need(**payload["need"]) if payload.get("need") else None
     delivery = date.fromisoformat(payload["delivery_date"])
     offers, stale = _recheck_stock(lines, delivery)
+    stale.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
+        list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
     order_id = _id("ord")
     ids = dict(buyer_id=p.buyer_id, order_id=order_id, quote_id=quote_id)
     with store.transaction() as conn:
@@ -461,7 +474,10 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
     problems = []
     if decision == "approve" and store.now() < _aware(datetime.fromisoformat(row["expires_at"])):
         lines = [QuoteLine.model_validate(line) for line in json.loads(row["lines_json"])]
-        _, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
+        offers, problems = _recheck_stock(lines, date.fromisoformat(row["delivery_date"]))
+        payload = json.loads(row["payload_json"])
+        problems.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
+            list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
     with store.transaction() as conn:
         row = _pending_approval(p, conn.execute(_APPROVAL_QUERY, (approval_id,)).fetchone(), approval_id)
         now = store.now()

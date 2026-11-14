@@ -141,6 +141,7 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
 class KitchenChatRequest(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
     kind: Literal["menu", "recipes"]
+    draft: bool = False
     servings: int = Field(ge=1, le=5000)
     delivery_date: date | None = None
     exclude_allergens: list[kitchen.Text] = Field(default_factory=list, max_length=20)
@@ -160,10 +161,19 @@ async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(requi
     except ValidationError as exc:
         raise service.GatewayError(422, exc.errors()[0]["msg"]) from exc
     if request.delivery_date is None:
+        if request.draft:
+            raise service.GatewayError(422, "Choose a delivery date before drafting")
         return await _read_tool("compile_ingredients", args, p)
     args.update(delivery_date=request.delivery_date.isoformat(), exclude_allergens=request.exclude_allergens,
                 required_claims=request.required_claims, unavailable_ingredients=request.unavailable_ingredients)
-    return await _read_tool("source_ingredients", args, p)
+    result = await _read_tool("source_ingredients", args, p)
+    if request.draft:
+        basket = kitchen.basket_request(result)
+        basket.exclude_allergens = request.exclude_allergens
+        basket.required_claims = request.required_claims
+        quote = await anyio.to_thread.run_sync(service.create_quote, p, basket)
+        result["draft"] = quote.model_dump(mode="json")
+    return result
 
 
 @router.get("/seasonal")
@@ -179,10 +189,12 @@ def repeat_ticket(order_id: str, delivery_date: date, p: Principal = Depends(req
     if original.status != "confirmed":
         raise service.GatewayError(409, "Choose a confirmed ticket to repeat")
     signed = store.fetchone("SELECT payload_json FROM quotes WHERE quote_id=?", (original.quote_id,))
-    need = (json.loads(signed["payload_json"]).get("need") if signed else None)
+    payload = json.loads(signed["payload_json"]) if signed else {}
+    need = payload.get("need")
     if need:
         need["delivery_date"] = delivery_date.isoformat()
-    return service.create_quote(p, QuoteRequest(delivery_date=delivery_date, need=need, lines=[
+    return service.create_quote(p, QuoteRequest(delivery_date=delivery_date, need=need,
+        exclude_allergens=payload.get("exclude_allergens", []), required_claims=payload.get("required_claims", []), lines=[
         {"product_id": line.product_id, "quantity": line.quantity} for line in original.lines
     ]))
 

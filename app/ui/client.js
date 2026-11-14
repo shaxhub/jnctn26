@@ -14,7 +14,7 @@ function connection() {
   feedback($("copy-status"), "");
 }
 
-function showDraft(quote, outcome) {
+export function showDraft(quote, outcome) {
   draft = quote;
   const target = $("draft");
   target.classList.toggle("empty", !quote && !outcome);

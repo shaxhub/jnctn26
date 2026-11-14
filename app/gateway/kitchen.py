@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, StringConstraints, model_validator
 from . import audit, service
 from .auth import Principal
 from .menu_catalog import DISH_ALIASES, DISHES, INGREDIENT_ALIASES, SEARCH_TERMS, SWAPS
-from .models import Need, Offer, SearchRequest, expand_allergens
+from .models import Need, Offer, QuoteRequest, SearchRequest, expand_allergens
 from .planner import make_plans
 from .search import normalize_claims, search
 
@@ -225,3 +225,18 @@ def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
 def log_plan(principal: Principal, request: KitchenRequest, result: dict, **context) -> None:
     audit.log("KITCHEN_PLAN", principal.actor, {"dishes": request.dishes + [recipe.name for recipe in request.recipes],
               "ingredient_count": len(result["ingredients"]), **context}, buyer_id=principal.buyer_id)
+
+
+def basket_request(result: dict) -> QuoteRequest:
+    """Combine only fully sourced ingredients. The quote gateway rechecks aggregate stock."""
+    if result["unresolved_dishes"] or not result["ingredients"]:
+        raise service.GatewayError(409, "Resolve every dish before creating a menu draft")
+    lines: dict[str, float] = {}
+    for ingredient in result["ingredients"]:
+        if ingredient["status"] != "available":
+            raise service.GatewayError(409, f"Resolve sourcing for {ingredient['ingredient']} before drafting")
+        for line in ingredient["sourcing"]["plan"]["lines"]:
+            sku = line["product_id"]
+            lines[sku] = round(lines.get(sku, 0) + line["quantity"], 4)
+    return QuoteRequest(delivery_date=result["delivery_date"], lines=[
+        {"product_id": sku, "quantity": amount} for sku, amount in lines.items()])

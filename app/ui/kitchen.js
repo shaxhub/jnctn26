@@ -1,3 +1,4 @@
+import {showDraft} from "./client.js";
 import {$, date, feedback, lineItems, money, node, number, request} from "./common.js";
 
 const form = $("kitchen-form");
@@ -68,7 +69,7 @@ function ingredientCard(row) {
   return card;
 }
 
-function render(result) {
+function render(result, payload) {
   const heading = node("div", "", "ingredient-results-head");
   const available = result.ingredients.filter(row => row.status === "available").length;
   const titles = node("div");
@@ -100,42 +101,64 @@ function render(result) {
   for (const ingredient of result.ingredients) grid.append(ingredientCard(ingredient));
   target.append(grid);
   if (result.notes?.length) target.append(node("p", result.notes.join(" "), "cell-note"));
+  if (result.delivery_date && result.ingredients.length && available === result.ingredients.length &&
+      !result.unresolved_dishes.length) {
+    const actions = node("div", "", "actions");
+    const draft = node("button", "Draft menu ticket", "primary");
+    draft.addEventListener("click", () => buildList({...payload, draft:true}));
+    actions.append(draft);
+    target.append(actions);
+  }
 }
 
 function splitList(value) {
   return value.split(",").map(part => part.trim()).filter(Boolean);
 }
 
-form.addEventListener("submit", async event => {
-  event.preventDefault();
-  const value = text.value.trim();
-  if (!value) return;
+async function buildList(payload) {
   const current = ++version;
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   form.setAttribute("aria-busy", "true");
-  target.replaceChildren();
-  feedback(notice, $("kitchen-date").value ? "Compiling ingredients and checking live offers…" : "Compiling ingredients…");
+  const prior = target.querySelector(".actions button");
+  if (prior) prior.disabled = true;
+  if (!payload.draft) target.replaceChildren();
+  feedback(notice, payload.draft ? "Checking combined stock and signing the draft…" :
+    payload.delivery_date ? "Compiling ingredients and checking live offers…" : "Compiling ingredients…");
   try {
-    const result = await request("/client/kitchen", "demo-" + buyer.value + "-client-key", {
-      text: value,
-      kind: format.value,
-      servings: Number($("kitchen-servings").value),
-      delivery_date: $("kitchen-date").value || null,
-      exclude_allergens: splitList($("kitchen-allergens").value),
-      unavailable_ingredients: splitList($("kitchen-stockout").value),
-    });
+    const result = await request("/client/kitchen", "demo-" + buyer.value + "-client-key", payload);
     if (current !== version) return;
-    feedback(notice, "");
-    render(result);
+    target.replaceChildren();
+    render(result, payload);
+    if (result.draft) {
+      showDraft(result.draft);
+      feedback(notice, "Menu draft created. Review it before submitting.");
+      $("draft-title").scrollIntoView({block:"nearest"});
+      $("draft").querySelector("button").focus();
+    } else {
+      feedback(notice, "");
+    }
   } catch (error) {
     if (current === version) feedback(notice, error.message, true);
   } finally {
     if (current === version) {
       button.disabled = false;
+      if (prior) prior.disabled = false;
       form.removeAttribute("aria-busy");
     }
   }
+}
+
+form.addEventListener("submit", event => {
+  event.preventDefault();
+  const value = text.value.trim();
+  if (!value) return;
+  buildList({
+    text: value, kind: format.value, servings: Number($("kitchen-servings").value),
+    delivery_date: $("kitchen-date").value || null,
+    exclude_allergens: splitList($("kitchen-allergens").value),
+    unavailable_ingredients: splitList($("kitchen-stockout").value),
+  });
 });
 
 function showFormat() {

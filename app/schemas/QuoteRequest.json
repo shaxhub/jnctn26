@@ -134,6 +134,22 @@
       ],
       "default": null,
       "description": "Optional original need, so the gateway can check the match."
+    },
+    "exclude_allergens": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Exclude Allergens",
+      "type": "array"
+    },
+    "required_claims": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Required Claims",
+      "type": "array"
     }
   },
   "required": [

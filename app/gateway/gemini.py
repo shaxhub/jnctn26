@@ -24,13 +24,24 @@ def enabled() -> bool:
     return bool(os.getenv("GEMINI_API_KEY", "").strip())
 
 
+def _provider_schema(value):
+    """Keep structural constraints in Gemini and enforce value bounds locally."""
+    if isinstance(value, list):
+        return [_provider_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    ignored = {"title", "default", "format", "pattern", "minimum", "maximum",
+               "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems"}
+    return {key: _provider_schema(item) for key, item in value.items() if key not in ignored}
+
+
 def _request(text: str, instruction: str, schema) -> dict:
     return {
         "headers": {"x-goog-api-key": os.environ["GEMINI_API_KEY"].strip(), "Api-Revision": "2026-05-20"},
         "json": {"model": MODEL, "input": text, "system_instruction": instruction, "store": False,
                  "generation_config": {"thinking_level": "medium"},
                  "response_format": {"type": "text", "mime_type": "application/json",
-                                     "schema": schema.model_json_schema()}},
+                                     "schema": _provider_schema(schema.model_json_schema())}},
     }
 
 

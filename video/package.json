@@ -1,0 +1,24 @@
+{
+  "name": "agent-dairy-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Agent Dairy pitch video built with Remotion",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render Pitch out/agent-dairy-pitch.mp4",
+    "still": "remotion still Pitch out/still.png",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.543",
+    "@remotion/google-fonts": "4.0.543",
+    "@remotion/transitions": "4.0.543",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.543"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}

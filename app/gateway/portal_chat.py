@@ -120,4 +120,4 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
 
 @router.post("/tickets/submit")
 def submit(request: OrderRequest, p: Principal = Depends(require_client)):
-    return service.place_order(p, request.quote_id, "Client reviewed and submitted the signed ticket draft.")
+    return service.place_order(p, request.quote_id, "Client reviewed and submitted the signed ticket draft.", replay=True)

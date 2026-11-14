@@ -103,6 +103,9 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             draft = response.json()["draft"]
             result = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
             assert result.status_code == 200 and result.json()["status"] == "confirmed", result.text
+            replay = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
+            assert replay.status_code == 200 and replay.json()["order_id"] == result.json()["order_id"]
+            assert len((await http.get("/orders", headers=buyer)).json()) == 1
             analytics = (await http.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10

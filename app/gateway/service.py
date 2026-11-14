@@ -284,14 +284,12 @@ def _pending_approval(p: Principal | Admin, row, approval_id: str):
     return row
 
 
-def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order:
+def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, replay: bool = False) -> Order:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     row = store.fetchone("SELECT * FROM quotes WHERE quote_id=?", (quote_id,))
     if row is None or row["buyer_id"] != p.buyer_id:
         raise _quote_invalid(p, quote_id, 404, f"quote {quote_id} not found for this buyer")
-    if row["status"] != "open":
-        raise _quote_invalid(p, quote_id, 409, f"quote {quote_id} was already used")
     try:
         payload = quotes.verify(row["jws"])                 # tamper check on the stored, signed quote
     except ValueError as e:
@@ -300,6 +298,12 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order
         raise _quote_invalid(p, quote_id, 409, "quote payload does not match its signature")
     if payload.get("order_channel", "agent") != p.role:
         raise _quote_invalid(p, quote_id, 403, "Quote belongs to a different purchasing channel")
+    if row["status"] != "open":
+        if replay:
+            existing = store.fetchone("SELECT * FROM orders WHERE quote_id=? AND status!='received'", (quote_id,))
+            if existing:
+                return _order_from_row(existing)
+        raise _quote_invalid(p, quote_id, 409, f"quote {quote_id} was already used")
     if store.now() >= _aware(datetime.fromisoformat(payload["expires_at"])):
         raise _quote_invalid(p, quote_id, 409, f"Quote {quote_id} expired; request a new quote")
 
@@ -315,6 +319,12 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order
             raise GatewayError(409, "Quote expired while checking availability")
         claimed = conn.execute("UPDATE quotes SET status='used' WHERE quote_id=? AND status='open'", (quote_id,))
         if claimed.rowcount != 1:
+            if replay:
+                existing = conn.execute(
+                    "SELECT * FROM orders WHERE quote_id=? AND status!='received'", (quote_id,)
+                ).fetchone()
+                if existing:
+                    return _order_from_row(existing)
             raise GatewayError(409, f"quote_invalid: quote {quote_id} was already used")
         result = _evaluate(p, lines, offers, payload["total_net"], need, conn=conn)
         if stale:

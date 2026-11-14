@@ -27,7 +27,7 @@ from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
 
 READ_TOOLS = ("ping", "get_my_mandate", "search_products", "check_offers",
-              "estimate_delivery", "get_order_status", "get_audit_log", "compile_ingredients", "source_ingredients")
+              "estimate_delivery", "get_order_status", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
 
 INSTRUCTIONS = """Valio Aimo trade gateway for food-service purchasing agents.
 Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+unit to get plans)
@@ -81,6 +81,13 @@ async def ping(ctx: Context = None) -> dict:
     except ToolError:
         upstream = "unavailable"
     return {"status": "ok", "valio": upstream, "checked_at": store.now().isoformat()}
+
+
+@mcp.tool()
+async def get_kitchen_capabilities(ctx: Context = None) -> dict:
+    """List recognized dish templates, recipe units and supported dish-specific replacements."""
+    _principal(ctx)
+    return kitchen.capabilities()
 
 
 @mcp.tool()

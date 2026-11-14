@@ -44,12 +44,12 @@ cd app && uv run pytest -q && uv run python evals/run_evals.py
 
 ```
   Buyer's AI Agent (Claude / any MCP client / ERP)        Human Approver (Browser)
-         |  MCP (/mcp, 11 tools) or REST (/docs)                   |  Web UI / + /approvals
+         |  MCP (/mcp, 12 tools) or REST (/docs)                   |  Web UI / + /approvals
          |  X-API-Key or Authorization: Bearer                    |  Out-of-band approver key
          v                                                        v
   +-----------------------------------------------------------------------------------+
   | FastAPI app (app/gateway/api.py)          auth.py: API key -> Principal -> Mandate |
-  |   mcp_server.py (11 tools)   REST routes   ui/index.html   agent.py (LLM/scripted) |
+  |   mcp_server.py (12 tools)   REST routes   ui/index.html   agent.py (LLM/scripted) |
   |                         \         |         /                                     |
   |                      app/gateway/service.py  (one core)                           |
   |     search.py --- offers.py --- planner.py --- quotes.py --- policy.py            |
@@ -64,7 +64,7 @@ cd app && uv run pytest -q && uv run python evals/run_evals.py
 
 The client workspace also has a **Menu planner** for dish names and recipe lists. Add servings and, for live sourcing, a delivery date. The planner groups ingredients and suggests dish-specific alternatives for shortages.
 
-MCP tools include `ping`, `get_my_mandate`, `search_products`, `check_offers`, `estimate_delivery`, `create_quote`, `place_order`, `get_order_status`, `get_audit_log`, `compile_ingredients`, and `source_ingredients`. Call `get_my_mandate` first to discover the actions your credential can perform. `check_offers` can return live Valio-listed alternatives and same-ingredient catalog suggestions for selected produce, with claim and allergen filtering when you set `include_substitutes`, and ranked plans when you supply quantity and unit.
+MCP tools include `ping`, `get_my_mandate`, `search_products`, `check_offers`, `estimate_delivery`, `create_quote`, `place_order`, `get_order_status`, `get_audit_log`, `get_kitchen_capabilities`, `compile_ingredients`, and `source_ingredients`. Call `get_my_mandate` first to discover the actions your credential can perform. `check_offers` can return live Valio-listed alternatives and same-ingredient catalog suggestions for selected produce, with claim and allergen filtering when you set `include_substitutes`, and ranked plans when you supply quantity and unit.
 
 Valio’s [challenge API documentation](https://junction26.valioaimo.fi/docs) describes `GET /api/ping`, `POST /api/price` and `POST /api/availability`. Price and availability requests use the delivery date and at most 1,000 product codes. The challenge catalog and CSVs supply product origin, product-level average carbon intensity, and delivery reliability. Analytics estimate product emissions only when both weight and intensity are known. Inquiry analytics count each client chat request once and count standalone search and offer calls individually. Product category counts count a category once per call. Travel time uses selected Helsinki-region postal districts from Rautatientori and gives a dispatch-to-door range. Aimo’s rules engine handles routine requests and sends exceptions to the human review queue. Confirmed orders are stored locally for the demo.
 

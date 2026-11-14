@@ -68,3 +68,11 @@ def test_recipe_rejects_a_zero_yield_or_unmeasurable_amount():
         kitchen.recipes_from_text("Soup (0)\n100 g potato", 20)
     with pytest.raises(ValidationError):
         kitchen.Ingredient(name="potato", unit="g", amount=.00000001)
+
+
+def test_kitchen_capabilities_match_the_compiler():
+    available = kitchen.capabilities()
+    assert {"g", "kg", "l"}.issubset(available["recipe_units"])
+    for entry in available["culinary_swaps"]:
+        result = kitchen.compile_ingredients(kitchen.KitchenRequest(servings=4, dishes=[entry["dish"]]))
+        assert entry["ingredient"] in {item["ingredient"] for item in result["ingredients"]}

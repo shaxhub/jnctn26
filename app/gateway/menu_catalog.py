@@ -18,11 +18,21 @@ DISHES = {
     "pasta primavera": [("pasta", 95, "g"), ("zucchini", 85, "g"), ("bell pepper", 65, "g"), ("tomato", 70, "g")],
     "greek salad": [("tomato", 100, "g"), ("cucumber", 80, "g"), ("red onion", 20, "g"), ("feta", 50, "g")],
     "fruit salad": [("apple", 70, "g"), ("pear", 60, "g"), ("orange", 70, "g")],
+    "potato leek soup": [("potato", 180, "g"), ("leek", 65, "g"), ("cream", 30, "ml")],
+    "roasted root vegetables": [("carrot", 95, "g"), ("parsnip", 90, "g"), ("turnip", 60, "g"), ("rapeseed oil", 14, "ml")],
+    "coleslaw": [("cabbage", 110, "g"), ("carrot", 35, "g"), ("mayonnaise", 20, "g")],
+    "beetroot salad": [("beetroot", 125, "g"), ("apple", 45, "g"), ("lemon", 12, "g")],
+    "roasted cauliflower": [("cauliflower", 190, "g"), ("rapeseed oil", 12, "ml")],
+    "steamed broccoli": [("broccoli", 140, "g"), ("lemon", 12, "g")],
+    "berry yogurt": [("yogurt", 160, "g"), ("blueberries", 60, "g")],
+    "oat porridge": [("oats", 60, "g"), ("milk", 180, "ml")],
     "apple crumble": [("apple", 150, "g"), ("oats", 35, "g"), ("butter", 20, "g"), ("sugar", 18, "g")],
 }
 
 DISH_ALIASES = {"roast potatoes": "roasted potatoes", "finnish salmon soup": "salmon soup",
-                "lohikeitto": "salmon soup", "tomaattikeitto": "tomato soup", "perunamuusi": "mashed potatoes"}
+                "lohikeitto": "salmon soup", "tomaattikeitto": "tomato soup", "perunamuusi": "mashed potatoes",
+                "potato and leek soup": "potato leek soup", "oven roasted potatoes": "roasted potatoes",
+                "mixed salad": "green salad", "kaurapuuro": "oat porridge"}
 
 # Catalog terms are Finnish stems. English remains available for unlisted recipe ingredients.
 SEARCH_TERMS = {
@@ -34,6 +44,8 @@ SEARCH_TERMS = {
     "butter": "voi", "cream": "kerma", "rapeseed oil": "rypsiöljy", "mushroom": "herkkusieni",
     "risotto rice": "risotto", "pasta": "pasta", "feta": "feta", "oats": "kaurahiutale", "sugar": "sokeri",
     "parsnip": "palsternakka", "turnip": "nauris", "spinach": "pinaatti", "lime": "lime",
+    "cabbage": "keräkaali", "mayonnaise": "majoneesi", "beetroot": "punajuuri", "broccoli": "parsakaali",
+    "cauliflower": "kukkakaali", "yogurt": "jogurtti", "blueberries": "mustikka",
 }
 INGREDIENT_ALIASES = {"potatoes": "potato", "tomatoes": "tomato", "carrots": "carrot",
                       "onions": "onion", "apples": "apple", "lemons": "lemon",
@@ -50,5 +62,9 @@ SWAPS = {
     ("baked salmon", "lemon"): ("lime", "Use for acidity. Start with less juice and adjust to taste."),
     ("green salad", "lettuce"): ("spinach", "Use fresh baby leaves for a similar role. The flavour is stronger."),
     ("apple crumble", "apple"): ("pear", "Choose firm pears and reduce added sugar if needed."),
+    ("potato leek soup", "leek"): ("onion", "Sauté it gently. The soup will have a stronger onion flavour."),
+    ("roasted root vegetables", "parsnip"): ("carrot", "Use similarly sized pieces. The tray will be sweeter."),
+    ("roasted cauliflower", "cauliflower"): ("broccoli", "Roast the florets for less time to keep the tops from burning."),
+    ("steamed broccoli", "broccoli"): ("cauliflower", "Steam until just tender. The texture will be firmer."),
     ("fruit salad", "apple"): ("pear", "Use firm pears cut to the same size."),
 }

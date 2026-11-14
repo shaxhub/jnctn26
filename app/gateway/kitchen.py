@@ -21,7 +21,7 @@ LINE = re.compile(r"^([0-9]+(?:[.,][0-9]+)?)\s*(kg|g|ml|dl|l|pcs)\s+(.+)$", re.I
 CATEGORIES = {
     **dict.fromkeys(("potato", "carrot", "parsnip", "turnip", "onion", "red onion", "shallot", "leek",
                      "basil", "dill", "parsley", "lettuce", "cucumber", "tomato", "zucchini", "bell pepper",
-                     "apple", "pear", "orange", "lemon", "lime", "spinach", "mushroom"), "174"),
+                     "apple", "pear", "orange", "lemon", "lime", "spinach", "mushroom", "cabbage", "beetroot", "cauliflower", "broccoli"), "174"),
     "salmon": "187", "cream": "10401", "milk": "10400", "rapeseed oil": "10530", "butter": "105",
 }
 EXCLUDED = {
@@ -61,6 +61,13 @@ class SourceRequest(KitchenRequest):
     exclude_allergens: list[Text] = Field(default_factory=list, max_length=20)
     required_claims: list[Text] = Field(default_factory=list, max_length=10)
     unavailable_ingredients: list[Text] = Field(default_factory=list, max_length=30)
+
+
+def capabilities() -> dict:
+    return {"dish_templates": sorted(DISHES), "dish_aliases": DISH_ALIASES,
+            "recipe_units": list(UNITS), "maximum_servings_per_dish": 5000,
+            "culinary_swaps": [{"dish": dish, "ingredient": ingredient, "replacement": replacement,
+                                "culinary_note": note} for (dish, ingredient), (replacement, note) in SWAPS.items()]}
 
 
 def canonical_name(text: str) -> str:

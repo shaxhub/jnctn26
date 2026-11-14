@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
+from .accounts import router as session_router
 from . import store
 from .auth import Admin, require_admin
 from .config import APP_DIR, TZ
@@ -13,6 +14,7 @@ from .web_common import configure_errors, mount_assets
 
 app = FastAPI(title="Agent Dairy | Aimo operations")
 configure_errors(app)
+app.include_router(session_router('admin'))
 app.include_router(router)
 mount_assets(app, {"admin.js", "common.js", "portal.css", "order_thread.js"})
 

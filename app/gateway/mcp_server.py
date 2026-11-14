@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from . import kitchen, seasonal, service, store, workspace
 from .agent import compact_offers
 from .auth import Principal, current_principal, key_from_headers, principal_for_key
+from .config import demo_catalog_enabled
 from .delivery import estimate, postal_code_from_address
 from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
@@ -77,6 +78,8 @@ async def _run(fn, *args, **kwargs):
 async def ping(ctx: Context = None) -> dict:
     """Report the gateway and Valio mock API status."""
     _principal(ctx)
+    if demo_catalog_enabled():
+        return {"status": "ok", "valio": "simulated", "checked_at": store.now().isoformat()}
     try:
         upstream = "ok" if await _run(get_client().ping) else "unexpected_response"
     except ToolError:

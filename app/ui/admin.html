@@ -21,7 +21,7 @@
       <section class="hero"><div><h1>Aimo operations</h1><p>Track buyer inquiries, review order exceptions and see what clients are buying.</p></div><div class="dispatch"><span>Client inquiries</span><span>Policy decisions</span><span>Human review</span></div></section>
       <section id="login" class="panel login" aria-labelledby="login-title">
         <h2 id="login-title">Sign in to operations</h2>
-        <form id="sign-in"><label for="admin-key">Aimo operations key</label><input id="admin-key" type="password" required autocomplete="off"><button type="submit" class="primary">Sign in</button></form>
+        <form id="sign-in"><label id="admin-user-label" hidden>Username <input id="admin-user" autocomplete="username" maxlength="48"></label><label id="admin-secret-label" for="admin-key">Aimo operations key</label><input id="admin-key" type="password" required autocomplete="off"><button type="submit" class="primary">Sign in</button></form>
         <p id="login-status" class="feedback" role="status" hidden></p>
       </section>
       <div id="dashboard" hidden>

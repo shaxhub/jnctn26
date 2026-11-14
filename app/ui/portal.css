@@ -143,3 +143,6 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 .seasonal-form { display:flex; align-items:end; gap:.75rem; flex-wrap:wrap; margin:.75rem 0 }
 .seasonal-form input { margin-top:.25rem }
 .seasonal-form .feedback { flex:1 0 100%; margin:0 }
+
+#client-login { margin:clamp(1rem,6vw,5rem) auto; width:min(100% - 2rem,32rem) }
+body:has(#client-login:not([hidden])) { grid-template-columns:1fr }

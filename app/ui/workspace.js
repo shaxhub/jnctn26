@@ -378,21 +378,61 @@ for (const code of ["en", "fi"]) $("lang-" + code).addEventListener("click", asy
   catch (error) { feedback($("reminder"), error.message, true); }
 });
 $("help-open").addEventListener("click", () => $("client-help").showModal());
-$("client-sign-out").addEventListener("click", () => {
-  sessionStorage.setItem("agent-dairy-signed-out", "true");
+function loginScreen(show) {
+  $("client-login").hidden = !show;
+  $("main").querySelector(".top").hidden = show;
+  $("main").querySelector(".content").hidden = show;
+  document.querySelector(".rail").hidden = show;
+}
+
+$("client-login-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button");
+  button.disabled = true;
+  try {
+    await request("/session/login", "", {username:$("client-username").value, password:$("client-password").value});
+    window.location.reload();
+  } catch (error) {
+    feedback($("client-login-status"), error.message, true);
+    button.disabled = false;
+  }
+});
+
+$("client-sign-out").addEventListener("click", async () => {
+  if (buyer.dataset.hosted === "true") await request("/session/logout", "", {});
+  else sessionStorage.setItem("agent-dairy-signed-out", "true");
   window.location.reload();
 });
-if (sessionStorage.getItem("agent-dairy-signed-out")) {
-  $("main").replaceChildren();
-  const signedOut = panel("Signed out");
-  const button = node("button", "Open demo workspace", "primary");
-  button.addEventListener("click", () => {
-    sessionStorage.removeItem("agent-dairy-signed-out");
-    window.location.reload();
-  });
-  signedOut.append(button);
-  document.querySelector(".rail").hidden = true;
-  $("main").append(signedOut);
-} else {
-  connect();
+
+async function initialize() {
+  const session = await request("/session", "");
+  $("offline-demo-banner").hidden = !session.offline_demo;
+  if (session.required) {
+    buyer.dataset.hosted = "true";
+    buyer.disabled = true;
+    $("connect-title").closest(".panel").hidden = true;
+    if (!session.username) {
+      loginScreen(true);
+      return;
+    }
+    buyer.value = session.buyer_id;
+    loginScreen(false);
+    await connect();
+    return;
+  }
+  if (sessionStorage.getItem("agent-dairy-signed-out")) {
+    $("main").replaceChildren();
+    const signedOut = panel("Signed out");
+    const button = node("button", "Open demo workspace", "primary");
+    button.addEventListener("click", () => {
+      sessionStorage.removeItem("agent-dairy-signed-out");
+      window.location.reload();
+    });
+    signedOut.append(button);
+    document.querySelector(".rail").hidden = true;
+    $("main").append(signedOut);
+  } else {
+    await connect();
+  }
 }
+initialize().catch(error => root.replaceChildren(node("p", error.message, "feedback error")));

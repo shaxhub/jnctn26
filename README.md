@@ -58,3 +58,24 @@ Keep challenge data, local databases, signing keys, and `app/.env` out of Git. T
 - [Valio mock API and data assumptions](app/ASSUMPTIONS.md)
 - [Enterprise plan](docs/enterprise-plan.md) and [production roadmap](docs/roadmap.md)
 - [Architecture Decision Records](docs/adr/)
+
+## Private Linux demo without API keys
+
+Use the [private deployment script](app/scripts/deploy_private.sh) on a Linux host with uv and persistent systemd user services. From `app/`, run:
+
+```sh
+bash scripts/deploy_private.sh PRIVATE_BIND_IP
+```
+
+The script runs the client on port 8000 and Aimo operations on 8001 at that address. It uses a synthetic catalog and a separate local database, requires login on both portals, and uses no Valio or Gemini credentials. Use a private network address where traffic is encrypted, or terminate HTTPS before broader access.
+
+Create accounts on the host from `app/`:
+
+```sh
+DB_PATH=data/hosted-gateway.db .venv/bin/python -m gateway.manage_accounts kitchen client --buyer hotel
+DB_PATH=data/hosted-gateway.db .venv/bin/python -m gateway.manage_accounts aimo admin
+```
+
+These commands prompt for passwords. Running the command again with the same account role and buyer changes its password and revokes existing sessions. Check status with `systemctl --user status agent-dairy-client agent-dairy-admin` and stop both with `systemctl --user stop agent-dairy-client agent-dairy-admin`.
+
+In Ask Agent Dairy, try `I need 20 litres of lactose-free milk` and choose a future delivery date. Create and submit a draft from the result. Repeat with 1,000 litres to exercise the Aimo approval queue. You can also paste a recipe with a quantity and ingredient on each line, such as `2 kg tomato` and `1 kg red onion`.

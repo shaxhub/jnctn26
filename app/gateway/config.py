@@ -17,6 +17,10 @@ load_dotenv(APP_DIR / ".env")
 TZ = ZoneInfo("Europe/Helsinki")
 
 
+def demo_catalog_enabled() -> bool:
+    return os.getenv("OFFLINE_DEMO") == "1"
+
+
 def _path(value: str) -> Path:
     p = Path(value)
     return p if p.is_absolute() else (APP_DIR / p).resolve()

@@ -3,6 +3,7 @@ import {$, date, feedback, lineItems, money, node, number, pill, request, table}
 
 let key = sessionStorage.getItem("aimo-operations-key") || "";
 let view = "queue";
+let hosted = false;
 let page = null;
 let version = 0;
 const recordTarget = $("records");
@@ -209,7 +210,7 @@ async function signIn(credential) {
   try {
     await request("/operations/activity", credential);
     key = credential;
-    sessionStorage.setItem("aimo-operations-key", key);
+    if (!hosted) sessionStorage.setItem("aimo-operations-key", key);
     $("login").hidden = true;
     $("dashboard").hidden = false;
     $("sign-out").hidden = false;
@@ -221,11 +222,15 @@ async function signIn(credential) {
   }
 }
 
-$("sign-in").addEventListener("submit", event => {
+$("sign-in").addEventListener("submit", async event => {
   event.preventDefault();
-  signIn($("admin-key").value.trim());
+  try {
+    if (hosted) await request("/session/login", "", {username:$("admin-user").value, password:$("admin-key").value});
+    await signIn(hosted ? "" : $("admin-key").value.trim());
+  } catch (error) { feedback($("login-status"), error.message, true); }
 });
-$("sign-out").addEventListener("click", () => {
+$("sign-out").addEventListener("click", async () => {
+  if (hosted) await request("/session/logout", "", {});
   key = "";
   version += 1;
   sessionStorage.removeItem("aimo-operations-key");
@@ -240,4 +245,14 @@ $("refresh").addEventListener("click", () => load());
 $("more").addEventListener("click", () => load(true));
 $("period").addEventListener("change", () => load());
 for (const tab of ["queue", "activity", "insights"]) $(tab + "-tab").addEventListener("click", () => showView(tab));
-if (key) signIn(key);
+request("/session", "").then(session => {
+  hosted = session.required;
+  if (hosted) {
+    key = "";
+    $("admin-user-label").hidden = false;
+    $("admin-user").required = true;
+    $("admin-key").autocomplete = "current-password";
+    $("admin-secret-label").textContent = "Password";
+    if (session.username) signIn("");
+  } else if (key) signIn(key);
+}).catch(error => feedback($("login-status"), error.message, true));

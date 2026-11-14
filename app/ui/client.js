@@ -2,7 +2,7 @@ import {orderThread, stageName} from "./order_thread.js";
 import {$, date, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
 
 const buyer = $("buyer");
-export const buyerKey = () => "demo-" + buyer.value + "-client-key";
+export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
 let scope = 0;
 let queryVersion = 0;
 let seasonalVersion = 0;
@@ -194,7 +194,7 @@ async function sendChat(requestData) {
   const buttons = Array.from($("chat").querySelectorAll("[type=submit]"));
   buttons.forEach(button => { button.disabled = true; });
   if (requestData.action === "draft") showDraft(null);
-  feedback($("chat-status"), "Checking the Valio catalog and live offers…");
+  feedback($("chat-status"), "Checking the catalog and offers…");
   $("results").replaceChildren();
   try {
     const result = await request("/client/chat", buyerKey(), requestData);

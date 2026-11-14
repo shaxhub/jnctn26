@@ -12,10 +12,11 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from mcp.server.transport_security import TransportSecuritySettings
 
+from .accounts import router as session_router
 from . import gemini, quotes, service, store
 from .agent import compact_offers, run_agent
 from .auth import McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
-from .config import APP_DIR, settings
+from .config import APP_DIR, demo_catalog_enabled, settings
 from .mcp_server import mcp
 from .workspace import router as workspace_router
 from .web_common import configure_errors, mount_assets
@@ -43,6 +44,7 @@ app.add_middleware(McpAuthMiddleware)
 app.include_router(client_router)
 app.include_router(workspace_router)
 configure_errors(app)
+app.include_router(session_router('client'))
 mount_assets(app, {"client.js", "common.js", "portal.css", "workspace.js", "workspace.css", "order_thread.js"})
 
 
@@ -64,6 +66,7 @@ def health():
         "catalog": settings.catalog_db_path.exists(),
         "llm_agent": gemini.enabled(),
         "valio_api_key": bool(settings.valio_api_key),
+        "offline_demo": demo_catalog_enabled(),
         "demo_now": store.now().isoformat(),
     }
 

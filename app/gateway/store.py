@@ -22,6 +22,15 @@ from .config import TZ, settings
 GENESIS = "0" * 64
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS portal_accounts (
+    username TEXT PRIMARY KEY, role TEXT NOT NULL, buyer_id TEXT, salt BLOB NOT NULL, password_hash BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS portal_sessions (
+    token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES portal_accounts(username), expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS portal_login_attempts (
+    source TEXT NOT NULL, username TEXT NOT NULL, at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS workspace_preferences (
     buyer_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL
 );

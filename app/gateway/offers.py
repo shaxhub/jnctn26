@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from . import store
-from .config import TZ, settings
+from .config import TZ, demo_catalog_enabled, settings
 from .models import UNLIMITED_THRESHOLD, Offer, OrderableReason, ProductSummary
 from .search import get_products
 from .valio_client import RawOffers, get_client
@@ -135,7 +135,11 @@ def effective_now(raw: RawOffers) -> datetime:
 
 def get_offers(product_ids: list[str], delivery_date: date, *, fresh: bool = False) -> tuple[list[Offer], datetime]:
     products = get_products(product_ids)
-    raw = get_client().get_offers_raw(list(products), delivery_date, fresh=fresh)
+    if demo_catalog_enabled():
+        from .demo_catalog import offers as synthetic_offers
+        raw = synthetic_offers(list(products), delivery_date, store.now())
+    else:
+        raw = get_client().get_offers_raw(list(products), delivery_date, fresh=fresh)
     now = effective_now(raw)
     offers = [build_offer(products[pid], raw.products.get(pid, {}), delivery_date, now) for pid in products]
     if raw.stale:

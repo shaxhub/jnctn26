@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 
 from . import audit, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
-from .config import TZ
+from .config import TZ, demo_catalog_enabled
 from .delivery import estimate
 from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, Order, OrderableReason, OrderStatus, PlanResult,
                      PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult, expand_allergens)
@@ -108,7 +108,7 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
         result["next_delivery_options"] = later
     if req.postal_code:
         result["delivery_estimate"] = estimate(req.postal_code)
-    result["sources"] = {"price_and_availability": "Valio Aimo mock API",
+    result["sources"] = {"price_and_availability": "Synthetic demo scenarios" if demo_catalog_enabled() else "Valio Aimo mock API",
                          "product_attributes": "Valio Aimo challenge catalog",
                          "co2_per_kg": "Challenge product-level average kg CO2e per kg",
                          "reliability": "Challenge delivery reliability data"}

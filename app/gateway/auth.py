@@ -20,7 +20,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Mapping
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
+
+from .accounts import hosted, identity
 
 from .config import APP_DIR
 from .models import Mandate
@@ -52,7 +54,12 @@ def admin_for_key(key: str | None) -> Admin | None:
     return None
 
 
-def require_admin(x_api_key: str | None = Header(None), authorization: str | None = Header(None)) -> Admin:
+def require_admin(request: Request, x_api_key: str | None = Header(None), authorization: str | None = Header(None)) -> Admin:
+    user = identity(request, "admin")
+    if user:
+        return Admin(actor=f"admin:{user['username']}")
+    if hosted():
+        raise HTTPException(401, "Sign in to Aimo operations.")
     admin = admin_for_key(key_from_headers({"x-api-key": x_api_key, "authorization": authorization}))
     if admin is None:
         raise HTTPException(401, "Enter a valid Aimo operations key")
@@ -69,7 +76,7 @@ def _keys() -> dict[str, dict]:
 
 
 def principal_for_key(key: str | None) -> Principal | None:
-    entry = _keys().get((key or "").strip())
+    entry = None if hosted() else _keys().get((key or "").strip())
     if not entry:
         return None
     can_order = entry.get("can_order", True)
@@ -91,9 +98,11 @@ def key_from_headers(headers: Mapping[str, str] | None) -> str | None:
     return authz[7:].strip() if authz.lower().startswith("bearer ") else None
 
 
-def require_principal(x_api_key: str | None = Header(None), authorization: str | None = Header(None)) -> Principal:
+def require_principal(request: Request, x_api_key: str | None = Header(None), authorization: str | None = Header(None)) -> Principal:
     key = x_api_key or (authorization[7:] if authorization and authorization.lower().startswith("bearer ") else None)
-    p = principal_for_key(key)
+    user = identity(request, "client")
+    p = (Principal(user["buyer_id"], "client", user["username"], load_mandate(user["buyer_id"]))
+         if user else principal_for_key(key))
     if p is None:
         raise HTTPException(401, "Missing or unknown API key (X-API-Key or Authorization: Bearer)")
     current_principal.set(p)

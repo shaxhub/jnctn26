@@ -44,7 +44,7 @@ export function feedback(target, text, error = false) {
 }
 
 export async function request(path, key, payload) {
-  const headers = {"X-API-Key": key};
+  const headers = key ? {"X-API-Key": key} : {};
   if (payload !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(path, {method: payload === undefined ? "GET" : "POST", headers,
     body: payload === undefined ? undefined : JSON.stringify(payload)});

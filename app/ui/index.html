@@ -29,12 +29,22 @@
     </div>
   </aside>
   <main id="main">
+    <section id="client-login" class="panel login" hidden aria-labelledby="client-login-title">
+      <h1 id="client-login-title">Sign in to Agent Dairy</h1>
+      <form id="client-login-form">
+        <label>Username <input id="client-username" autocomplete="username" required maxlength="48"></label>
+        <label>Password <input id="client-password" type="password" autocomplete="current-password" required maxlength="128"></label>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+      <p id="client-login-status" class="feedback" role="status" hidden></p>
+    </section>
     <header class="top"><span>Client portal</span><label>Workspace <select id="buyer"><option value="hotel">Hotel kitchen</option><option value="hospital">Hospital kitchen</option></select></label></header>
     <div class="content">
       <section class="hero kitchen-hero client-hero">
         <div><h1 id="view-title">Purchasing workspace</h1><p id="view-description">Your kitchen’s purchasing workspace.</p></div>
         <div class="dispatch"><span>Valio Aimo®</span><span>Buyer workspace</span></div>
       </section>
+      <p id="offline-demo-banner" class="feedback" hidden>Synthetic demo catalog. Prices, stock and orders are simulated.</p>
       <p id="reminder" class="feedback" role="status" hidden></p>
       <div id="workspace-view" aria-live="polite"></div>
       <div id="product-view" hidden>

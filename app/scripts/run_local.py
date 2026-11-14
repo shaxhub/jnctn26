@@ -25,11 +25,11 @@ def port_number(value: str) -> int:
     return port
 
 
-def serve(app: str, port: int) -> int:
+def serve(app: str, host: str, port: int) -> int:
     import uvicorn
 
     sys.path.insert(0, str(APP_DIR))
-    server = uvicorn.Server(uvicorn.Config(app, host=HOST, port=port))
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
 
     def watch_supervisor() -> None:
         # EOF also arrives if the supervisor exits unexpectedly.
@@ -53,7 +53,7 @@ def stop_children(children: list[subprocess.Popen]) -> None:
             child.wait()
 
 
-def run_pair(client_port: int, admin_port: int) -> int:
+def run_pair(client_port: int, admin_port: int, host: str) -> int:
     stopping = threading.Event()
     signals = [signal.SIGINT, signal.SIGTERM]
     if os.name == "nt":
@@ -64,9 +64,9 @@ def run_pair(client_port: int, admin_port: int) -> int:
                      if os.name == "nt" else {"start_new_session": True})
     try:
         for (label, app), port in zip(APPS, (client_port, admin_port)):
-            print(f"{label} will listen on http://{HOST}:{port}/", flush=True)
+            print(f"{label} will listen on http://{host}:{port}/", flush=True)
             child = subprocess.Popen(
-                [sys.executable, str(Path(__file__).resolve()), "--serve", app, str(port)],
+                [sys.executable, str(Path(__file__).resolve()), "--serve", app, host, str(port)],
                 cwd=APP_DIR, stdin=subprocess.PIPE, **process_group,
             )
             children.append(child)
@@ -89,15 +89,16 @@ def run_pair(client_port: int, admin_port: int) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) == 4 and sys.argv[1] == "--serve":
-        return serve(sys.argv[2], int(sys.argv[3]))
+    if len(sys.argv) == 5 and sys.argv[1] == "--serve":
+        return serve(sys.argv[2], sys.argv[3], int(sys.argv[4]))
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default=HOST, help="Bind address for both portals")
     parser.add_argument("--client-port", type=port_number, default=8000)
     parser.add_argument("--admin-port", type=port_number, default=8001)
     args = parser.parse_args()
     if args.client_port == args.admin_port:
         parser.error("the client and admin ports must be different")
-    return run_pair(args.client_port, args.admin_port)
+    return run_pair(args.client_port, args.admin_port, args.host)
 
 
 if __name__ == "__main__":

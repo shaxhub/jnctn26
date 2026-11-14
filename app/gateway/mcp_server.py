@@ -282,9 +282,11 @@ async def create_quote(delivery_date: str, lines: list[dict], need: dict | None 
 
 
 @mcp.tool()
-async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None) -> dict:
+async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None,
+                      delivery_address: str | None = None) -> dict:
     """Place an order from an unexpired quote. agent_rationale: one or two sentences on why this option was
-    chosen; it is stored in the audit log for the human reviewer.
+    chosen; it is stored in the audit log for the human reviewer. delivery_address (optional, max 240
+    characters): where to deliver; omit it to use the address saved in the buyer's workspace settings.
 
     The gateway re-checks availability and applies the buyer's mandate. Resulting status:
     confirmed (auto-approved), pending_approval (a human must approve; this is normal, do not retry or split
@@ -293,7 +295,9 @@ async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None) 
     p = _principal(ctx, write=True)
     if len(agent_rationale) > 1000:
         raise ToolError("Rationale must be at most 1,000 characters")
-    order = await _run(service.place_order, p, quote_id, agent_rationale)
+    if delivery_address and len(delivery_address) > 240:
+        raise ToolError("Delivery address must be at most 240 characters")
+    order = await _run(service.place_order, p, quote_id, agent_rationale, delivery_address=delivery_address)
     return order.model_dump(mode="json")
 
 

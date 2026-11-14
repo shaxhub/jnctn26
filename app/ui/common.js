@@ -151,6 +151,14 @@ export function lineItems(lines) {
   return list;
 }
 
+export function deliveryAddress(order) {
+  const fi = document.documentElement.lang === "fi";
+  const line = node("p", "", "delivery-address");
+  line.append(node("strong", fi ? "Toimitusosoite" : "Delivery address"), " ",
+    order.delivery_address || (fi ? "Ei tallennettu tälle tilaukselle" : "Not recorded for this order"));
+  return line;
+}
+
 export function auditTrail(audit) {
   const section = node("section", "", "audit-trail");
   const timeline = node("ol", "", "timeline");

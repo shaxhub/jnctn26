@@ -308,6 +308,7 @@ class Quote(BaseModel):
 class OrderRequest(BaseModel):
     quote_id: str
     agent_rationale: str = Field("", description="Why the agent chose this quote; stored in the audit log.")
+    delivery_address: str | None = Field(None, max_length=240, description="Where to deliver this order. Defaults to the delivery address saved in the buyer's workspace settings.")
 
 
 class OrderStatus(str, Enum):
@@ -326,6 +327,7 @@ class Order(BaseModel):
     total_net: float
     currency: str = "EUR"
     delivery_date: date
+    delivery_address: str = Field("", description="Delivery address recorded when the order was placed; empty if none was given.")
     lines: list[QuoteLine]
     policy: PolicyResult
     approval_id: str | None = None

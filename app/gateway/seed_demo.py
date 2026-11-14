@@ -24,6 +24,11 @@ from .workspace import Message, ShipmentUpdate, advance, send_message
 ADMIN = Admin(actor="admin:demo-seed")
 
 
+# Sample delivery points for the seeded orders; not real customer sites.
+DEMO_ADDRESSES = {"hotel": "[Demo] Hotel kitchen, loading entrance, Esimerkkikatu 1, 00100 Helsinki",
+                  "hospital": "[Demo] Hospital ward kitchen, goods reception, Esimerkkitie 2, 00290 Helsinki"}
+
+
 def candidates() -> dict[str, list[str]]:
     with sqlite3.connect(f"file:{settings.catalog_db_path}?mode=ro", uri=True) as db:
         return {name: [row[0] for row in db.execute(
@@ -97,7 +102,8 @@ def seed(*, backup: bool = True) -> dict:
             quote = service.create_quote(principal, QuoteRequest(delivery_date=day, need=need,
                 lines=[{"product_id": offer.product_id, "quantity": quantity} for offer, quantity in items]), name=name)
             if not draft:
-                order = service.place_order(principal, quote.quote_id, "Labelled sample order for the judging demo.")
+                order = service.place_order(principal, quote.quote_id, "Labelled sample order for the judging demo.",
+                                            delivery_address=DEMO_ADDRESSES[buyer])
                 if reject and order.status == "pending_approval":
                     order = service.decide_approval(ADMIN, order.approval_id, "reject", "Sample: quantity needs revision.")
                 if stage and order.status == "pending_approval":

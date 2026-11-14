@@ -128,8 +128,12 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             assert "quantity and unit" in incomplete.json()["message"]
             unrelated = await http.post("/client/chat", headers=buyer, json={"text": "Unrelated milk lookup"})
             assert unrelated.status_code == 200
-            result = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
+            result = await http.post("/client/tickets/submit", headers=buyer, json={
+                "quote_id": draft["quote_id"], "delivery_address": "Hotel kitchen, Testikatu 1, 00100 Helsinki"})
             assert result.status_code == 200 and result.json()["status"] == "confirmed", result.text
+            assert result.json()["delivery_address"] == "Hotel kitchen, Testikatu 1, 00100 Helsinki"
+            listed = (await ops.get("/operations/orders?q=testikatu", headers=admin)).json()["orders"]
+            assert [order["delivery_address"] for order in listed] == [result.json()["delivery_address"]]
             replay = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
             assert replay.status_code == 200 and replay.json()["order_id"] == result.json()["order_id"]
             assert len((await http.get("/orders", headers=buyer)).json()) == 1
@@ -465,3 +469,35 @@ def test_live_mode_stock_reservation_prevents_double_spend(gateway, monkeypatch)
     pending_ok = service.place_order(agent, q_ok.quote_id)
     assert pending_ok.status == "pending_approval"
     assert service.decide_approval(admin, pending_ok.approval_id, "approve").status == "confirmed"
+
+
+def test_order_records_delivery_address_snapshot(gateway):
+    import sqlite3
+    from gateway.preferences import Preferences
+    from gateway.workspace import save_settings
+
+    client = principal_for_key("demo-hotel-client-key")
+    place = lambda day, **options: service.place_order(client, service.create_quote(client, QuoteRequest(
+        delivery_date=date(2026, 11, day), lines=[{"product_id": "milk", "quantity": 5}])).quote_id, **options)
+    assert place(16).delivery_address == ""
+    save_settings(Preferences(address="Saved kitchen, Testikatu 1,  00100 Helsinki"), client)
+    saved = place(17)
+    assert saved.delivery_address == "Saved kitchen, Testikatu 1, 00100 Helsinki"
+    explicit = place(18, delivery_address="Event site, Testitie 2, 33100 Tampere")
+    assert explicit.delivery_address == "Event site, Testitie 2, 33100 Tampere"
+    # Changing the workspace setting afterwards does not move an order already placed.
+    save_settings(Preferences(address="New kitchen, 00200 Helsinki"), client)
+    assert service.get_order(client, saved.order_id).delivery_address == "Saved kitchen, Testikatu 1, 00100 Helsinki"
+    received = next(e for e in store.events(order_id=explicit.order_id) if e["event_type"] == "ORDER_RECEIVED")
+    assert received["data"]["delivery_address"] == explicit.delivery_address
+    with pytest.raises(service.GatewayError):
+        place(19, delivery_address="x" * 241)
+    assert store.verify_chain()["ok"]
+
+    # A database created before the column existed is upgraded in place and old orders read back empty.
+    old = store.settings.db_path.with_name("old.db")
+    with sqlite3.connect(old) as db:
+        db.executescript(store.SCHEMA.replace(", delivery_address TEXT NOT NULL DEFAULT ''", ""))
+        assert "delivery_address" not in {row[1] for row in db.execute("PRAGMA table_info(orders)")}
+    with store.connect(old) as conn:
+        assert "delivery_address" in {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}

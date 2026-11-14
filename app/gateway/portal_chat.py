@@ -325,4 +325,5 @@ def recurring_ticket(quote_id: str, p: Principal = Depends(require_client)):
 
 @router.post("/tickets/submit")
 def submit(request: OrderRequest, p: Principal = Depends(require_client)):
-    return service.place_order(p, request.quote_id, "Client reviewed and submitted the signed ticket draft.", replay=True)
+    return service.place_order(p, request.quote_id, "Client reviewed and submitted the signed ticket draft.", replay=True,
+                               delivery_address=request.delivery_address)

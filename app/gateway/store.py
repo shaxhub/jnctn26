@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS orders (
     order_id TEXT PRIMARY KEY, quote_id TEXT NOT NULL UNIQUE REFERENCES quotes(quote_id), buyer_id TEXT NOT NULL,
     status TEXT NOT NULL, total_net REAL NOT NULL, currency TEXT NOT NULL, delivery_date TEXT NOT NULL,
     lines_json TEXT NOT NULL, policy_json TEXT NOT NULL, approval_id TEXT, agent_rationale TEXT,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, delivery_address TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS ticket_names (
     quote_id TEXT PRIMARY KEY, name TEXT NOT NULL
@@ -161,6 +161,9 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
                 cols = {row["name"] for row in conn.execute("PRAGMA table_info(portal_login_attempts)").fetchall()}
                 if "role" not in cols:
                     conn.execute("ALTER TABLE portal_login_attempts ADD COLUMN role TEXT NOT NULL DEFAULT ''")
+                cols = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
+                if "delivery_address" not in cols:
+                    conn.execute("ALTER TABLE orders ADD COLUMN delivery_address TEXT NOT NULL DEFAULT ''")
                 if not is_memory:
                     _initialized.add(str(path))
         except Exception:

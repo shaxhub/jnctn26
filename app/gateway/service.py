@@ -21,6 +21,7 @@ from .delivery import estimate
 from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, Order, OrderableReason, OrderStatus, PlanResult,
                      PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult, expand_allergens)
 from .offers import get_offers
+from .preferences import preferences
 from .planner import amount_per_sales_unit, constraint_violations, make_plans, round_qty
 from .search import get_products, normalize_claims, search
 
@@ -332,6 +333,7 @@ def _order_from_row(r) -> Order:
     return Order(order_id=r["order_id"], quote_id=r["quote_id"], name=ticket_name(r["quote_id"], lines),
                  buyer_id=r["buyer_id"], status=r["status"],
                  total_net=r["total_net"], currency=r["currency"], delivery_date=r["delivery_date"],
+                 delivery_address=r["delivery_address"] or "",
                  lines=lines, policy=json.loads(r["policy_json"]),
                  approval_id=r["approval_id"], agent_rationale=r["agent_rationale"] or "",
                  created_at=r["created_at"], updated_at=r["updated_at"])
@@ -416,9 +418,14 @@ def _pending_approval(p: Principal | Admin, row, approval_id: str):
     return row
 
 
-def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, replay: bool = False) -> Order:
+def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, replay: bool = False,
+                delivery_address: str | None = None) -> Order:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
+    # The address is a snapshot: later changes to the workspace setting do not move an existing order.
+    address = " ".join((delivery_address or "").split()) or " ".join(preferences(p.buyer_id).address.split())
+    if len(address) > 240:
+        raise GatewayError(422, "Delivery address must be at most 240 characters")
     row = store.fetchone("SELECT * FROM quotes WHERE quote_id=?", (quote_id,))
     if row is None or row["buyer_id"] != p.buyer_id:
         raise _quote_invalid(p, quote_id, 404, f"quote {quote_id} not found for this buyer")
@@ -511,13 +518,13 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
         approval_id = _id("apr") if status == "pending_approval" else None
         conn.execute(
             "INSERT INTO orders (order_id,quote_id,buyer_id,status,total_net,currency,delivery_date,lines_json,"
-            "policy_json,approval_id,agent_rationale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "policy_json,approval_id,agent_rationale,created_at,updated_at,delivery_address) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (order_id, quote_id, p.buyer_id, status, payload["total_net"], payload["currency"], payload["delivery_date"],
              json.dumps(payload["lines"]), result.model_dump_json(), approval_id, agent_rationale,
-             now.isoformat(), now.isoformat()))
+             now.isoformat(), now.isoformat(), address))
         store.append_in_transaction(conn, "ORDER_RECEIVED", p.actor,
                                     {"agent_rationale": agent_rationale, "total_net": payload["total_net"],
-                                     "channel": p.role}, **ids)
+                                     "channel": p.role, "delivery_address": address}, **ids)
         store.append_in_transaction(conn, "POLICY_EVALUATED", "gateway:policy", result.model_dump(mode="json"), **ids)
         if check_fulfillment or review_source != "rules_only":
             store.append_in_transaction(conn, "AIMO_APPROVAL_EVALUATED", "aimo:approval-agent", {

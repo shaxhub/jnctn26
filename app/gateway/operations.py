@@ -65,7 +65,7 @@ def orders(status: Literal["pending_approval", "confirmed", "rejected", "expired
     service.expire_pending(buyer_id=buyer or None)
     rows = store.fetchall(
         "SELECT * FROM orders WHERE status!='received' AND (? IS NULL OR status=?) AND (?='' OR buyer_id=?) "
-        "AND (?='' OR instr(lower(order_id || ' ' || lines_json || ' ' || coalesce(agent_rationale,'')),lower(?))>0) "
+        "AND (?='' OR instr(lower(order_id || ' ' || lines_json || ' ' || coalesce(agent_rationale,'') || ' ' || delivery_address),lower(?))>0) "
         "ORDER BY created_at DESC, order_id DESC LIMIT 31 OFFSET ?", (status, status, buyer, buyer, q, q, offset))
     return {"orders": [service._order_from_row(row) for row in rows[:30]],
             "next_offset": offset + 30 if len(rows) > 30 else None}

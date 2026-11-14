@@ -172,7 +172,8 @@ async def create_quote(req: QuoteRequest, p: Principal = Depends(require_agent))
 
 @app.post("/orders")
 async def place_order(req: OrderRequest, p: Principal = Depends(require_agent)):
-    return (await _thread(service.place_order, p, req.quote_id, req.agent_rationale)).model_dump(mode="json")
+    return (await _thread(service.place_order, p, req.quote_id, req.agent_rationale,
+                          delivery_address=req.delivery_address)).model_dump(mode="json")
 
 
 @app.get("/orders")

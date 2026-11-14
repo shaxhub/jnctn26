@@ -1,5 +1,5 @@
 import {orderThread} from "./order_thread.js";
-import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
+import {$, auditTrail, deliveryAddress, date, dateTime, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
 
 let key = sessionStorage.getItem("aimo-operations-key") || "";
 let view = "queue";
@@ -58,7 +58,7 @@ async function inspect(id) {
     const order = detail.order;
     target.replaceChildren(pill(order.status),
       node("p", order.buyer_id + " · Delivery " + date(order.delivery_date) + " · " + money.format(order.total_net), "cell-note"),
-      lineItems(order.lines), node("h3", "Policy decision", "results"),
+      deliveryAddress(order), lineItems(order.lines), node("h3", "Policy decision", "results"),
       node("p", order.policy.reasons.join(" ")));
     const evidence = approvalEvidence(detail.audit.events);
     if (evidence) target.append(evidence);

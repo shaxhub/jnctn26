@@ -46,7 +46,7 @@ The bundled [postcode coordinates](../app/gateway/finnish_postcode_areas.csv) ar
 
 1. Open **Draft Tickets** and pick a saved draft, or use **Ticket review** directly after creating it.
 2. Check the line quantities, net total, delivery date, policy preview, and quote expiry. **AI Helper** can propose changes to existing items and their quantities. The local guided helper accepts a correction such as `Set 464306 to 12`. Review the proposed values and choose **Save revised draft** to refresh prices and stock.
-3. Choose **Review and submit**, then **Submit ticket to Aimo**. An expired draft needs a fresh quote. Repeating the submit request for the same quote returns the existing ticket.
+3. Choose **Review and submit**, confirm the **Delivery address** (prefilled from Settings, editable per order), then **Submit ticket to Aimo**. The address is stored on the order and shown in its details in both portals. An expired draft needs a fresh quote. Repeating the submit request for the same quote returns the existing ticket.
 4. Check **Submitted Requests**. Routine orders register automatically. Exceptions remain pending until Aimo reviews them. Registered orders progress through **Retrieving goods**, **On delivery**, **Almost there**, and **Arrived**. Rejected and expired requests have separate outcomes.
 5. Open a request to see its timeline and conversation. Use **Refresh conversation** to load updates. A buyer’s authenticated MCP agent can read or post to the same thread. The request also displays its policy decision and audit trail.
 6. To reorder, open a confirmed ticket and use **Create repeat draft** with the new delivery date. Check the recurring comparison before submitting. This obtains a fresh quote for the existing lines.

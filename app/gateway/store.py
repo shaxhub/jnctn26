@@ -106,27 +106,42 @@ def event_hash(prev_hash: str, ev: dict) -> str:
     return hashlib.sha256((prev_hash + canonical(body)).encode()).hexdigest()
 
 
+@contextmanager
+def transaction() -> Iterator[sqlite3.Connection]:
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
+
+def append_in_transaction(conn: sqlite3.Connection, event_type: str, actor: str, data: dict, *,
+                          buyer_id: str | None = None, order_id: str | None = None,
+                          quote_id: str | None = None) -> dict:
+    row = conn.execute("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1").fetchone()
+    prev = row["hash"] if row else GENESIS
+    event = {"ts": now().isoformat(), "event_type": event_type, "actor": actor, "buyer_id": buyer_id,
+             "order_id": order_id, "quote_id": quote_id, "data": json.loads(canonical(data))}
+    event["prev_hash"], event["hash"] = prev, event_hash(prev, event)
+    cursor = conn.execute(
+        "INSERT INTO audit_events (ts,event_type,actor,buyer_id,order_id,quote_id,data_json,prev_hash,hash)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (event["ts"], event_type, actor, buyer_id, order_id, quote_id, canonical(event["data"]), prev, event["hash"]))
+    event["seq"] = cursor.lastrowid
+    return event
+
+
 def append_event(event_type: str, actor: str, data: dict, *, buyer_id: str | None = None,
                  order_id: str | None = None, quote_id: str | None = None, db_path: Path | None = None) -> dict:
     with _lock, connect(db_path) as conn:
         conn.execute("BEGIN IMMEDIATE")
-        try:
-            row = conn.execute("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1").fetchone()
-            prev = row["hash"] if row else GENESIS
-            ev = {"ts": now().isoformat(), "event_type": event_type, "actor": actor, "buyer_id": buyer_id,
-                  "order_id": order_id, "quote_id": quote_id, "data": json.loads(canonical(data))}
-            ev["prev_hash"], ev["hash"] = prev, event_hash(prev, ev)
-            cur = conn.execute(
-                "INSERT INTO audit_events (ts,event_type,actor,buyer_id,order_id,quote_id,data_json,prev_hash,hash)"
-                " VALUES (?,?,?,?,?,?,?,?,?)",
-                (ev["ts"], event_type, actor, buyer_id, order_id, quote_id, canonical(ev["data"]), prev, ev["hash"]))
-            conn.execute("COMMIT")
-        except Exception:
-            if conn.in_transaction:
-                conn.execute("ROLLBACK")
-            raise
-    ev["seq"] = cur.lastrowid
-    return ev
+        event = append_in_transaction(conn, event_type, actor, data, buyer_id=buyer_id,
+                                      order_id=order_id, quote_id=quote_id)
+        conn.commit()
+        return event
 
 
 def _row_event(r: sqlite3.Row) -> dict:

@@ -12,7 +12,9 @@ TODO(C): real identity (OAuth 2.1 client credentials for agents, SSO for approve
 """
 from __future__ import annotations
 
+import hmac
 import json
+import os
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
@@ -28,13 +30,32 @@ from .policy import load_mandate
 @dataclass(frozen=True)
 class Principal:
     buyer_id: str
-    role: str          # "agent" | "approver"
+    role: str          # agent | client | approver
     name: str
     mandate: Mandate
 
     @property
     def actor(self) -> str:
         return f"{self.role}:{self.buyer_id}:{self.name}"
+
+
+@dataclass(frozen=True)
+class Admin:
+    actor: str = "admin:aimo"
+
+
+def admin_for_key(key: str | None) -> Admin | None:
+    expected = os.getenv("AIMO_ADMIN_API_KEY")
+    if expected and key and hmac.compare_digest(key.strip().encode(), expected.encode()):
+        return Admin()
+    return None
+
+
+def require_admin(x_api_key: str | None = Header(None), authorization: str | None = Header(None)) -> Admin:
+    admin = admin_for_key(key_from_headers({"x-api-key": x_api_key, "authorization": authorization}))
+    if admin is None:
+        raise HTTPException(401, "Enter a valid Aimo operations key")
+    return admin
 
 
 current_principal: ContextVar[Principal | None] = ContextVar("current_principal", default=None)
@@ -74,6 +95,12 @@ def require_principal(x_api_key: str | None = Header(None), authorization: str |
     return p
 
 
+def require_client(p: Principal = Depends(require_principal)) -> Principal:
+    if p.role != "client":
+        raise HTTPException(403, "Use a client workspace key")
+    return p
+
+
 def require_agent(p: Principal = Depends(require_principal)) -> Principal:
     if p.role != "agent":
         raise HTTPException(403, "Only a purchasing agent key can perform this action; approver keys are for human sign-off")
@@ -96,9 +123,16 @@ class McpAuthMiddleware:
         path = scope.get("path", "")
         if scope["type"] != "http" or not (path == self.prefix or path.startswith(self.prefix + "/")):
             return await self.app(scope, receive, send)
-        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
+        origin = headers.get("origin")
+        allowed_origins = {value.strip() for value in os.getenv(
+            "MCP_ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+        ).split(",") if value.strip()}
+        if origin and origin not in allowed_origins:
+            await send({"type": "http.response.start", "status": 403, "headers": []})
+            return await send({"type": "http.response.body", "body": b"Origin forbidden"})
         p = principal_for_key(key_from_headers(headers))
-        if p is None:
+        if p is None or p.role not in {"agent", "client"}:
             body = json.dumps({"error": "Missing or unknown API key"}).encode()
             await send({"type": "http.response.start", "status": 401,
                         "headers": [(b"content-type", b"application/json"), (b"www-authenticate", b"Bearer")]})

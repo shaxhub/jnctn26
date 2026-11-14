@@ -7,12 +7,11 @@ from the caller's arguments.
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import date, datetime, timedelta
 
 from . import audit, policy, quotes, store
-from .auth import Principal
+from .auth import Admin, Principal
 from .config import TZ
 from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, Order, OrderableReason, OrderStatus, PlanResult,
                      PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult)
@@ -81,26 +80,27 @@ def plan_need(p: Principal, need: Need, product_ids: list[str]) -> tuple[PlanRes
 
 
 # --- quotes ------------------------------------------------------------------------------------
-def weekly_spent(buyer_id: str, at: datetime | None = None) -> float:
+def weekly_spent(buyer_id: str, at: datetime | None = None, *, conn=None) -> float:
     at = at or store.now()
     monday = (at - timedelta(days=at.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-    row = store.fetchone("SELECT COALESCE(SUM(total_net),0) AS s FROM orders WHERE buyer_id=? AND created_at>=?"
+    fetch = store.fetchone if conn is None else lambda sql, params: conn.execute(sql, params).fetchone()
+    row = fetch("SELECT COALESCE(SUM(total_net),0) AS s FROM orders WHERE buyer_id=? AND created_at>=?"
                          " AND status IN ('confirmed','pending_approval')", (buyer_id, monday.isoformat()))
     return float(row["s"])
 
 
-def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], total: float, need: Need | None) -> PolicyResult:
+def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], total: float, need: Need | None, *, conn=None) -> PolicyResult:
     coverage = None
     if need is not None:
         covered = sum(l.covers or 0 for l in lines)
         coverage = min(covered / need.quantity, 1.0)
-    return policy.evaluate(p.mandate, lines, offers, total_net=total, weekly_spent=weekly_spent(p.buyer_id),
+    return policy.evaluate(p.mandate, lines, offers, total_net=total, weekly_spent=weekly_spent(p.buyer_id, conn=conn),
                            need=need, coverage=coverage, today=store.now().date())
 
 
 def create_quote(p: Principal, req: QuoteRequest) -> Quote:
-    if p.role != "agent":
-        raise GatewayError(403, "Only a purchasing agent key can create quotes or place orders; approver keys are for human sign-off")
+    if p.role not in {"agent", "client"}:
+        raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
     offers_list, now = get_offers(ids, req.delivery_date)
     offers = {o.product_id: o for o in offers_list}
@@ -150,7 +150,7 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
     payload = {"quote_id": quote_id, "buyer_id": p.buyer_id, "delivery_date": req.delivery_date.isoformat(),
                "lines": [l.model_dump(mode="json") for l in lines], "total_net": total, "total_gross": gross,
                "currency": "EUR", "created_at": now.isoformat(), "expires_at": expires.isoformat(),
-               "need": req.need.model_dump(mode="json") if req.need else None}
+               "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role}
     jws = quotes.sign(payload)
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
     store.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
@@ -171,10 +171,6 @@ def _order_from_row(r) -> Order:
                  created_at=r["created_at"], updated_at=r["updated_at"])
 
 
-def _set_status(order_id: str, status: OrderStatus) -> None:
-    store.execute("UPDATE orders SET status=?, updated_at=? WHERE order_id=?", (status.value, store.now().isoformat(), order_id))
-
-
 def _quote_invalid(p: Principal, quote_id: str, status: int, msg: str) -> GatewayError:
     """Rule quote_invalid: unknown, reused, tampered or expired quotes never become orders."""
     audit.log("QUOTE_INVALID", p.actor, {"rule_id": "quote_invalid", "reason": msg}, buyer_id=p.buyer_id, quote_id=quote_id)
@@ -182,8 +178,8 @@ def _quote_invalid(p: Principal, quote_id: str, status: int, msg: str) -> Gatewa
 
 
 def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order:
-    if p.role != "agent":
-        raise GatewayError(403, "Only a purchasing agent key can create quotes or place orders; approver keys are for human sign-off")
+    if p.role not in {"agent", "client"}:
+        raise GatewayError(403, "Use a purchasing agent or client workspace key")
     row = store.fetchone("SELECT * FROM quotes WHERE quote_id=?", (quote_id,))
     if row is None or row["buyer_id"] != p.buyer_id:
         raise _quote_invalid(p, quote_id, 404, f"quote {quote_id} not found for this buyer")
@@ -195,40 +191,14 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order
         raise _quote_invalid(p, quote_id, 409, str(e)) from e
     if payload != json.loads(row["payload_json"]):
         raise _quote_invalid(p, quote_id, 409, "quote payload does not match its signature")
-    now = store.now()
-    if now >= _aware(datetime.fromisoformat(payload["expires_at"])):
-        raise _quote_invalid(p, quote_id, 409, f"quote {quote_id} expired at {payload['expires_at']}; request a new quote")
+    if payload.get("order_channel", "agent") != p.role:
+        raise _quote_invalid(p, quote_id, 403, "Quote belongs to a different purchasing channel")
+    if store.now() >= _aware(datetime.fromisoformat(payload["expires_at"])):
+        raise _quote_invalid(p, quote_id, 409, f"Quote {quote_id} expired; request a new quote")
 
-    lines = [QuoteLine(**l) for l in payload["lines"]]
+    lines = [QuoteLine(**line) for line in payload["lines"]]
     need = Need(**payload["need"]) if payload.get("need") else None
     delivery = date.fromisoformat(payload["delivery_date"])
-    order_id = _id("ord")
-    claimed = False
-    try:
-        with store._lock, store.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                cur = conn.execute("UPDATE quotes SET status='used' WHERE quote_id=? AND status='open'", (quote_id,))
-                if cur.rowcount == 1:
-                    conn.execute(
-                        "INSERT INTO orders (order_id,quote_id,buyer_id,status,total_net,currency,delivery_date,lines_json,"
-                        "policy_json,approval_id,agent_rationale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (order_id, quote_id, p.buyer_id, "received", payload["total_net"], "EUR", payload["delivery_date"],
-                         json.dumps(payload["lines"]), "{}", None, agent_rationale, now.isoformat(), now.isoformat()))
-                    conn.execute("COMMIT")
-                    claimed = True
-                else:
-                    conn.execute("ROLLBACK")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-    except sqlite3.IntegrityError as e:
-        raise _quote_invalid(p, quote_id, 409, f"quote {quote_id} was already used") from e
-    if not claimed:
-        raise _quote_invalid(p, quote_id, 409, f"quote {quote_id} was already used")
-    ids = dict(buyer_id=p.buyer_id, order_id=order_id, quote_id=quote_id)
-    audit.log("ORDER_RECEIVED", p.actor, {"agent_rationale": agent_rationale, "total_net": payload["total_net"]}, **ids)
-
     # Re-check live availability: something may have changed since the quote (cutoff, sales block, stock drop).
     offers_list, _ = get_offers([l.product_id for l in lines], delivery)
     offers = {o.product_id: o for o in offers_list}
@@ -240,43 +210,56 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "") -> Order
         o = offers.get(pid)
         if o is not None and o.reason not in _BLOCKING and o.available_qty is not None and total_qty > o.available_qty:
             stale.append(f"{pid}:insufficient_stock")
-    result = _evaluate(p, lines, offers, payload["total_net"], need)
-    if stale:
-        msg = f"No longer orderable since the quote: {', '.join(stale)}"
-        result = PolicyResult(decision=Decision.reject, mandate_id=result.mandate_id,
-                              fired_rules=result.fired_rules + [FiredRule(rule_id="quote_invalid", effect=Decision.reject, message=msg)],
-                              reasons=[r for r in result.reasons if r != "All mandate rules passed."] + [msg])
-    store.execute("UPDATE orders SET policy_json=? WHERE order_id=?", (result.model_dump_json(), order_id))
-    audit.log("POLICY_EVALUATED", "gateway:policy", result.model_dump(mode="json"), **ids)
-
-    if result.decision == Decision.auto:
-        _set_status(order_id, OrderStatus.confirmed)
-        # TODO(A): here the order would be sent to Valio's order API (not part of the mock).
-        audit.log("ORDER_CONFIRMED", "gateway", {"reason": "auto-approved within mandate"}, **ids)
-    elif result.decision == Decision.needs_approval:
-        approval_id = _id("apr")
-        store.execute("INSERT INTO approvals (approval_id,order_id,buyer_id,status,reasons_json,created_at)"
-                      " VALUES (?,?,?,?,?,?)", (approval_id, order_id, p.buyer_id, "pending",
-                                                json.dumps(result.reasons), now.isoformat()))
-        store.execute("UPDATE orders SET approval_id=? WHERE order_id=?", (approval_id, order_id))
-        _set_status(order_id, OrderStatus.pending_approval)
-        audit.log("APPROVAL_REQUESTED", "gateway", {"approval_id": approval_id, "reasons": result.reasons}, **ids)
-        # TODO(C): notify the approver (email / Teams / Slack) with a deep link to the Approvals tab.
-    else:
-        _set_status(order_id, OrderStatus.rejected)
-        audit.log("ORDER_REJECTED", "gateway", {"reason": "; ".join(result.reasons)}, **ids)
+    order_id = _id("ord")
+    ids = dict(buyer_id=p.buyer_id, order_id=order_id, quote_id=quote_id)
+    with store.transaction() as conn:
+        now = store.now()
+        if now >= _aware(datetime.fromisoformat(payload["expires_at"])):
+            raise GatewayError(409, "Quote expired while checking availability")
+        claimed = conn.execute("UPDATE quotes SET status='used' WHERE quote_id=? AND status='open'", (quote_id,))
+        if claimed.rowcount != 1:
+            raise GatewayError(409, f"quote_invalid: quote {quote_id} was already used")
+        result = _evaluate(p, lines, offers, payload["total_net"], need, conn=conn)
+        if stale:
+            message = f"No longer orderable since the quote: {', '.join(stale)}"
+            result = PolicyResult(decision=Decision.reject, mandate_id=result.mandate_id,
+                                  fired_rules=result.fired_rules + [
+                                      FiredRule(rule_id="quote_invalid", effect=Decision.reject, message=message)],
+                                  reasons=[r for r in result.reasons if r != "All mandate rules passed."] + [message])
+        status = {Decision.auto: "confirmed", Decision.needs_approval: "pending_approval",
+                  Decision.reject: "rejected"}[result.decision]
+        approval_id = _id("apr") if status == "pending_approval" else None
+        conn.execute(
+            "INSERT INTO orders (order_id,quote_id,buyer_id,status,total_net,currency,delivery_date,lines_json,"
+            "policy_json,approval_id,agent_rationale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (order_id, quote_id, p.buyer_id, status, payload["total_net"], payload["currency"], payload["delivery_date"],
+             json.dumps(payload["lines"]), result.model_dump_json(), approval_id, agent_rationale,
+             now.isoformat(), now.isoformat()))
+        store.append_in_transaction(conn, "ORDER_RECEIVED", p.actor,
+                                    {"agent_rationale": agent_rationale, "total_net": payload["total_net"],
+                                     "channel": p.role}, **ids)
+        store.append_in_transaction(conn, "POLICY_EVALUATED", "gateway:policy", result.model_dump(mode="json"), **ids)
+        if approval_id:
+            conn.execute("INSERT INTO approvals (approval_id,order_id,buyer_id,status,reasons_json,created_at)"
+                         " VALUES (?,?,?,?,?,?)", (approval_id, order_id, p.buyer_id, "pending",
+                                                  json.dumps(result.reasons), now.isoformat()))
+            store.append_in_transaction(conn, "APPROVAL_REQUESTED", "gateway",
+                                        {"approval_id": approval_id, "reasons": result.reasons}, **ids)
+        else:
+            event = "ORDER_CONFIRMED" if status == "confirmed" else "ORDER_REJECTED"
+            store.append_in_transaction(conn, event, "gateway:policy", {"reason": " ".join(result.reasons)}, **ids)
     return get_order(p, order_id)
 
 
-def get_order(p: Principal, order_id: str) -> Order:
+def get_order(p: Principal | Admin, order_id: str) -> Order:
     r = store.fetchone("SELECT * FROM orders WHERE order_id=?", (order_id,))
-    if r is None or r["buyer_id"] != p.buyer_id:
+    if r is None or (isinstance(p, Principal) and r["buyer_id"] != p.buyer_id):
         raise GatewayError(404, f"Order {order_id} not found for this buyer")
     return _order_from_row(r)
 
 
 def list_orders(p: Principal, limit: int = 50) -> list[Order]:
-    rows = store.fetchall("SELECT * FROM orders WHERE buyer_id=? ORDER BY created_at DESC LIMIT ?", (p.buyer_id, limit))
+    rows = store.fetchall("SELECT * FROM orders WHERE buyer_id=? AND status!='received' ORDER BY created_at DESC LIMIT ?", (p.buyer_id, limit))
     return [_order_from_row(r) for r in rows]
 
 
@@ -297,44 +280,44 @@ def list_approvals(p: Principal, status: str | None = "pending") -> list[dict]:
              "order": get_order(p, r["order_id"]).model_dump(mode="json")} for r in rows]
 
 
-def decide_approval(p: Principal, approval_id: str, decision: str, comment: str = "") -> Order:
-    if p.role != "approver":
+def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comment: str = "") -> Order:
+    if isinstance(p, Principal) and p.role != "approver":
         raise GatewayError(403, "Only a human approver can decide approvals")
     if decision not in ("approve", "reject"):
         raise GatewayError(400, "Decision must be 'approve' or 'reject'")
-    r = store.fetchone("SELECT * FROM approvals WHERE approval_id=?", (approval_id,))
-    if r is None or r["buyer_id"] != p.buyer_id:
-        raise GatewayError(404, f"Approval {approval_id} not found")
-    if r["status"] != "pending":
-        raise GatewayError(409, f"Approval {approval_id} is already {r['status']}")
-    now = store.now()
-    order = get_order(p, r["order_id"])
-    ids = dict(buyer_id=p.buyer_id, order_id=order.order_id, quote_id=order.quote_id)
-    if decision == "reject":
-        store.execute("UPDATE approvals SET status=?, decided_at=?, decided_by=?, comment=? WHERE approval_id=?",
-                      ("rejected", now.isoformat(), p.actor, comment, approval_id))
-        audit.log("APPROVAL_DENIED", p.actor, {"approval_id": approval_id, "comment": comment}, **ids)
-        _set_status(order.order_id, OrderStatus.rejected)
-        audit.log("ORDER_REJECTED", "gateway", {"reason": "rejected by approver"}, **ids)
-        return get_order(p, order.order_id)
-    q = store.fetchone("SELECT expires_at FROM quotes WHERE quote_id=?", (order.quote_id,))
-    if now >= _aware(datetime.fromisoformat(q["expires_at"])):
-        exp_comment = comment or f"Quote expired at {q['expires_at']}"
-        store.execute("UPDATE approvals SET status=?, decided_at=?, decided_by=?, comment=? WHERE approval_id=?",
-                      ("rejected", now.isoformat(), p.actor, exp_comment, approval_id))
-        _set_status(order.order_id, OrderStatus.expired)
-        audit.log("ORDER_EXPIRED", "gateway", {"reason": f"approved after quote expiry {q['expires_at']}"}, **ids)
-        return get_order(p, order.order_id)
-    store.execute("UPDATE approvals SET status=?, decided_at=?, decided_by=?, comment=? WHERE approval_id=?",
-                  ("approved", now.isoformat(), p.actor, comment, approval_id))
-    audit.log("APPROVAL_GRANTED", p.actor, {"approval_id": approval_id, "comment": comment}, **ids)
-    _set_status(order.order_id, OrderStatus.confirmed)
-    audit.log("ORDER_CONFIRMED", "gateway", {"reason": "approved by human"}, **ids)
-    return get_order(p, order.order_id)
+    with store.transaction() as conn:
+        row = conn.execute(
+            "SELECT a.*, o.quote_id, q.expires_at, json_extract(q.payload_json, '$.order_channel') AS channel "
+            "FROM approvals a JOIN orders o USING(order_id) JOIN quotes q USING(quote_id) "
+            "WHERE a.approval_id=?", (approval_id,)).fetchone()
+        if row is None or (isinstance(p, Principal) and row["buyer_id"] != p.buyer_id):
+            raise GatewayError(404, f"Approval {approval_id} not found")
+        if isinstance(p, Principal) and row["channel"]:
+            raise GatewayError(403, "This request requires Aimo operations review")
+        if row["status"] != "pending":
+            raise GatewayError(409, f"Approval {approval_id} is already {row['status']}")
+        now = store.now()
+        expired = decision == "approve" and now >= _aware(datetime.fromisoformat(row["expires_at"]))
+        approved = decision == "approve" and not expired
+        status = "expired" if expired else "confirmed" if approved else "rejected"
+        if expired and not comment:
+            comment = f"Quote expired at {row['expires_at']}"
+        conn.execute("UPDATE approvals SET status=?, decided_at=?, decided_by=?, comment=? WHERE approval_id=?",
+                     ("approved" if approved else "rejected", now.isoformat(), p.actor, comment, approval_id))
+        conn.execute("UPDATE orders SET status=?, updated_at=? WHERE order_id=?",
+                     (status, now.isoformat(), row["order_id"]))
+        ids = dict(buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
+        if not expired:
+            store.append_in_transaction(conn, "APPROVAL_GRANTED" if approved else "APPROVAL_DENIED",
+                                        p.actor, {"approval_id": approval_id, "comment": comment}, **ids)
+        store.append_in_transaction(conn, f"ORDER_{status.upper()}", p.actor,
+                                    {"reason": comment or ("approved by human" if approved else "rejected by approver")},
+                                    **ids)
+    return get_order(p, row["order_id"])
 
 
 # --- audit -------------------------------------------------------------------------------------
-def get_audit_log(p: Principal, order_id: str) -> dict:
+def get_audit_log(p: Principal | Admin, order_id: str) -> dict:
     get_order(p, order_id)  # ownership check
     return {"order_id": order_id, "events": audit.timeline(order_id), "text": audit.render_text(order_id),
             "chain": store.verify_chain()}

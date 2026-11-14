@@ -1,7 +1,33 @@
 {
   "_comment": "Demo API keys only. In production: OAuth client credentials / mTLS per agent, keys hashed at rest.",
-  "demo-hotel-key":            {"buyer_id": "hotel",    "role": "agent",    "name": "Hotel kitchen purchasing agent"},
-  "demo-hotel-approver-key":   {"buyer_id": "hotel",    "role": "approver", "name": "Aino (F&B manager)"},
-  "demo-hospital-key":         {"buyer_id": "hospital", "role": "agent",    "name": "Ward kitchen purchasing agent"},
-  "demo-hospital-approver-key":{"buyer_id": "hospital", "role": "approver", "name": "Mikko (clinical dietitian)"}
+  "demo-hotel-key": {
+    "buyer_id": "hotel",
+    "role": "agent",
+    "name": "Hotel kitchen purchasing agent"
+  },
+  "demo-hotel-approver-key": {
+    "buyer_id": "hotel",
+    "role": "approver",
+    "name": "Aino (F&B manager)"
+  },
+  "demo-hospital-key": {
+    "buyer_id": "hospital",
+    "role": "agent",
+    "name": "Ward kitchen purchasing agent"
+  },
+  "demo-hospital-approver-key": {
+    "buyer_id": "hospital",
+    "role": "approver",
+    "name": "Mikko (clinical dietitian)"
+  },
+  "demo-hotel-client-key": {
+    "buyer_id": "hotel",
+    "role": "client",
+    "name": "Hotel purchasing desk"
+  },
+  "demo-hospital-client-key": {
+    "buyer_id": "hospital",
+    "role": "client",
+    "name": "Hospital purchasing desk"
+  }
 }

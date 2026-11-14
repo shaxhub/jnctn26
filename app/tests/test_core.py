@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from gateway import policy, quotes, service, store
-from gateway.auth import principal_for_key
+from gateway.auth import Admin, principal_for_key
 from gateway.load_catalog import parse_size_from_name
 from gateway.models import (LineRequest, Need, Offer, OrderableReason, OrderStatus, ProductSummary, QuoteLine,
                             QuoteRequest, expand_allergens)
@@ -322,10 +322,10 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
             service.decide_approval(hospital_approver, ord_pending.approval_id, "approve")
         assert exc_xb.value.status == 404
         with pytest.raises(service.GatewayError) as exc_bad_dec:
-            service.decide_approval(hotel_approver, ord_pending.approval_id, "maybe")
+            service.decide_approval(Admin(), ord_pending.approval_id, "maybe")
         assert exc_bad_dec.value.status == 400
 
-        ord_done = service.decide_approval(hotel_approver, ord_pending.approval_id, "approve", "Approved by Aino")
+        ord_done = service.decide_approval(Admin(), ord_pending.approval_id, "approve", "Approved by Aimo")
         assert ord_done.status == OrderStatus.confirmed
         assert service.get_audit_log(hotel_agent, ord_done.order_id)["chain"]["ok"]
 
@@ -357,7 +357,7 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
         ord_exp = service.place_order(hotel_agent, q_exp.quote_id, "awaiting approval")
         assert ord_exp.status == OrderStatus.pending_approval
         store.set_demo_now(closing + timedelta(minutes=5))
-        ord_late = service.decide_approval(hotel_approver, ord_exp.approval_id, "approve", "too late")
+        ord_late = service.decide_approval(Admin(), ord_exp.approval_id, "approve", "too late")
         assert ord_late.status == OrderStatus.expired
         assert service.list_approvals(hotel_approver, status="rejected")[0]["approval"]["approval_id"] == ord_exp.approval_id
 

@@ -67,7 +67,7 @@ def review_approval(evidence: dict) -> ApprovalAdvice:
         "Recommend needs_review only for a concrete combination of timing, handling or evidence risks "
         "in the supplied facts. Do not infer missing warehouse data. If no concern exists, return approve and none."
     )
-    with httpx.Client(timeout=8) as http:
+    with httpx.Client(timeout=httpx.Timeout(20, connect=4)) as http:
         response = http.post(INTERACTIONS, **_request(json.dumps(evidence), instruction, ApprovalAdvice))
     result = _parse(response, ApprovalAdvice)
     if (result.recommendation == "approve") != (result.concern == "none"):

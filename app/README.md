@@ -37,7 +37,7 @@ See also the root [README.md](../README.md), [ASSUMPTIONS.md](ASSUMPTIONS.md),
 ```
 
 MCP tools include `ping`, `search_products`, `check_offers`, `estimate_delivery`, `create_quote`,
-`place_order`, `get_order_status`, `get_audit_log`, `get_my_mandate`, `get_kitchen_capabilities`, `compile_ingredients`, and `source_ingredients`.
+`place_order`, `get_order_status`, `get_audit_log`, `get_my_mandate`, `get_kitchen_capabilities`, `compile_ingredients`, `source_ingredients`, `discover_seasonal_products`, and `check_recurring_quote`.
 
 Flow: `search_products` → `check_offers` (+ Mandate-aware ranked plans in sales units, auto-expanding Valio's
 listed substitutes when preferred products are unorderable) → `create_quote` (signed Ed25519 JWS, expires at the
@@ -132,3 +132,5 @@ Planning calls create an audit event and leave purchasing to the existing quote 
 Use Seasonal produce in the client workspace or call `discover_seasonal_products` in MCP. Suggestions use a labeled Finnish demo calendar and check origin, current offers, and buyer constraints.
 
 Open a confirmed ticket to create a repeat draft for a new delivery date. The gateway recalculates current price and stock. The recurring-order comparison uses the prior six weeks and requires three confirmed same-weekday delivery dates for the same SKU and sales unit. Changes of at least 25% in quantity or 15% in unit price route to human review. MCP clients can inspect a signed quote with `check_recurring_quote`.
+
+A fully sourced menu can be turned into one client ticket draft. Agent Dairy checks combined quantities and dietary constraints against fresh offers before signing. The buyer reviews and submits the draft.

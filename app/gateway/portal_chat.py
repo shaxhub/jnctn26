@@ -166,14 +166,23 @@ async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(requi
         return await _read_tool("compile_ingredients", args, p)
     args.update(delivery_date=request.delivery_date.isoformat(), exclude_allergens=request.exclude_allergens,
                 required_claims=request.required_claims, unavailable_ingredients=request.unavailable_ingredients)
-    result = await _read_tool("source_ingredients", args, p)
-    if request.draft:
+    if not request.draft:
+        return await _read_tool("source_ingredients", args, p)
+    entry = await anyio.to_thread.run_sync(lambda: audit.log(
+        "CLIENT_INQUIRY", p.actor, {"text": "Menu draft", "action": "draft",
+                                    "dishes": args["dishes"] or [recipe["name"] for recipe in args["recipes"]]},
+        buyer_id=p.buyer_id))
+    token = audit.inquiry_sequence.set(entry["seq"])
+    try:
+        result = await _read_tool("source_ingredients", args, p)
         basket = kitchen.basket_request(result)
         basket.exclude_allergens = request.exclude_allergens
         basket.required_claims = request.required_claims
         quote = await anyio.to_thread.run_sync(service.create_quote, p, basket)
         result["draft"] = quote.model_dump(mode="json")
-    return result
+        return result
+    finally:
+        audit.inquiry_sequence.reset(token)
 
 
 @router.get("/seasonal")

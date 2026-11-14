@@ -129,7 +129,7 @@ async function buildList(payload) {
     const result = await request("/client/kitchen", "demo-" + buyer.value + "-client-key", payload);
     if (current !== version) return;
     target.replaceChildren();
-    render(result, payload);
+    render(result, {...payload, draft:false});
     if (result.draft) {
       showDraft(result.draft);
       feedback(notice, "Menu draft created. Review it before submitting.");

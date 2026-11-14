@@ -27,7 +27,7 @@ from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
 
 READ_TOOLS = ("ping", "get_my_mandate", "search_products", "check_offers",
-              "estimate_delivery", "get_order_status", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
+              "estimate_delivery", "check_recurring_quote", "get_order_status", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
 
 INSTRUCTIONS = """Valio Aimo trade gateway for food-service purchasing agents.
 Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+unit to get plans)
@@ -248,6 +248,14 @@ async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None) 
         raise ToolError("Rationale must be at most 1,000 characters")
     order = await _run(service.place_order, p, quote_id, agent_rationale)
     return order.model_dump(mode="json")
+
+
+@mcp.tool()
+async def check_recurring_quote(quote_id: str, ctx: Context = None) -> dict:
+    """Compare a buyer-owned signed quote with recent same-weekday confirmed orders.
+    Results include per-SKU baselines and drift flags when enough history is available.
+    """
+    return await _run(service.check_recurring_quote, _principal(ctx), quote_id)
 
 
 @mcp.tool()

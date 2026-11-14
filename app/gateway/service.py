@@ -11,7 +11,7 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from . import audit, policy, quotes, store, substitutions
+from . import audit, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ
 from .delivery import estimate
@@ -156,7 +156,7 @@ def weekly_spent(buyer_id: str, at: datetime | None = None, *, conn=None) -> flo
     return float(row["s"])
 
 
-def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], total: float, need: Need | None, *, conn=None) -> PolicyResult:
+def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], total: float, need: Need | None, *, delivery: date, conn=None) -> PolicyResult:
     coverage = None
     if need is not None:
         covered = sum(l.covers or 0 for l in lines)
@@ -179,6 +179,14 @@ def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], to
             result.decision = Decision.needs_approval
             result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."] + [message]
             result.fired_rules.append(FiredRule(rule_id=rule, effect=Decision.needs_approval, message=message))
+    for entry in recurring.compare(p.buyer_id, delivery, lines, conn=conn):
+        if entry["changes"]:
+            message = (f"Recurring SKU {entry['product_id']} differs from its usual order. "
+                       f"Quantity {entry['quantity_change_pct']:+g}%. "
+                       + (f"Unit price {entry['price_change_pct']:+g}%." if entry["price_change_pct"] is not None else ""))
+            result.decision = Decision.needs_approval
+            result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."] + [message]
+            result.fired_rules.append(FiredRule(rule_id="standing_order_drift", effect=Decision.needs_approval, message=message))
     return result
 
 
@@ -235,7 +243,7 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
 
     total = round(sum(l.line_total for l in lines), 2)
     gross = round(sum(l.quantity * (l.unit_price_with_tax or l.unit_price) for l in lines), 2)
-    preview = _evaluate(p, lines, offers, total, req.need)
+    preview = _evaluate(p, lines, offers, total, req.need, delivery=req.delivery_date)
     expires = quotes.expiry([offers[l.product_id].price_valid_to for l in lines],
                             [l.closing_time for l in lines], now + QUOTE_FALLBACK_TTL)
     quote_id = _id("q")
@@ -267,6 +275,19 @@ def _quote_invalid(p: Principal, quote_id: str, status: int, msg: str) -> Gatewa
     """Rule quote_invalid: unknown, reused, tampered or expired quotes never become orders."""
     audit.log("QUOTE_INVALID", p.actor, {"rule_id": "quote_invalid", "reason": msg}, buyer_id=p.buyer_id, quote_id=quote_id)
     return GatewayError(status, f"quote_invalid: {msg}")
+
+
+def check_recurring_quote(p: Principal, quote_id: str) -> dict:
+    row = store.fetchone("SELECT buyer_id, jws FROM quotes WHERE quote_id=?", (quote_id,))
+    if row is None or row["buyer_id"] != p.buyer_id:
+        raise GatewayError(404, "Quote not found for this buyer")
+    payload = quotes.verify(row["jws"])
+    delivery = date.fromisoformat(payload["delivery_date"])
+    lines = [QuoteLine.model_validate(line) for line in payload["lines"]]
+    return {"quote_id": quote_id, "delivery_date": delivery.isoformat(),
+            "quantity_threshold_pct": recurring.QUANTITY_LIMIT * 100,
+            "price_threshold_pct": recurring.PRICE_LIMIT * 100,
+            "baselines": recurring.compare(p.buyer_id, delivery, lines)}
 
 
 def _recheck_stock(lines: list[QuoteLine], delivery: date) -> tuple[dict[str, Offer], list[str]]:
@@ -346,7 +367,7 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                 if existing:
                     return _order_from_row(existing)
             raise GatewayError(409, f"quote_invalid: quote {quote_id} was already used")
-        result = _evaluate(p, lines, offers, payload["total_net"], need, conn=conn)
+        result = _evaluate(p, lines, offers, payload["total_net"], need, delivery=delivery, conn=conn)
         if stale:
             message = f"No longer orderable since the quote: {', '.join(stale)}"
             result = PolicyResult(decision=Decision.reject, mandate_id=result.mandate_id,

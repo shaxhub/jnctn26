@@ -166,6 +166,11 @@ async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(requi
     return await _read_tool("source_ingredients", args, p)
 
 
+@router.get("/tickets/{quote_id}/recurring")
+def recurring_ticket(quote_id: str, p: Principal = Depends(require_client)):
+    return service.check_recurring_quote(p, quote_id)
+
+
 @router.post("/tickets/submit")
 def submit(request: OrderRequest, p: Principal = Depends(require_client)):
     return service.place_order(p, request.quote_id, "Client reviewed and submitted the signed ticket draft.", replay=True)

@@ -13,13 +13,6 @@ from . import store
 from .config import TZ, demo_catalog_enabled
 from .models import Decision, FiredRule, QuoteLine
 
-GEMINI_CONCERNS = {
-    "fulfillment_margin": "The approval agent flagged a timing risk. Verify the dispatch and delivery margins.",
-    "combined_handling": "The approval agent flagged combined handling requirements. Verify loading and transport capacity.",
-    "evidence_inconsistency": "The approval agent flagged inconsistent warehouse evidence. Verify the recorded facts.",
-}
-
-
 def enabled() -> bool:
     # Live mode has no automatic evidence feed, so the checks are opt-in there.
     value = os.getenv("AIMO_FULFILLMENT_CHECKS", "").strip()

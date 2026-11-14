@@ -5,7 +5,7 @@ Browser submissions, REST orders, and MCP orders use the same service. The clien
 | Outcome | When it applies |
 | --- | --- |
 | `confirmed` | The mandate permits automation and verified warehouse evidence supports the order. |
-| `pending_approval` | Spend exceeds the normal threshold, a substitution needs consent, supplier quantities are unverified, a recurring order deviates, warehouse evidence is missing, capacity or handling needs confirmation, the timing buffer is below 15 minutes, or Gemini flags a combination of risks. |
+| `pending_approval` | Spend exceeds the normal threshold, a substitution needs consent, the order covers more than three times the stated need, supplier quantities are unverified, a recurring order deviates, warehouse evidence is missing, capacity or handling needs confirmation, the timing buffer is below 15 minutes, or a Gemini Decision answer falls below the confidence threshold. |
 | `rejected` | A hard mandate rule fails, stock or signed dietary requirements no longer match, too few warehouse lots meet the required shelf life, or preparation and transit miss a deadline. |
 | `expired` | A pending order reached its signed quote expiry. The buyer needs a fresh quote. |
 
@@ -15,7 +15,25 @@ The warehouse check adds setup, quantity-based picking, and loading time across 
 
 ## Gemini configuration
 
-The server selects `gemini-4-hydrogen` with `thinking_level: "medium"` via Google's [Interactions API](https://aistudio.google.com/docs/interactions-overview). Configure `GEMINI_API_KEY` in `app/.env` and restart the services. The Aimo Gemini review runs after local checks pass and can flag an exception. It receives structured warehouse facts without customer identifiers, addresses, buyer prompts, or credentials. If the provider is unavailable, the decision uses verified local rules and the audit records that fallback. Existing rules still run when the key is absent. [Hydrogen documentation](https://aistudio.google.com/docs/models/gemini-4-hydrogen)
+Configure `GEMINI_API_KEY` in `app/.env` and restart the services. One key serves two models. `gemini-4-hydrogen` with `thinking_level: "medium"` interprets buyer text in the client assistant through Google's [Interactions API](https://aistudio.google.com/docs/interactions-overview). `gemini-decision-1` reviews orders through the [Decisions API](https://aistudio.google.com/docs/decisions-api). Existing rules still run when the key is absent.
+
+## Gemini Decision review
+
+The review runs when a key is set and the mandate rules would confirm the order. Where the warehouse check is on, its rules must pass too. It sends one request with the order as shared input and the questions that apply to it. The model answers each question independently with a calibrated probability and writes no text. The gateway applies the thresholds. A flagged answer adds a `decision_<question>` rule and sends the order to `pending_approval`. The review cannot confirm or reject an order.
+
+| Question | Type | Asked when | Flagged when |
+| --- | --- | --- | --- |
+| `matches_request` | yes/no | The quote carries a structured need. | P(yes) is below 0.85. |
+| `substitution_fit` | choice | A line is a substitute. | The choice is not `equivalent`, or its confidence is below 0.85. |
+| `dietary_consistent` | yes/no | The quote has required claims or excluded allergens. | P(yes) is below 0.85. |
+| `quantity_typical` | score, 3 levels | The buyer ordered the same SKU and unit in the last 60 days. | The expected level is above 0.5. |
+| `not_duplicate` | yes/no | The buyer placed an order in the last 7 days. | P(yes) is below 0.85. |
+| `rationale_consistent` | yes/no | An agent supplied a rationale. | P(yes) is below 0.85. |
+| `free_of_instructions` | yes/no | The order has a need or an agent rationale. | P(yes) is below 0.85. |
+
+Yes always means the order is fine. An order with nothing to ask, such as a first portal order without a structured need, makes no model call and is recorded as `rules_only`. The questions cover meaning: whether the order is what the buyer asked for and whether its text is honest. The gateway compares quantities and dates in code and supplies the results, such as `coverage_ratio` and `ratio_to_usual`. Warehouse facts stay with the rules, because live runs showed the model misjudges timing and unit arithmetic. The thresholds `AUTO_CONFIRM_MIN` and `SCORE_MAX` in [decisions.py](../app/gateway/decisions.py) are starting values. Calibrate them on labelled orders before production use.
+
+The input holds the order lines with product names, the structured need, dietary requirements, an agent's rationale, and the buyer's recent order lines. It holds no buyer identifier, address, credential, or warehouse evidence. The need and the rationale are text from the buyer's agent, so `free_of_instructions` checks them for attempts to steer the review. `AIMO_APPROVAL_EVALUATED` records every answer with its probability under `answers` for Aimo. Buyer views omit them. If the provider fails or returns an invalid answer, the decision uses the local rules and the audit records `rules_fallback`.
 
 ## Warehouse evidence API
 

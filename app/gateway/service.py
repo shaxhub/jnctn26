@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 
-from . import audit, fulfillment, gemini, policy, quotes, recurring, store, substitutions
+from . import audit, decisions, fulfillment, gemini, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ, demo_catalog_enabled
 from .delivery import estimate
@@ -24,6 +24,8 @@ from .planner import amount_per_sales_unit, constraint_violations, make_plans, r
 from .search import get_products, normalize_claims, search
 
 QUOTE_FALLBACK_TTL = timedelta(hours=2)
+# An order covering more than this multiple of the stated need goes to a human. Pack rounding stays well below it.
+OVER_COVERAGE = 3
 # Reasons a product cannot be quoted at all. `no_availability_data` is quotable but goes to a human.
 _BLOCKING = {OrderableReason.cutoff_passed, OrderableReason.sales_block, OrderableReason.insufficient_stock,
              OrderableReason.later_date, OrderableReason.no_price}
@@ -173,7 +175,11 @@ def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], to
         offer.unlimited and (offer.logistic_model or "").casefold() == "terminal"
         for offer in offers.values()
     )
+    # One sales unit is the least a buyer can order, so a single large pack is not an over-order.
+    excess = need is not None and covered > OVER_COVERAGE * need.quantity and sum(l.quantity for l in lines) > 1
     review = {
+        "over_coverage": (excess, f"Quote covers {covered:g} {need.unit}, more than {OVER_COVERAGE:g} times the requested "
+                                  f"{need.quantity:g} {need.unit}. Confirm the quantity with the buyer." if excess else ""),
         "catalog_substitution": (any(line.substitution_source == "catalog_ingredient_match" for line in lines),
                                  "Aimo review is required for a catalog-suggested substitute."),
         "supplier_stock_unverified": (supplier_stock, "Aimo review is required to confirm supplier stock quantities."),
@@ -408,16 +414,20 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
         list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
     check_fulfillment = fulfillment.enabled()
     advice = None
-    reviewed_evidence = None
     review_source = "rules_only"
-    if check_fulfillment and gemini.enabled() and not stale:
-        evidence, operational_rules = fulfillment.assess(lines, delivery, store.now())
+    if gemini.enabled() and not stale:
+        operational_rules = fulfillment.assess(lines, delivery, store.now())[1] if check_fulfillment else []
         preliminary = _evaluate(p, lines, offers, payload["total_net"], need, delivery=delivery)
         if preliminary.decision == Decision.auto and not operational_rules:
             try:
-                advice = gemini.review_approval(evidence)
-                reviewed_evidence = evidence
-                review_source = "gemini"
+                # The client portal sends a fixed rationale, so only an agent's own words are reviewed.
+                advice = decisions.review(decisions.context(
+                    p.buyer_id, lines, need,
+                    {"required_claims": payload.get("required_claims", []),
+                     "exclude_allergens": payload.get("exclude_allergens", [])},
+                    agent_rationale if p.role == "agent" else "", delivery, store.now()))
+                if advice:
+                    review_source = "gemini_decision"
             except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
                 review_source = "rules_fallback"
     order_id = _id("ord")
@@ -442,24 +452,15 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                                   fired_rules=result.fired_rules + [
                                       FiredRule(rule_id="quote_invalid", effect=Decision.reject, message=message)],
                                   reasons=[r for r in result.reasons if r != "All mandate rules passed."] + [message])
-        if check_fulfillment:
-            snapshot, rules = fulfillment.assess(lines, delivery, now, conn=conn)
-            revised = ("lines", "dispatch_by", "deliver_by")
-            if (reviewed_evidence and snapshot["source"] == "warehouse" and
-                    any(reviewed_evidence.get(field) != snapshot.get(field) for field in revised)):
-                advice = None
-                review_source = "rules_after_evidence_change"
-                rules.append(FiredRule(rule_id="warehouse_evidence_changed", effect=Decision.needs_approval,
-                                       message="Warehouse evidence changed during model review. Review the updated facts."))
-            if advice and advice.recommendation == "needs_review":
-                rules.append(FiredRule(rule_id="gemini_" + advice.concern, effect=Decision.needs_approval,
-                                       message=fulfillment.GEMINI_CONCERNS[advice.concern]))
-            if rules:
-                enforced = {result.decision, *(rule.effect for rule in rules)}
-                result.decision = Decision.reject if Decision.reject in enforced else Decision.needs_approval
-                result.fired_rules.extend(rules)
-                result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."]
-                result.reasons.extend(rule.message for rule in rules)
+        snapshot, rules = fulfillment.assess(lines, delivery, now, conn=conn) if check_fulfillment else (None, [])
+        if advice:
+            rules.extend(advice.rules())
+        if rules:
+            enforced = {result.decision, *(rule.effect for rule in rules)}
+            result.decision = Decision.reject if Decision.reject in enforced else Decision.needs_approval
+            result.fired_rules.extend(rules)
+            result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."]
+            result.reasons.extend(rule.message for rule in rules)
         status = {Decision.auto: "confirmed", Decision.needs_approval: "pending_approval",
                   Decision.reject: "rejected"}[result.decision]
         approval_id = _id("apr") if status == "pending_approval" else None
@@ -473,11 +474,10 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                                     {"agent_rationale": agent_rationale, "total_net": payload["total_net"],
                                      "channel": p.role}, **ids)
         store.append_in_transaction(conn, "POLICY_EVALUATED", "gateway:policy", result.model_dump(mode="json"), **ids)
-        if check_fulfillment:
+        if check_fulfillment or review_source != "rules_only":
             store.append_in_transaction(conn, "AIMO_APPROVAL_EVALUATED", "aimo:approval-agent", {
                 "decision": result.decision.value, "method": review_source,
-                "model": gemini.MODEL if advice else None, "thinking_level": "medium" if advice else None,
-                "advice": advice.model_dump() if advice else None,
+                "model": decisions.MODEL if advice else None, "answers": advice.answers if advice else None,
                 "checks": [rule.model_dump(mode="json") for rule in rules],
                 "evidence": snapshot,
             }, **ids)

@@ -11,7 +11,7 @@ Agent Dairy is a Junction 2026 prototype for the Valio Aimo Trusted Trade Agents
    - `valio_aimo_junction26_delivery_reliability.csv`
    - `valio_aimo_junction26_carbon_footprint.csv`
 
-3. Copy [app/.env.example](app/.env.example) to `app/.env`. Set `VALIO_API_KEY` for live offers and a private `AIMO_ADMIN_API_KEY` for the operations app. To generate an operations key, run `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Add `GEMINI_API_KEY` to enable Gemini 4 Hydrogen with Medium thinking. Without a key, the assistant uses guided search and Aimo applies the mandate rules, and the warehouse rules where `AIMO_FULFILLMENT_CHECKS` enables them, locally.
+3. Copy [app/.env.example](app/.env.example) to `app/.env`. Set `VALIO_API_KEY` for live offers and a private `AIMO_ADMIN_API_KEY` for the operations app. To generate an operations key, run `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Add `GEMINI_API_KEY` to enable Gemini 4 Hydrogen with Medium thinking for the assistant and Gemini Decision 1 for the Aimo order review. Without a key, the assistant uses guided search and Aimo applies the mandate rules, and the warehouse rules where `AIMO_FULFILLMENT_CHECKS` enables them, locally.
 4. From the repository root, install dependencies and build the catalog.
 
    ```sh

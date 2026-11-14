@@ -22,7 +22,7 @@ uv run --locked python scripts/mcp_smoke.py
 uv run --locked python scripts/demo_flow.py
 ```
 
-The smoke script needs the client gateway on port 8000. The demo flow can submit simulated orders into the configured local gateway database. Its optional `--reset` clears that database’s demo order state. The separate reference buyer agent is available through `python -m gateway.agent` and `/agent/run`. It has scripted and optional Anthropic modes. Gemini 4 Hydrogen with Medium thinking handles the client assistant and Aimo approval review.
+The smoke script needs the client gateway on port 8000. The demo flow can submit simulated orders into the configured local gateway database. Its optional `--reset` clears that database’s demo order state. The separate reference buyer agent is available through `python -m gateway.agent` and `/agent/run`. It has scripted and optional Anthropic modes. Gemini 4 Hydrogen with Medium thinking handles the client assistant. Gemini Decision 1 handles the Aimo approval review.
 
 ## MCP integration
 

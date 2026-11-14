@@ -12,6 +12,7 @@ dependencies = [
     "mcp>=2.3.0,<3",  # v2 API: MCPServer (FastMCP renamed)
     "pydantic>=2.14.3",
     "python-dotenv>=1.2.4",
+    "tzdata>=2026.6 ; sys_platform == 'win32'",
     "uvicorn[standard]>=0.54.0",
 ]
 

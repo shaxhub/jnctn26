@@ -32,6 +32,8 @@ def configure_errors(app: FastAPI) -> None:
 def mount_assets(app: FastAPI, allowed: set[str]) -> None:
     @app.get("/assets/{name}", include_in_schema=False)
     def asset(name: str):
+        if name == "logo.svg":
+            return FileResponse(APP_DIR.parent / "assets" / "logo.svg", media_type="image/svg+xml")
         if name not in allowed:
             raise HTTPException(404)
         return FileResponse(APP_DIR / "ui" / name)

@@ -1,5 +1,5 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, auditTrail, date, dateTime, feedback, gatewayNow, lineItems, money, node, number, pill, portalUrl, request, table, translate} from "./common.js";
+import {$, auditTrail, date, deliveryAddress, dateTime, feedback, gatewayNow, lineItems, money, node, number, pill, portalUrl, request, table, translate} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
@@ -124,7 +124,7 @@ export function showDraft(quote, outcome, target = $("draft")) {
   target.replaceChildren();
   if (outcome) {
     target.append(pill(outcome.status), node("p", outcome.name || outcome.order_id, "cell-note"),
-      node("p", outcome.policy.reasons.join(" "), "cell-note"));
+      deliveryAddress(outcome), node("p", outcome.policy.reasons.join(" "), "cell-note"));
     return;
   }
   if (!quote) {
@@ -175,13 +175,29 @@ export function showDraft(quote, outcome, target = $("draft")) {
   info.hidden = true;
   info.setAttribute("role", "status");
   actions.append(button);
-  target.append(actions, info);
+  // The address is stored on the order; it starts from the workspace setting and can differ per order.
+  const addressLabel = node("label", tr("Delivery address", "Toimitusosoite"), "delivery-address-field");
+  const address = node("input");
+  address.maxLength = 240;
+  address.autocomplete = "street-address";
+  address.placeholder = tr("Street, postcode and city", "Katuosoite, postinumero ja kaupunki");
+  addressLabel.append(address);
+  request("/client/settings", buyerKey()).then(saved => {
+    if (!address.value && saved.address) address.value = saved.address;
+  }).catch(() => {});
+  target.append(addressLabel, actions, info);
   button.addEventListener("click", async () => {
     const current = scope;
+    const deliverTo = address.value.trim();
+    if (!deliverTo) {
+      feedback(info, tr("Enter a delivery address before submitting.", "Lisää toimitusosoite ennen lähettämistä."), true);
+      address.focus();
+      return;
+    }
     button.disabled = true;
     feedback(info, "Submitting ticket…");
     try {
-      const order = await request("/client/tickets/submit", buyerKey(), {quote_id: quote.quote_id});
+      const order = await request("/client/tickets/submit", buyerKey(), {quote_id: quote.quote_id, delivery_address: deliverTo});
       if (current === scope && target.isConnected) {
         showDraft(null, order, target);
         window.dispatchEvent(new Event("ticket-submitted"));
@@ -318,7 +334,7 @@ export async function inspectTicket(id) {
     if (current !== scope || !dialog.open) return;
     const name = ticketNameForm(order.name, url, key);
     target.replaceChildren(name, node("span", stageName(detail.stage, document.documentElement.lang), "tag"), node("p", order.order_id + tr(" · Delivery ", " · Toimitus ") + date(order.delivery_date),
-      "cell-note"), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
+      "cell-note"), deliveryAddress(order), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
       node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
     target.append(orderThread(detail, {url, key, language:document.documentElement.lang}));
     if (order.status === "confirmed") target.append(repeatForm(order, current, key, dialog));

@@ -1,5 +1,5 @@
 import {orderThread} from "./order_thread.js";
-import {$, auditTrail, date, dateTime, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
+import {$, auditTrail, deliveryAddress, date, dateTime, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
 
 let key = sessionStorage.getItem("aimo-operations-key") || "";
 let view = "queue";
@@ -58,7 +58,7 @@ async function inspect(id) {
     const order = detail.order;
     target.replaceChildren(pill(order.status),
       node("p", order.buyer_id + " · Delivery " + date(order.delivery_date) + " · " + money.format(order.total_net), "cell-note"),
-      lineItems(order.lines), node("h3", "Policy decision", "results"),
+      deliveryAddress(order), lineItems(order.lines), node("h3", "Policy decision", "results"),
       node("p", order.policy.reasons.join(" ")));
     const evidence = approvalEvidence(detail.audit.events);
     if (evidence) target.append(evidence);
@@ -259,7 +259,11 @@ $("sign-in").addEventListener("submit", async event => {
   } catch (error) { feedback($("login-status"), error.message, true); }
 });
 $("sign-out").addEventListener("click", async () => {
-  if (hosted) await request("/session/logout", "", {});
+  if (hosted) {
+    await request("/session/logout", "", {});
+    window.location.assign(document.baseURI);
+    return;
+  }
   key = "";
   version += 1;
   sessionStorage.removeItem("aimo-operations-key");
@@ -275,7 +279,11 @@ $("more").addEventListener("click", () => load(true));
 $("period").addEventListener("change", () => load());
 for (const tab of ["queue", "activity", "insights"]) $(tab + "-tab").addEventListener("click", () => showView(tab));
 request("/session", "").then(session => {
-  hosted = session.required;
+  hosted = session.required || !!session.username;
+  if (session.role && session.role !== "admin") {
+    window.location.replace(document.baseURI);
+    return;
+  }
   if (hosted) {
     key = "";
     $("admin-user-label").hidden = false;

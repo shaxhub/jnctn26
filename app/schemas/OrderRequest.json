@@ -9,6 +9,20 @@
       "description": "Why the agent chose this quote; stored in the audit log.",
       "title": "Agent Rationale",
       "type": "string"
+    },
+    "delivery_address": {
+      "anyOf": [
+        {
+          "maxLength": 240,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Where to deliver this order. Defaults to the delivery address saved in the buyer's workspace settings.",
+      "title": "Delivery Address"
     }
   },
   "required": [

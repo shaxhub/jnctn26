@@ -4,7 +4,7 @@ Start with the [root quickstart](../README.md#run-locally), [user guide](../docs
 
 ## Start and stop
 
-From this directory, run `uv run --locked python scripts/run_local.py` to start the client on port 8000 and Aimo operations on port 8001. Press **Ctrl+C** in the same terminal to stop both. See the [root README](../README.md#start-and-stop-both-apps) for alternate ports.
+From this directory, run `uv run --locked python scripts/run_local.py` to start the shared portal on port 8000, with the admin panel at `/admin/`. Press **Ctrl+C** in the same terminal to stop the server. See the [root README](../README.md#start-and-stop) for alternate ports.
 
 ## Developer commands
 
@@ -23,6 +23,12 @@ uv run --locked python scripts/demo_flow.py
 ```
 
 The smoke script needs the client gateway on port 8000. The demo flow can submit simulated orders into the configured local gateway database. Its optional `--reset` clears that database’s demo order state. The separate reference buyer agent is available through `python -m gateway.agent` and `/agent/run`. It has scripted and optional Anthropic modes. Gemini 4 Hydrogen with Medium thinking handles the client assistant. Gemini Decision 1 handles the Aimo approval review.
+
+## Seed a populated judging demo
+
+Run `uv run --locked python -m gateway.seed_demo` with the same `DB_PATH`, `CATALOG_DB_PATH`, and `SIGNING_KEY_PATH` as the running server. It backs up the database and adds labelled **[Demo]** orders for both kitchens, delivery history, messages, drafts, pending substitutions, and an allergen rejection. Existing accounts and records stay intact; rerunning skips samples already present.
+
+The seed uses current catalog products and checked offer prices to illustrate historical activity. New drafts and pending approvals keep normal quote expiry, so use them soon after seeding.
 
 ## MCP integration
 
@@ -44,11 +50,13 @@ Start with `get_my_mandate` to read the effective permissions. A buyer can disab
 
 A typical external agent discovers authority, searches for products, checks offers for the requested delivery date, creates a signed quote, and places the order by quote ID. Quote lines use **sales units**. Check order status and request history to track registration and fulfillment. Inspect current tool argument schemas with MCP discovery rather than hard-coding schemas from this guide.
 
+To override the saved delivery address for one order, pass `delivery_address` and `postal_code` to `place_order`. For example, use `"delivery_address": "Testikuja 15 B 089"` and `"postal_code": "00580"`. Send the postcode as a five-digit string so it keeps the leading zero. You can also supply the complete address in `delivery_address`. Omitting both fields uses the buyer's saved workspace address. The order records the resolved address and returns it in `get_order_status`.
+
 For `compile_ingredients`, pass `servings: 20` and `dishes: ["Salmon soup", "Roasted potatoes"]`. Known dish names use estimated templates. To use your own amounts, pass a recipe such as `{"name":"Tomato salad","servings":4,"ingredients":[{"name":"tomato","amount":500,"unit":"g"}]}` in `recipes`. Use `source_ingredients` with a `delivery_date` for live offers. The optional `unavailable_ingredients` list supports culinary alternatives where the planner knows one.
 
 ## Configuration and contracts
 
 - [Environment template](.env.example) lists credentials, the Valio base URL, database paths, MCP browser origins, and the optional demo clock. Relative paths resolve from `app/`.
 - [Mandates](mandates/) define demo buyer policy. [Model definitions](gateway/models.py) and [JSON Schemas](schemas/) describe exported core contracts. Regenerate those schemas with `uv run --locked python -m gateway.models`.
-- Each FastAPI process publishes its routes in its own `/docs`. The gateway publishes its quote public key at `/.well-known/jwks.json`.
+- The shared FastAPI app publishes buyer and operations routes in `/docs`. The gateway publishes its quote public key at `/.well-known/jwks.json`.
 - [Mock API assumptions](ASSUMPTIONS.md) explain the challenge input, unit conversion, carbon and stock data. [Architecture and decisions](../docs/architecture.md) describe where those checks run.

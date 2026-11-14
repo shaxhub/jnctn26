@@ -288,6 +288,18 @@
       "title": "Order Id",
       "type": "string"
     },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
     "quote_id": {
       "title": "Quote Id",
       "type": "string"
@@ -311,6 +323,12 @@
     "delivery_date": {
       "format": "date",
       "title": "Delivery Date",
+      "type": "string"
+    },
+    "delivery_address": {
+      "default": "",
+      "description": "Delivery address recorded when the order was placed; empty if none was given.",
+      "title": "Delivery Address",
       "type": "string"
     },
     "lines": {

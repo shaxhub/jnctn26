@@ -16,6 +16,12 @@ def test_quote_signing_refuses_nonfinite_json():
 
 def test_mcp_initialize_and_tool_validation(gateway):
     from gateway.api import app
+    from gateway.auth import principal_for_key
+    from gateway.preferences import Preferences
+    from gateway.workspace import save_settings
+
+    profile_address = "Profile kitchen, Testikatu 1, 00100 Helsinki"
+    save_settings(Preferences(address=profile_address), principal_for_key("demo-hotel-client-key"))
 
     async def check():
         async with (
@@ -39,6 +45,8 @@ def test_mcp_initialize_and_tool_validation(gateway):
             assert notification.status_code == 202
             tools = await rpc("tools/list", {})
             assert {"check_offers", "create_quote", "source_ingredients"} <= {tool["name"] for tool in tools["tools"]}
+            order_tool = next(tool for tool in tools["tools"] if tool["name"] == "place_order")
+            assert {"delivery_address", "postal_code"} <= order_tool["inputSchema"]["properties"].keys()
             mandate = await rpc("tools/call", {"name": "get_my_mandate", "arguments": {}})
             assert not mandate.get("isError")
             for postcode, arguments in (
@@ -72,6 +80,40 @@ def test_mcp_initialize_and_tool_validation(gateway):
                 error = await rpc("tools/call", {"name": name, "arguments": args})
                 assert error["isError"]
                 assert expected in error["content"][0]["text"]
+
+            async def call(name, arguments):
+                result = await rpc("tools/call", {"name": name, "arguments": arguments})
+                assert not result.get("isError"), result
+                return json.loads(result["content"][0]["text"])
+
+            quote_args = {"delivery_date": "2026-11-16", "lines": [{"product_id": "milk", "quantity": 1}]}
+            quote = await call("create_quote", quote_args)
+            order_args = {"quote_id": quote["quote_id"], "agent_rationale": "Requested by the buyer."}
+            for invalid_address in (
+                {"postal_code": "580", "delivery_address": "Testikuja 15 B 089"},
+                {"postal_code": "00580", "delivery_address": "   "},
+                {"postal_code": "00580", "delivery_address": "Testikatu 1, 00100 Helsinki"},
+                {"postal_code": "00580", "delivery_address": "x" * 240},
+            ):
+                error = await rpc("tools/call", {"name": "place_order", "arguments": order_args | invalid_address})
+                assert error["isError"], error
+
+            order = await call("place_order", order_args | {
+                "delivery_address": "Testikuja 15 B 089", "postal_code": "00580",
+            })
+            assert order["delivery_address"] == "Testikuja 15 B 089, 00580"
+            status = await call("get_order_status", {"order_id": order["order_id"]})
+            assert status["delivery_address"] == order["delivery_address"]
+
+            for overrides, expected in (
+                ({}, profile_address),
+                ({"delivery_address": "Testikuja 15, 00580 Helsinki"}, "Testikuja 15, 00580 Helsinki"),
+                ({"delivery_address": "Testikuja 15, 00580 Helsinki", "postal_code": "00580"},
+                 "Testikuja 15, 00580 Helsinki"),
+            ):
+                quote = await call("create_quote", quote_args)
+                order = await call("place_order", order_args | {"quote_id": quote["quote_id"]} | overrides)
+                assert order["delivery_address"] == expected
 
     asyncio.run(check())
 

@@ -1,6 +1,6 @@
 # Agent Dairy user guide
 
-Agent Dairy turns a kitchen’s product request or recipe into a quote the buyer can check before sending it to Aimo. Start both apps using the [local setup](../README.md#run-locally).
+Agent Dairy turns a kitchen’s product request or recipe into a quote the buyer can check before sending it to Aimo. Start the shared portal using the [local setup](../README.md#run-locally).
 
 ## Client workspace
 
@@ -46,7 +46,7 @@ The bundled [postcode coordinates](../app/gateway/finnish_postcode_areas.csv) ar
 
 1. Open **Draft Tickets** and pick a saved draft, or use **Ticket review** directly after creating it.
 2. Check the line quantities, net total, delivery date, policy preview, and quote expiry. **AI Helper** can propose changes to existing items and their quantities. The local guided helper accepts a correction such as `Set 464306 to 12`. Review the proposed values and choose **Save revised draft** to refresh prices and stock.
-3. Choose **Review and submit**, then **Submit ticket to Aimo**. An expired draft needs a fresh quote. Repeating the submit request for the same quote returns the existing ticket.
+3. Choose **Review and submit**, confirm the **Delivery address** (prefilled from Settings, editable per order), then **Submit ticket to Aimo**. The address is stored on the order and shown in its details in both portals. An expired draft needs a fresh quote. Repeating the submit request for the same quote returns the existing ticket.
 4. Check **Submitted Requests**. Routine orders register automatically. Exceptions remain pending until Aimo reviews them. Registered orders progress through **Retrieving goods**, **On delivery**, **Almost there**, and **Arrived**. Rejected and expired requests have separate outcomes.
 5. Open a request to see its timeline and conversation. Use **Refresh conversation** to load updates. A buyer’s authenticated MCP agent can read or post to the same thread. The request also displays its policy decision and audit trail.
 6. To reorder, open a confirmed ticket and use **Create repeat draft** with the new delivery date. Check the recurring comparison before submitting. This obtains a fresh quote for the existing lines.
@@ -61,7 +61,7 @@ Analytics use available observations. Monthly product availability is based on r
 
 ## Aimo operations
 
-Open [the separate operations app](http://127.0.0.1:8001/) and sign in with the local `AIMO_ADMIN_API_KEY`.
+Sign in at [the workspace](http://127.0.0.1:8000/) with an admin account, then choose **Admin panel** in the sidebar. The panel shares your login; buyer accounts do not see this button and cannot access operations. Admin accounts also have the complete buyer workspace, with a Workspace selector for hotel and hospital kitchens. Returning from operations keeps the selected kitchen. For local API-key demos, open `/admin/` and enter `AIMO_ADMIN_API_KEY`.
 
 1. In **Review queue**, filter by client, status, product, or ticket. Open a request to inspect policy reasons, order details, and the audit trail.
 2. Approve or reject a pending exception. Approval checks expiry and rechecks current orderability. A request can expire or fail that recheck before registration.

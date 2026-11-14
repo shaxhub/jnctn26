@@ -114,6 +114,8 @@ function formatErrorDetail(data) {
 
 export async function request(path, key, payload) {
   const headers = key ? {"X-API-Key": key} : {};
+  const workspace = $("buyer");
+  if (workspace?.dataset.admin === "true") headers["X-Workspace-Buyer"] = workspace.value;
   if (payload !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(portalUrl(path), {method: payload === undefined ? "GET" : "POST", headers,
     body: payload === undefined ? undefined : JSON.stringify(payload)});
@@ -147,6 +149,14 @@ export function lineItems(lines) {
       number.format(line.quantity) + " " + line.sales_unit + " · " + money.format(line.line_total)));
   }
   return list;
+}
+
+export function deliveryAddress(order) {
+  const fi = document.documentElement.lang === "fi";
+  const line = node("p", "", "delivery-address");
+  line.append(node("strong", fi ? "Toimitusosoite" : "Delivery address"), " ",
+    order.delivery_address || (fi ? "Ei tallennettu tälle tilaukselle" : "Not recorded for this order"));
+  return line;
 }
 
 export function auditTrail(audit) {

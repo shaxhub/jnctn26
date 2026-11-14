@@ -1,4 +1,5 @@
 """Shared HTTP error mapping and explicit static asset routing."""
+import logging
 from html import escape
 
 import httpx
@@ -7,6 +8,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .config import APP_DIR
 from .service import GatewayError
+
+logger = logging.getLogger(__name__)
 
 
 def portal_page(request: Request, filename: str) -> HTMLResponse:
@@ -27,6 +30,11 @@ def configure_errors(app: FastAPI) -> None:
     @app.exception_handler(RuntimeError)
     async def runtime_error(_, exc: RuntimeError):
         return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+    @app.exception_handler(Exception)
+    async def unhandled_error(_, exc: Exception):
+        logger.exception("Unhandled server error", exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "An unexpected server error occurred."})
 
 
 def mount_assets(app: FastAPI, allowed: set[str]) -> None:

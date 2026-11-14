@@ -35,8 +35,22 @@ CREATE TABLE IF NOT EXISTS portal_sessions (
     token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES portal_accounts(username), expires_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS portal_login_attempts (
-    source TEXT NOT NULL, username TEXT NOT NULL, at TEXT NOT NULL
+    source TEXT NOT NULL, role TEXT NOT NULL DEFAULT '', username TEXT NOT NULL, at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS gateway_runtime (
+    key TEXT PRIMARY KEY, value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_oauth_pending (
+    request_hash TEXT PRIMARY KEY, params TEXT NOT NULL, expires_at INTEGER NOT NULL,
+    code_hash TEXT UNIQUE, username TEXT REFERENCES portal_accounts(username)
+);
+CREATE TABLE IF NOT EXISTS mcp_oauth_grants (
+    id TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES portal_accounts(username), resource TEXT NOT NULL,
+    access_hash TEXT NOT NULL UNIQUE, refresh_hash TEXT NOT NULL UNIQUE,
+    access_expires INTEGER NOT NULL, refresh_expires INTEGER NOT NULL,
+    created_at TEXT NOT NULL, last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_oauth_grants_user ON mcp_oauth_grants(username);
 CREATE TABLE IF NOT EXISTS workspace_preferences (
     buyer_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL
 );
@@ -81,38 +95,74 @@ _initialized: set[str] = set()
 _demo_now: datetime | None = None
 
 
-def set_demo_now(dt: datetime | None) -> None:
+def _normalize_dt(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=TZ)
+
+
+def set_demo_now(dt: datetime | None, *, persist: bool = False) -> None:
     global _demo_now
-    if dt is not None and dt.tzinfo is None:
-        dt = dt.replace(tzinfo=TZ)
-    _demo_now = dt
+    if dt is not None:
+        dt = _normalize_dt(dt)
+    if not persist:
+        _demo_now = dt
+        return
+    _demo_now = None
+    with transaction() as conn:
+        if dt is None:
+            conn.execute("DELETE FROM gateway_runtime WHERE key='demo_now'")
+        else:
+            conn.execute(
+                "INSERT INTO gateway_runtime (key, value) VALUES ('demo_now', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (dt.isoformat(),),
+            )
 
 
 def get_demo_now() -> datetime | None:
-    return _demo_now
+    if _demo_now is not None:
+        return _demo_now
+    path = Path(settings.db_path)
+    if path.exists() and str(path) != ":memory:" and not str(path).startswith("file::memory:"):
+        try:
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2) as conn:
+                row = conn.execute("SELECT value FROM gateway_runtime WHERE key='demo_now'").fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        if row is not None:
+            return _normalize_dt(datetime.fromisoformat(row[0]))
+    return None
 
 
 def now() -> datetime:
-    if _demo_now is not None:
-        return _demo_now
+    demo = get_demo_now()
+    if demo is not None:
+        return demo
     if settings.demo_now:
-        dt = datetime.fromisoformat(settings.demo_now)
-        return dt if dt.tzinfo is not None else dt.replace(tzinfo=TZ)
+        return _normalize_dt(datetime.fromisoformat(settings.demo_now))
     return datetime.now(TZ)
 
 
 @contextmanager
 def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     path = Path(db_path or settings.db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    is_memory = str(path) == ":memory:" or str(path).startswith("file::memory:")
+    if not is_memory:
+        path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        need_init = str(path) not in _initialized or not path.exists()
+        need_init = is_memory or str(path) not in _initialized or not path.exists()
         conn = sqlite3.connect(path, timeout=10, check_same_thread=False, isolation_level=None)
         conn.row_factory = sqlite3.Row
         try:
+            conn.execute("PRAGMA busy_timeout=10000")
             if need_init:
+                if not is_memory:
+                    conn.execute("PRAGMA journal_mode=WAL")
                 conn.executescript(SCHEMA)
-                _initialized.add(str(path))
+                cols = {row["name"] for row in conn.execute("PRAGMA table_info(portal_login_attempts)").fetchall()}
+                if "role" not in cols:
+                    conn.execute("ALTER TABLE portal_login_attempts ADD COLUMN role TEXT NOT NULL DEFAULT ''")
+                if not is_memory:
+                    _initialized.add(str(path))
         except Exception:
             conn.close()
             raise
@@ -225,7 +275,10 @@ def reset_db(db_path: Path | None = None) -> None:
             conn.execute("DROP TRIGGER IF EXISTS audit_no_delete")
             conn.execute("DELETE FROM approvals")
             conn.execute("DELETE FROM orders")
+            conn.execute("DELETE FROM ticket_names")
             conn.execute("DELETE FROM quotes")
+            conn.execute("DELETE FROM fulfillment_evidence")
+            conn.execute("DELETE FROM mcp_oauth_pending")
             conn.execute("DELETE FROM audit_events")
             has_seq = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'"

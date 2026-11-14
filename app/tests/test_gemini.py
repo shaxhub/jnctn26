@@ -52,3 +52,11 @@ def test_interpretation_schema_is_built_once():
     assert gemini._schema(gemini._interpretation()) is gemini._schema(gemini._interpretation())
     need = gemini._schema(gemini._interpretation())["$defs"]["Need"]["properties"]
     assert "YYYY-MM-DD" in need["delivery_date"]["description"] and "format" not in need["delivery_date"]
+
+
+def test_gemini_parse_rejects_missing_steps():
+    import pytest
+
+    bad = httpx.Response(200, json={"status": "completed"}, request=httpx.Request("POST", gemini.INTERACTIONS))
+    with pytest.raises(ValueError, match="steps"):
+        gemini._parse(bad, gemini.BasketName)

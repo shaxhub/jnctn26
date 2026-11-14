@@ -9,6 +9,7 @@
         "quantity": {
           "description": "In sales units.",
           "exclusiveMinimum": 0,
+          "maximum": 1000000,
           "title": "Quantity",
           "type": "number"
         }
@@ -30,6 +31,7 @@
         },
         "quantity": {
           "exclusiveMinimum": 0,
+          "maximum": 1000000,
           "title": "Quantity",
           "type": "number"
         },

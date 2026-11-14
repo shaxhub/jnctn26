@@ -25,7 +25,7 @@ def main() -> int:
     print(f"Workspace: http://{args.host}:{args.port}/", flush=True)
     print(f"Admin panel: http://{args.host}:{args.port}/admin/", flush=True)
     print("Press Ctrl+C to stop the server.", flush=True)
-    server = uvicorn.Server(uvicorn.Config("gateway.api:app", host=args.host, port=args.port))
+    server = uvicorn.Server(uvicorn.Config("gateway.api:app", host=args.host, port=args.port, proxy_headers=False))
     server.run()
     return 0 if server.started else 1
 

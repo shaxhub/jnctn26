@@ -82,7 +82,7 @@ def get_products(ids: list[str]) -> dict[str, ProductSummary]:
 
 def _fts_query(text: str) -> str | None:
     # trigram tokenizer: every word of 3+ chars must appear as a substring (AND)
-    words = [w for w in re.sub(r"[^\w\s]", " ", text).split() if len(w) >= 3]
+    words = list(dict.fromkeys(w for w in re.sub(r"[^\w\s]", " ", text).split() if len(w) >= 3))[:24]
     return " AND ".join(f'"{w}"' for w in words) or None
 
 
@@ -115,8 +115,11 @@ def search(req: SearchRequest) -> SearchResult:
         where.append("lower(coalesce(p.name_fi,'') || ' ' || coalesce(p.name_en,'')) NOT LIKE ?")
         params.append(f"%{term.lower()}%")
     sql = "SELECT p.* FROM products p" + (" WHERE " + " AND ".join(where) if where else "")
-    with catalog_conn() as conn:
-        rows = conn.execute(sql, params).fetchall()
+    try:
+        with catalog_conn() as conn:
+            rows = conn.execute(sql, params).fetchall()
+    except sqlite3.OperationalError as exc:
+        raise ValueError("Invalid search query") from exc
     rows.sort(key=lambda r: (
         r["category"] != req.category if req.category else False,
         -(r["reliability"] if r["reliability"] is not None else 0.95),

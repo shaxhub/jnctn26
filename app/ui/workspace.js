@@ -1,4 +1,4 @@
-import {$, date, feedback, inputDate, money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
+import {$, date, feedback, gatewayNow, inputDate, money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
 import {buyerKey, editBasket, inspectTicket, showDraft, ticketNameForm} from "./client.js";
 import {stageName, stages} from "./order_thread.js";
 
@@ -98,7 +98,8 @@ window.addEventListener("ticket-renamed", event => {
 });
 let settings = {};
 let version = 0;
-let year = Number(new Intl.DateTimeFormat("en", {year:"numeric", timeZone:"Europe/Helsinki"}).format(new Date()));
+let year = Number(new Intl.DateTimeFormat("en", {year:"numeric", timeZone:"Europe/Helsinki"}).format(gatewayNow()));
+let yearSelected = false;
 let preferenceWrites = Promise.resolve();
 
 function viewName() {
@@ -230,7 +231,19 @@ function draftEditor(quote, selected, state) {
     try {
       const delivery = parseInputDate(input.value);
       if (!delivery) throw new Error("Enter the delivery date as dd.mm.yyyy.");
-      const quantities = Object.fromEntries([...fields].map(([sku, field]) => [sku, Number(field.value)]).filter(([, value]) => value > 0));
+      const entries = [];
+      for (const [sku, field] of fields) {
+        const rawVal = field.value.trim();
+        const num = rawVal === "" ? NaN : Number(rawVal);
+        if (!Number.isFinite(num) || num < 0 || num > 1_000_000) {
+          throw new Error("Enter a valid quantity between 0 and 1,000,000 for each product.");
+        }
+        if (num > 0) entries.push([sku, num]);
+      }
+      if (!entries.length) {
+        throw new Error("Keep at least one product with a quantity above 0, or delete the draft.");
+      }
+      const quantities = Object.fromEntries(entries);
       const fresh = await request(base + "/edit", key, {delivery_date:delivery, quantities});
       if (state === version) showDrafts(fresh.quote_id);
       window.dispatchEvent(new Event("draft-changed"));
@@ -254,7 +267,7 @@ async function showDrafts(select) {
   const rows = data.map(quote => {
     const button = node("button", quote.name || quote.quote_id);
     button.addEventListener("click", () => showDrafts(quote.quote_id));
-    const expired = new Date(quote.expires_at) <= new Date();
+    const expired = new Date(quote.expires_at) <= gatewayNow();
     return [button, date(quote.delivery_date), money.format(quote.total_net), expired ? "Needs fresh quote" : "Ready to review"];
   });
   if (rows.length) list.append(table(["Draft", "Delivery", "Net total", "Status"], rows));
@@ -327,6 +340,9 @@ function chart(title, values, format, ceiling) {
 
 async function analytics() {
   const state = version;
+  if (!yearSelected) {
+    year = Number(new Intl.DateTimeFormat("en", {year:"numeric", timeZone:"Europe/Helsinki"}).format(gatewayNow()));
+  }
   const data = await request("/client/analytics?year=" + year, buyerKey());
   if (state !== version) return;
   const toolbar = panel("Kitchen purchasing");
@@ -336,7 +352,7 @@ async function analytics() {
   const label = node("label", t("Delivery year"));
   label.append(input);
   form.append(label, node("button", t("Update")));
-  form.addEventListener("submit", event => { event.preventDefault(); year = Number(input.value); render(); });
+  form.addEventListener("submit", event => { event.preventDefault(); yearSelected = true; year = Number(input.value); render(); });
   const total = node("dl", "", "metrics");
   total.append(metric(t("Registered orders"), data.months.reduce((sum, month) => sum + month.orders, 0)),
     metric(t("Net spend"), money.format(data.months.reduce((sum, month) => sum + month.net, 0))));
@@ -415,6 +431,11 @@ function settingsView() {
     event.preventDefault();
     const value = Object.fromEntries(new FormData(form));
     value.agent_self_order = form.elements.agent_self_order.checked;
+    if (!value.recurring_time) {
+      delete value.recurring_time;
+    } else if (/^\d{2}:\d{2}:\d{2}$/.test(value.recurring_time)) {
+      value.recurring_time = value.recurring_time.slice(0, 5);
+    }
     try {
       await save(value);
       if (viewName() === "settings") settingsView();
@@ -431,10 +452,35 @@ function agentIntegration() {
   const section = panel("Agent integration");
   section.classList.add("settings-integration");
   const local = (en, fi) => language() === "fi" ? fi : en;
-  const hosted = buyer.dataset.hosted === "true";
-  const url = hosted ? "https://agent-dairy-mcp.kienlebox.stream/mcp" : portalUrl("/mcp");
-  section.append(node("p", local("Create a separate key for each agent. Use Streamable HTTP and an Authorization Bearer header.",
-    "Luo jokaiselle agentille oma avain. Käytä Streamable HTTP -yhteyttä ja Authorization Bearer -otsaketta."), "muted"), node("pre", url));
+  let url = portalUrl("/mcp");
+  const status = node("p", "", "feedback");
+  status.hidden = true;
+  status.setAttribute("role", "status");
+  function copyButton(label, value) {
+    const button = node("button", label);
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(value());
+        feedback(status, local("Copied.", "Kopioitu."));
+      } catch {
+        feedback(status, local("Select and copy the value manually.", "Valitse ja kopioi arvo käsin."), true);
+      }
+    });
+    return button;
+  }
+  const endpoint = node("pre", url);
+  section.append(node("h3", local("MCP server URL", "MCP-palvelimen osoite")), endpoint,
+    copyButton(local("Copy MCP URL", "Kopioi MCP-osoite"), () => url));
+  const chatGPT = node("div", "", "agent-connect");
+  chatGPT.hidden = true;
+  const connections = node("ul");
+  chatGPT.append(node("h3", "ChatGPT"), node("p", local(
+    "Add the MCP URL in ChatGPT, choose OAuth, then sign in with your Agent Dairy account to grant read-only access.",
+    "Lisää MCP-osoite ChatGPT:hen, valitse OAuth ja myönnä lukuoikeus kirjautumalla Agent Dairy -tilillesi."), "muted"), connections);
+  section.append(chatGPT, node("h3", local("Connect with a bearer key", "Yhdistä Bearer-avaimella")),
+    node("p", local("Add the URL in your AI’s MCP settings using Streamable HTTP, then create a key for that agent.",
+      "Lisää osoite tekoälysi MCP-asetuksiin Streamable HTTP -yhteytenä ja luo agentille avain."), "muted"));
   const form = node("form", "", "workspace-form");
   const label = node("label", local("Agent name", "Agentin nimi"));
   const name = node("input");
@@ -447,13 +493,39 @@ function agentIntegration() {
   permission.prepend(canOrder);
   const create = node("button", local("Create agent key", "Luo agenttiavain"), "primary");
   form.append(label, permission, create);
-  const secret = node("pre");
+  const secret = node("div", "", "agent-connect");
+  const header = node("pre");
+  let token = "";
+  let issuedId = "";
   secret.hidden = true;
+  secret.append(node("p", local(
+    "In a bearer token field, paste just the key. In custom headers, use the full Authorization header below. The key is shown once.",
+    "Liitä Bearer-tunnistekenttään pelkkä avain. Käytä mukautetuissa otsakkeissa alla olevaa Authorization-otsaketta. Avain näytetään kerran.")),
+    header, copyButton(local("Copy key", "Kopioi avain"), () => token),
+    copyButton(local("Copy Authorization header", "Kopioi Authorization-otsake"), () => header.textContent));
   const list = node("ul");
-  const status = node("p", "", "feedback");
-  status.hidden = true;
-  status.setAttribute("role", "status");
   const key = buyerKey();
+  async function loadConnections() {
+    const result = await request("/client/agent-connections", key);
+    connections.replaceChildren();
+    for (const item of result) {
+      const row = node("li", local("Connected", "Yhdistetty") + " " + date(item.created_at) +
+        (item.last_used_at ? " · " + local("Last used", "Viimeksi käytetty") + " " + date(item.last_used_at) : ""));
+      const disconnect = node("button", local("Disconnect", "Katkaise yhteys"));
+      disconnect.type = "button";
+      disconnect.addEventListener("click", async () => {
+        disconnect.disabled = true;
+        try {
+          await request("/client/agent-connections/" + encodeURIComponent(item.id) + "/disconnect", key, {});
+          await loadConnections();
+          feedback(status, local("ChatGPT disconnected.", "ChatGPT-yhteys katkaistu."));
+        } catch (error) { feedback(status, error.message, true); }
+        finally { disconnect.disabled = false; }
+      });
+      row.append(" ", disconnect);
+      connections.append(row);
+    }
+  }
   async function loadKeys() {
     try {
       const keys = await request("/client/agent-credentials", key);
@@ -469,8 +541,12 @@ function agentIntegration() {
           revoke.disabled = true;
           try {
             await request("/client/agent-credentials/" + encodeURIComponent(item.id) + "/revoke", key, {});
-            secret.hidden = true;
-            secret.textContent = "";
+            if (item.id === issuedId) {
+              secret.hidden = true;
+              header.textContent = "";
+              token = "";
+              issuedId = "";
+            }
             await loadKeys();
           } catch (error) { feedback(status, error.message, true); }
           finally { revoke.disabled = false; }
@@ -485,7 +561,9 @@ function agentIntegration() {
     create.disabled = true;
     try {
       const result = await request("/client/agent-credentials", key, {label:name.value, can_order:canOrder.checked});
-      secret.textContent = "Authorization: Bearer " + result.secret;
+      token = result.secret;
+      issuedId = result.id;
+      header.textContent = "Authorization: Bearer " + token;
       secret.hidden = false;
       form.reset();
       feedback(status, local("Copy this key now. It is shown once.", "Kopioi avain nyt. Se näytetään vain kerran."));
@@ -493,12 +571,12 @@ function agentIntegration() {
     } catch (error) { feedback(status, error.message, true); }
     finally { create.disabled = false; }
   });
-  if (hosted) {
-    const fallback = node("p", local("Funnel endpoint", "Funnel-osoite") +
-      " · https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp", "cell-note");
-    section.append(fallback);
-    }
   section.append(form, status, secret, list);
+  request("/client/agent-integration", key).then(async integration => {
+    if (integration.url) endpoint.textContent = url = integration.url;
+    chatGPT.hidden = !integration.chatgpt_oauth;
+    if (integration.chatgpt_oauth) await loadConnections();
+  }).catch(error => feedback(status, error.message, true));
   loadKeys();
   return section;
 }

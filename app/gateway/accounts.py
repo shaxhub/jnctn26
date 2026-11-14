@@ -4,6 +4,7 @@ import hmac
 import os
 import re
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -14,6 +15,7 @@ from .config import demo_catalog_enabled
 
 COOKIES = {"client": "ad_client_session", "admin": "ad_admin_session", "portal": "ad_portal_session"}
 SESSION_SECONDS = 8 * 3600
+_SCRYPT_LIMIT = threading.BoundedSemaphore(4)
 
 
 def hosted() -> bool:
@@ -21,7 +23,8 @@ def hosted() -> bool:
 
 
 def password_hash(password: str, salt: bytes) -> bytes:
-    return hashlib.scrypt(password.encode(), salt=salt, n=2**15, r=8, p=1, maxmem=64*1024*1024)
+    with _SCRYPT_LIMIT:
+        return hashlib.scrypt(password.encode(), salt=salt, n=2**15, r=8, p=1, maxmem=64*1024*1024)
 
 
 def provision(username: str, role: str, buyer: str | None, password: str) -> None:
@@ -46,6 +49,8 @@ def provision(username: str, role: str, buyer: str | None, password: str) -> Non
         if (row["role"], row["buyer_id"]) != (role, buyer):
             raise ValueError("That username belongs to a different portal or buyer.")
         conn.execute("DELETE FROM portal_sessions WHERE username=?", (username,))
+        conn.execute("DELETE FROM mcp_oauth_grants WHERE username=?", (username,))
+        conn.execute("DELETE FROM mcp_oauth_pending WHERE username=?", (username,))
         conn.execute("DELETE FROM portal_login_attempts WHERE username=?", (username,))
 
 
@@ -53,10 +58,41 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def same_origin(request: Request) -> None:
+def authenticate(body: "Login", request: Request, role: str, *, origin: str | None = None):
+    same_origin(request, origin)
+    username = body.username.strip().lower()
+    source = request.client.host if request.client else "unknown"
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(minutes=5)).isoformat()
+    with store.transaction() as conn:
+        conn.execute("DELETE FROM portal_login_attempts WHERE julianday(at)<julianday(?)", (since,))
+        user_attempts = conn.execute(
+            "SELECT count(*) FROM portal_login_attempts WHERE source=? AND role=? AND username=?",
+            (source, role, username),
+        ).fetchone()[0]
+        source_attempts = conn.execute(
+            "SELECT count(*) FROM portal_login_attempts WHERE source=? AND role=?",
+            (source, role),
+        ).fetchone()[0]
+        if user_attempts >= 12 or source_attempts >= 60:
+            raise HTTPException(429, "Too many attempts. Try again in a few minutes.")
+        attempt = conn.execute(
+            "INSERT INTO portal_login_attempts (source,role,username,at) VALUES (?,?,?,?)",
+            (source, role, username, now.isoformat()),
+        ).lastrowid
+    row = store.fetchone("SELECT * FROM portal_accounts WHERE username=? AND (role=? OR ?='portal')", (username, role, role))
+    digest = password_hash(body.password, row["salt"] if row else bytes(16))
+    if row is None or not hmac.compare_digest(digest, row["password_hash"]):
+        raise HTTPException(401, "Invalid username or password.")
+    with store.transaction() as conn:
+        conn.execute("DELETE FROM portal_login_attempts WHERE rowid=?", (attempt,))
+    return row
+
+
+def same_origin(request: Request, origin: str | None = None) -> None:
     # Comparing Origin prevents cookie-authenticated writes from a sibling port.
     url = request.url
-    if request.headers.get("origin") != f"{url.scheme}://{url.netloc}":
+    if request.headers.get("origin") != (origin or f"{url.scheme}://{url.netloc}"):
         raise HTTPException(403, "Use the portal to make this request.")
 
 
@@ -91,37 +127,22 @@ def router(role: str) -> APIRouter:
         user = identity(request, role)
         return {"required": hosted(), "username": user["username"] if user else None,
                 "buyer_id": user["buyer_id"] if user else None, "role": user["role"] if user else None,
-                "offline_demo": demo_catalog_enabled()}
+                "offline_demo": demo_catalog_enabled(),
+                "now": store.now().isoformat()}
 
     @routes.post("/login")
     def login(body: Login, request: Request, response: Response):
-        same_origin(request)
-        username = body.username.strip().lower()
-        source = request.client.host if request.client else "unknown"
+        row = authenticate(body, request, role)
+        username = row["username"]
         now = datetime.now(timezone.utc)
-        since = (now - timedelta(minutes=5)).isoformat()
-        with store.transaction() as conn:
-            conn.execute("DELETE FROM portal_login_attempts WHERE julianday(at)<julianday(?)", (since,))
-            # Count per source only. A username-wide count would let any source lock an account out.
-            attempts = conn.execute("SELECT count(*) FROM portal_login_attempts WHERE source=?",
-                                    (source,)).fetchone()[0]
-            if attempts >= 12:
-                raise HTTPException(429, "Too many attempts. Try again in a few minutes.")
-            attempt = conn.execute("INSERT INTO portal_login_attempts (source,username,at) VALUES (?,?,?)",
-                                   (source, username, now.isoformat())).lastrowid
-        row = store.fetchone("SELECT * FROM portal_accounts WHERE username=? AND (role=? OR ?='portal')", (username, role, role))
-        digest = password_hash(body.password, row["salt"] if row else bytes(16))
-        if row is None or not hmac.compare_digest(digest, row["password_hash"]):
-            raise HTTPException(401, "Invalid username or password.")
         previous_token = request.cookies.get(cookie)
         token = secrets.token_urlsafe(32)
         with store.transaction() as conn:
             current = conn.execute("SELECT password_hash FROM portal_accounts WHERE username=?", (username,)).fetchone()
-            if current is None or current["password_hash"] != digest:
+            if current is None or current["password_hash"] != row["password_hash"]:
                 raise HTTPException(401, "Invalid username or password.")
             if previous_token:
                 conn.execute("DELETE FROM portal_sessions WHERE token_hash=?", (token_hash(previous_token),))
-            conn.execute("DELETE FROM portal_login_attempts WHERE rowid=?", (attempt,))
             conn.execute("DELETE FROM portal_sessions WHERE julianday(expires_at)<=julianday(?)", (now.isoformat(),))
             conn.execute("INSERT INTO portal_sessions VALUES (?,?,?)",
                          (token_hash(token), username, (now+timedelta(seconds=SESSION_SECONDS)).isoformat()))

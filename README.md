@@ -43,6 +43,12 @@ Without required login, the buyer demo still opens directly; choose **Sign out**
 
 If you use a browser-based MCP client, add its origin to `MCP_ALLOWED_ORIGINS` in `app/.env` when it differs from the defaults.
 
+### Connect an external AI
+
+In the client portal, open **Settings → Agent integration** and copy the MCP server URL. For a client that supports custom headers, choose **Streamable HTTP**, create a key, and paste it into the client's bearer token field. If the client asks for a custom header, set the header name to `Authorization` and its value to `Bearer <your-key>`. Copy the key when it is created. Each key can be revoked from Settings, and ordering requires permission on both the key and the buyer workspace.
+
+For ChatGPT, use the same URL and select **OAuth** with **Client ID Metadata Document** registration. Sign in to Agent Dairy when prompted and confirm the connection. ChatGPT can read catalog and request data for the linked buyer. Disconnect it from Agent Dairy Settings at any time. See [hosting and OAuth setup](docs/mcp-connection.md).
+
 Keep challenge data, local databases, signing keys, and `app/.env` out of Git. The default paths are ignored.
 
 | Surface | Local entry point |

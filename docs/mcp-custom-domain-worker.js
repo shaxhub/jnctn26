@@ -1,10 +1,24 @@
+const routes = new Set([
+  "/mcp",
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-protected-resource/mcp",
+  "/.well-known/oauth-authorization-server",
+  "/authorize",
+  "/oauth/connect",
+  "/token",
+]);
+
 export default {
   async fetch(request) {
     const incoming = new URL(request.url);
-    if (incoming.hostname !== "agent-dairy-mcp.kienlebox.stream" || incoming.pathname !== "/mcp") {
+    if (incoming.hostname !== "agent-dairy-mcp.kienlebox.stream" || !routes.has(incoming.pathname)) {
       return new Response("Not found", { status: 404 });
     }
-    const upstream = new URL("https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp");
+    const upstream = new URL("https://kienlebox.tail80aa1e.ts.net");
+    const path = incoming.pathname === "/.well-known/oauth-protected-resource"
+      ? "/.well-known/oauth-protected-resource/mcp"
+      : incoming.pathname;
+    upstream.pathname = "/agent-dairy" + path;
     upstream.search = incoming.search;
     const headers = new Headers(request.headers);
     headers.delete("Host");

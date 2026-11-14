@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 import anyio
@@ -163,13 +163,13 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
             recipe_input = "Pasted recipe (1)\n" + text if kitchen.LINE.fullmatch(first.removeprefix("- ")) else text
             try:
                 recipes = kitchen.recipes_from_text(recipe_input, 1)
-            except (ValidationError, service.GatewayError) as exc:
+            except (ValidationError, ValueError, OverflowError, service.GatewayError) as exc:
                 raise service.GatewayError(422, "Paste recipe quantities in metric units, such as 500 g tomato.") from exc
     if recipes:
         servings = parsed.servings if parsed and parsed.servings else recipes[0].servings
         delivery = request.delivery_date or (parsed.delivery_date if parsed else None)
         if delivery is None and parsed and parsed.recipes:
-            delivery = parse_need_heuristic(text, today).delivery_date
+            delivery = requested_date(text, today) or today + timedelta(days=2)
         draft_requested = delivery is not None and (draft_requested or request.action == "shop")
         result = await _kitchen_result(KitchenChatRequest(
             kind="recipes", text=text, servings=servings,
@@ -183,7 +183,7 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     draft_requested = draft_requested or (request.action == "shop" and explicit_quantity(text))
     if request.delivery_date:
         need.delivery_date = request.delivery_date
-    need.exclude_allergens = sorted(set(need.exclude_allergens + p.mandate.forbidden_allergens))
+    need.exclude_allergens = sorted(set(need.exclude_allergens + p.mandate.forbidden_allergens))[:30]
     entry = await anyio.to_thread.run_sync(lambda: audit.log(
         "CLIENT_INQUIRY", p.actor, {"text": text, "action": "draft" if draft_requested else "lookup"},
         buyer_id=p.buyer_id))
@@ -276,6 +276,8 @@ async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=
         ).model_dump(mode="json")
     except ValidationError as exc:
         raise service.GatewayError(422, exc.errors()[0]["msg"]) from exc
+    except (ValueError, OverflowError) as exc:
+        raise service.GatewayError(422, "Paste recipe quantities in metric units, such as 500 g tomato.") from exc
     if request.delivery_date is None:
         if request.draft:
             raise service.GatewayError(422, "Choose a delivery date before drafting")

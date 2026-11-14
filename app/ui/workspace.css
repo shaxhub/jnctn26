@@ -135,6 +135,10 @@ pre { background:var(--sky) }
 dialog::backdrop { background:#0b2440cc }
 .settings-integration { display:grid; gap:.6rem; margin-top:1.25rem }
 .settings-integration pre { margin:0 }
+.settings-integration > button, .agent-connect button { justify-self:start }
+.agent-connect { display:grid; gap:.6rem }
+.agent-connect[hidden] { display:none }
+.agent-connect ul:empty { display:none }
 
 /* boot gate: prevents the workspace shell flashing before session/settings resolve */
 html.booting .rail, html.booting .top, html.booting .content { visibility:hidden }

@@ -349,3 +349,119 @@ def test_signing_key_creation_reuses_the_winner(monkeypatch, tmp_path):
         assert list(tmp_path.iterdir()) == [destination]
     finally:
         quotes.private_key.cache_clear()
+
+
+def test_invalid_quantities_huge_budgets_and_gateway_clock_header(gateway, monkeypatch):
+    import asyncio
+    import anthropic
+    import httpx
+    from httpx import ASGITransport, AsyncClient
+    from gateway import accounts, agent as agent_mod, api as api_mod
+    from gateway.api import app
+
+    client_headers = {"X-API-Key": "demo-hotel-client-key"}
+    agent_headers = {"X-API-Key": "demo-hotel-key"}
+
+    async def verify():
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="https://client.test") as http:
+            health = await http.get("/health")
+            assert health.status_code == 200
+            assert health.headers["X-Gateway-Now"] == store.now().isoformat()
+
+            for bad_text in ("0 litres of milk by Monday", "2,000,000 litres of milk by Monday",
+                             "9" * 400 + " litres of milk by Monday"):
+                chat_res = await http.post("/client/chat", headers=client_headers, json={"text": bad_text})
+                assert chat_res.status_code == 422, chat_res.text
+                assert "1,000,000" in chat_res.json()["detail"]
+                assert chat_res.headers["X-Gateway-Now"] == store.now().isoformat()
+
+                agent_res = await http.post("/agent/run", headers=agent_headers,
+                                            json={"text": bad_text, "mode": "scripted"})
+                assert agent_res.status_code == 422, agent_res.text
+                assert "1,000,000" in agent_res.json()["detail"]
+
+            huge_budget = (
+                "Feed 200 schoolchildren on Wednesday. Hard budget is " + ("9" * 400) + " euros."
+            )
+            meal_res = await http.post("/client/chat", headers=client_headers, json={"text": huge_budget})
+            assert meal_res.status_code == 422, meal_res.text
+            assert "budget" in meal_res.json()["detail"].lower()
+
+            # LLM agent API errors map to 502 JSON instead of crashing with 500
+            with monkeypatch.context() as patch:
+                with_key = replace(agent_mod.settings, anthropic_api_key="test-key")
+                patch.setattr(agent_mod, "settings", with_key)
+                patch.setattr(api_mod, "settings", with_key)
+                req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+                def fail_llm(*_a, **_kw):
+                    raise anthropic.APIConnectionError(request=req)
+
+                patch.setattr(agent_mod, "parse_need_llm", fail_llm)
+                llm_res = await http.post("/agent/run", headers=agent_headers,
+                                          json={"text": "10 litres of milk by Monday", "mode": "llm"})
+                assert llm_res.status_code == 502
+                assert "temporarily unavailable" in llm_res.json()["detail"]
+
+            # Hosted mode blocks buyer-side /approvals/{id} with a clear 403 message
+            with monkeypatch.context() as patch:
+                patch.setenv("REQUIRE_PORTAL_LOGIN", "1")
+                accounts.provision("hotel-user", "client", "hotel", "a-local-test-only-password")
+                login = await http.post("/session/login", headers={"Origin": "https://client.test"},
+                                        json={"username": "hotel-user", "password": "a-local-test-only-password"})
+                assert login.status_code == 200
+                decide_res = await http.post("/approvals/apr_any", headers={"Origin": "https://client.test"},
+                                             json={"decision": "approve"})
+                assert decide_res.status_code == 403
+                assert "Aimo operations portal" in decide_res.json()["detail"]
+
+    asyncio.run(verify())
+
+
+def test_live_mode_stock_reservation_prevents_double_spend(gateway, monkeypatch):
+    offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, available_qty=10,
+                  category="10400", orderable=True, reason=OrderableReason.ok)
+    monkeypatch.setattr(service, "get_offers", lambda *_, **_options: ([offer], store.now()))
+    buyer = principal_for_key("demo-hotel-client-key")
+    agent = principal_for_key("demo-hotel-key")
+    admin = admin_for_key("test-admin-credential")
+    delivery = date(2026, 11, 16)
+
+    # Two pre-created quotes before any order is placed: second place_order must reject when stock is exhausted
+    q1 = service.create_quote(buyer, QuoteRequest(delivery_date=delivery, lines=[{"product_id": "milk", "quantity": 6}]))
+    q2 = service.create_quote(buyer, QuoteRequest(delivery_date=delivery, lines=[{"product_id": "milk", "quantity": 6}]))
+    first = service.place_order(buyer, q1.quote_id)
+    assert first.status == "confirmed"
+    second = service.place_order(buyer, q2.quote_id)
+    assert second.status == "rejected"
+    assert "milk:insufficient_stock" in " ".join(second.policy.reasons)
+
+    # Subsequent create_quote also sees only 4 remaining ST on that delivery date
+    with pytest.raises(service.GatewayError, match="only 4 ST available"):
+        service.create_quote(buyer, QuoteRequest(delivery_date=delivery, lines=[{"product_id": "milk", "quantity": 5}]))
+    q3 = service.create_quote(buyer, QuoteRequest(delivery_date=delivery, lines=[{"product_id": "milk", "quantity": 4}]))
+    assert service.place_order(buyer, q3.quote_id).status == "confirmed"
+
+    # Approval recheck also accounts for committed stock on another day without counting the order against itself
+    next_day = date(2026, 11, 17)
+    big_offer = Offer(product_id="milk", sales_unit="ST", unit_price=200, available_qty=10,
+                      category="10400", orderable=True, reason=OrderableReason.ok)
+    monkeypatch.setattr(service, "get_offers", lambda *_, **_options: ([big_offer], store.now()))
+    q_pending = service.create_quote(agent, QuoteRequest(delivery_date=next_day, lines=[{"product_id": "milk", "quantity": 7}]))
+    q_small = service.create_quote(buyer, QuoteRequest(delivery_date=next_day, lines=[{"product_id": "milk", "quantity": 4}]))
+    small_confirmed = service.place_order(buyer, q_small.quote_id)
+    assert small_confirmed.status == "confirmed"
+    # Placed before small_confirmed existed? No, place q_pending on a third day before a concurrent confirmation:
+    third_day = date(2026, 11, 18)
+    q_pend_a = service.create_quote(agent, QuoteRequest(delivery_date=third_day, lines=[{"product_id": "milk", "quantity": 7}]))
+    q_fast_b = service.create_quote(buyer, QuoteRequest(delivery_date=third_day, lines=[{"product_id": "milk", "quantity": 4}]))
+    fast_confirmed = service.place_order(buyer, q_fast_b.quote_id)
+    assert fast_confirmed.status == "confirmed"
+    assert service.place_order(agent, q_pend_a.quote_id).status == "rejected"
+
+    # And when a single pending order of 7/10 is approved, it excludes itself and confirms cleanly
+    fourth_day = date(2026, 11, 19)
+    q_ok = service.create_quote(agent, QuoteRequest(delivery_date=fourth_day, lines=[{"product_id": "milk", "quantity": 7}]))
+    pending_ok = service.place_order(agent, q_ok.quote_id)
+    assert pending_ok.status == "pending_approval"
+    assert service.decide_approval(admin, pending_ok.approval_id, "approve").status == "confirmed"

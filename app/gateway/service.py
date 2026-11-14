@@ -145,11 +145,22 @@ def _evaluate(p: Principal, lines: list[QuoteLine], offers: dict[str, Offer], to
         coverage = min(covered / need.quantity, 1.0)
     result = policy.evaluate(p.mandate, lines, offers, total_net=total, weekly_spent=weekly_spent(p.buyer_id, conn=conn),
                              need=need, coverage=coverage, today=store.now().date())
-    if result.decision != Decision.reject and any(line.substitution_source == "catalog_ingredient_match" for line in lines):
-        message = "Aimo review is required for a catalog-suggested substitute."
-        result.decision = Decision.needs_approval
-        result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."] + [message]
-        result.fired_rules.append(FiredRule(rule_id="catalog_substitution", effect=Decision.needs_approval, message=message))
+    if result.decision == Decision.reject:
+        return result
+    supplier_stock = any(
+        offer.unlimited and (offer.logistic_model or "").casefold() == "terminal"
+        for offer in offers.values()
+    )
+    review = {
+        "catalog_substitution": (any(line.substitution_source == "catalog_ingredient_match" for line in lines),
+                                 "Aimo review is required for a catalog-suggested substitute."),
+        "supplier_stock_unverified": (supplier_stock, "Aimo review is required to confirm supplier stock quantities."),
+    }
+    for rule, (triggered, message) in review.items():
+        if triggered:
+            result.decision = Decision.needs_approval
+            result.reasons = [reason for reason in result.reasons if reason != "All mandate rules passed."] + [message]
+            result.fired_rules.append(FiredRule(rule_id=rule, effect=Decision.needs_approval, message=message))
     return result
 
 

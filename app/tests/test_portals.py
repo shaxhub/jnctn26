@@ -144,3 +144,16 @@ def test_lookup_only_credential_cannot_order(gateway):
                                                  lines=[{"product_id": "milk", "quantity": 5}]))
     with pytest.raises(service.GatewayError):
         service.place_order(agent, "any")
+
+
+def test_unverified_supplier_quantities_need_aimo_review(gateway, monkeypatch):
+    buyer = principal_for_key("demo-hotel-key")
+    offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, orderable=True, unlimited=True,
+                  logistic_model="Terminal", reason=OrderableReason.ok)
+    monkeypatch.setattr(service, "get_offers", lambda *_: ([offer], store.now()))
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=date(2026, 11, 16),
+                                                    lines=[{"product_id": "milk", "quantity": 5}]))
+    assert quote.policy_preview.decision == "needs_approval"
+    order = service.place_order(buyer, quote.quote_id)
+    assert order.status == "pending_approval"
+    assert "supplier_stock_unverified" in {rule.rule_id for rule in order.policy.fired_rules}

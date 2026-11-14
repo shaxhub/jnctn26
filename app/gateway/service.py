@@ -517,6 +517,12 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         payload = json.loads(row["payload_json"])
         problems.extend(f"{sku}:dietary_conflict" for sku in _dietary_conflicts(
             list(offers.values()), payload.get("exclude_allergens", []), payload.get("required_claims", [])))
+        current_policy = policy.evaluate(
+            policy.load_mandate(row["buyer_id"]), lines, offers, total_net=payload["total_net"],
+            need=Need.model_validate(payload["need"]) if payload.get("need") else None,
+            today=store.now().date(),
+        )
+        problems.extend(rule.message for rule in current_policy.fired_rules if rule.effect == Decision.reject)
     with store.transaction() as conn:
         row = _pending_approval(p, conn.execute(_APPROVAL_QUERY, (approval_id,)).fetchone(), approval_id)
         now = store.now()

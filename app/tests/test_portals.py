@@ -300,3 +300,43 @@ def test_concurrent_submissions_reserve_weekly_limit_atomically(gateway):
     with ThreadPoolExecutor(2) as pool:
         assert sorted(pool.map(submit, quotes)) == ["confirmed", "pending_approval"]
     assert store.verify_chain()["ok"]
+
+def test_approval_rejects_newly_reported_forbidden_allergen(gateway, monkeypatch):
+    buyer = principal_for_key("demo-hospital-key")
+    admin = admin_for_key("test-admin-credential")
+    offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, available_qty=2000,
+                  category="10400", orderable=True, reason=OrderableReason.ok, logistic_model="Terminal",
+                  unlimited=True)
+    monkeypatch.setattr(service, "get_offers", lambda *args, **kwargs: ([offer], store.now()))
+    request = QuoteRequest(delivery_date=date(2026, 11, 16), lines=[{"product_id": "milk", "quantity": 5}])
+    order = service.place_order(buyer, service.create_quote(buyer, request).quote_id)
+    assert order.status == "pending_approval"
+    offer.allergens_contains = ["AM"]
+    reviewed = service.decide_approval(admin, order.approval_id, "approve")
+    assert reviewed.status == "rejected"
+    assert "forbidden allergen" in service.get_audit_log(admin, reviewed.order_id)["text"]
+
+
+def test_signing_key_creation_reuses_the_winner(monkeypatch, tmp_path):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from gateway import quotes
+
+    destination = tmp_path / "signing.pem"
+    monkeypatch.setattr(quotes, "settings", replace(quotes.settings, signing_key_path=destination))
+    winner = Ed25519PrivateKey.generate()
+    pem = winner.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                               serialization.NoEncryption())
+
+    def publish_other_key(candidate, path):
+        assert candidate.read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
+        path.write_bytes(pem)
+        raise FileExistsError
+
+    monkeypatch.setattr(quotes.os, "link", publish_other_key)
+    quotes.private_key.cache_clear()
+    try:
+        assert quotes.public_key().public_bytes_raw() == winner.public_key().public_bytes_raw()
+        assert list(tmp_path.iterdir()) == [destination]
+    finally:
+        quotes.private_key.cache_clear()

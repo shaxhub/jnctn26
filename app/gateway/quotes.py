@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import threading
 from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -44,9 +47,20 @@ def private_key() -> Ed25519PrivateKey:
             return serialization.load_pem_private_key(path.read_bytes(), password=None)
         key = Ed25519PrivateKey.generate()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                           serialization.NoEncryption()))
-        path.chmod(0o600)
+        # Publish a completely written key without replacing another server's key.
+        with NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+            candidate = Path(stream.name)
+            try:
+                stream.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                               serialization.NoEncryption()))
+                stream.flush()
+                stream.close()
+                os.link(candidate, path)
+            except FileExistsError:
+                return serialization.load_pem_private_key(path.read_bytes(), password=None)
+            finally:
+                stream.close()
+                candidate.unlink()
         return key
 
 

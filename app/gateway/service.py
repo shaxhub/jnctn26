@@ -222,6 +222,8 @@ def create_quote(p: Principal, req: QuoteRequest) -> Quote:
             unit_price=o.unit_price, unit_price_with_tax=o.unit_price_with_tax,
             line_total=round(qty * o.unit_price, 2), closing_time=o.closing_time,
             covers=round(qty * per, 3) if per else None, is_substitute=is_sub, estimated_kg_co2e=emissions,
+            country=o.country, availability_checked_at=now, available_sales_units=o.available_qty,
+            delivery_reliability=o.reliability,
             substitute_for=pref[0] if is_sub else None, substitution_source=source,
             substitute_for_category=catalog[pref[0]].category if is_sub and pref[0] in catalog else None))
     if errors:

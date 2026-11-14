@@ -107,7 +107,7 @@ def build_offer(p: ProductSummary, raw: dict, delivery_date: date, now: datetime
         reason = OrderableReason.ok
 
     return Offer(
-        product_id=p.id, name=p.name_fi or p.name_en, brand=p.brand, category=p.category,
+        product_id=p.id, name=p.name_fi or p.name_en, brand=p.brand, country=p.country, category=p.category,
         sales_unit=p.sales_unit, base_unit=p.base_unit, allowed_lot_size=p.allowed_lot_size,
         base_units_per_sales_unit=p.base_units_per_sales_unit, content_per_sales_unit=content, content_unit=content_unit, content_source=source,
         volume_l=p.volume_l, net_weight_kg=p.net_weight_kg,

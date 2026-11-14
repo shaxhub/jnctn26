@@ -101,6 +101,10 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
                                  json={"text": "Create a ticket for 5 litres of lactose-free milk by Monday"})
             assert response.status_code == 200, response.text
             draft = response.json()["draft"]
+            from gateway.quotes import verify
+            signed = verify(draft["signature"])
+            assert signed["lines"][0]["availability_checked_at"]
+            assert signed["lines"][0]["available_sales_units"] == 2000
             changed = await http.post("/client/chat", headers=buyer, json={
                 "text": "5 litres of lactose-free milk by Monday", "action": "draft",
                 "plan_lines": [["milk", 99]]})

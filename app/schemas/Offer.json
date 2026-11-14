@@ -43,6 +43,18 @@
       "default": null,
       "title": "Brand"
     },
+    "country": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Country"
+    },
     "category": {
       "anyOf": [
         {

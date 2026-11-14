@@ -131,6 +131,7 @@ class Offer(BaseModel):
     product_id: str
     name: str | None = None
     brand: str | None = None
+    country: str | None = None
     category: str | None = None
     sales_unit: str
     base_unit: str | None = None
@@ -277,6 +278,10 @@ class QuoteLine(BaseModel):
     substitute_for: str | None = None
     substitute_for_category: str | None = None
     estimated_kg_co2e: float | None = None
+    country: str | None = None
+    availability_checked_at: datetime | None = None
+    available_sales_units: float | None = None
+    delivery_reliability: float | None = None
     substitution_source: Literal["valio_listed", "catalog_ingredient_match"] | None = None
 
 

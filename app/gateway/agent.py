@@ -188,7 +188,7 @@ def parse_need_llm(client, text: str, today: date) -> Need:
 # --- compact views (fewer tokens for the model, easier to read in the UI trace) ------------------
 def compact_offers(result: dict) -> dict:
     keep = (
-        "product_id", "name", "sales_unit", "content_per_sales_unit", "content_unit", "unit_price",
+        "product_id", "name", "country", "sales_unit", "content_per_sales_unit", "content_unit", "unit_price",
         "unit_price_with_tax", "tax_rate", "price_per_content_unit", "available_qty", "unlimited",
         "available_date", "allowed_lot_size", "closing_time", "price_valid_to", "logistic_model",
         "category", "orderable", "reason", "reliability", "co2_per_kg", "allergens_contains",

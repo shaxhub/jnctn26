@@ -130,7 +130,7 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
                                      lines=[{"product_id": line["product_id"], "quantity": line["quantity"]}
                                             for line in best["lines"]])
         draft = await anyio.to_thread.run_sync(service.create_quote, p, quote_request)
-        response["draft"] = draft.model_dump(mode="json", exclude={"signature"})
+        response["draft"] = draft.model_dump(mode="json")
         response["message"] = "Ticket draft created. Review the quantities and total before submitting."
     return response
 

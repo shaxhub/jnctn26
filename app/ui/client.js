@@ -30,6 +30,11 @@ function showDraft(quote, outcome) {
   target.append(node("p", "Delivery " + date(quote.delivery_date)),
     node("p", "Quote expires " + new Date(quote.expires_at).toLocaleString("en-FI", {timeZone:"Europe/Helsinki"}), "cell-note"),
     lineItems(quote.lines), node("p", money.format(quote.total_net) + " excl. VAT", "ticket-total"));
+  const proof = node("details", "", "plan-option");
+  const key = node("a", "Quote verification keys");
+  key.href = "/.well-known/jwks.json";
+  proof.append(node("summary", "Signed quote"), key, node("pre", quote.signature));
+  target.append(proof);
   if (quote.policy_preview.reasons.length) {
     target.append(node("p", quote.policy_preview.reasons.join(" "), "cell-note"));
   }
@@ -62,7 +67,7 @@ function offerRows(offers) {
   return offers.map(item => {
     const product = node("span", item.name || item.product_id);
     const provenance = item.substitution_source === "catalog_ingredient_match" ? " · Catalog suggestion" : "";
-    product.append(node("small", item.product_id + " · " + item.sales_unit + provenance, "cell-note"));
+    product.append(node("small", item.product_id + " · " + item.sales_unit + (item.country ? " · " + item.country : "") + provenance, "cell-note"));
     const availability = item.orderable
       ? item.unlimited ? "Supplier stock unverified" : number.format(item.available_qty) + " " + item.sales_unit
       : item.reason.replaceAll("_", " ");

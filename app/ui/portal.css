@@ -98,3 +98,41 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 @media(max-width:960px) { body { grid-template-columns:11.5rem minmax(0,1fr) } .workspace { grid-template-columns:1fr } .side { grid-template-columns:repeat(2,minmax(0,1fr)) } }
 @media(max-width:650px) { body { display:block } .rail { padding:.75rem 1rem; gap:.65rem } .rail nav { display:flex; flex-wrap:wrap } .rail nav a { padding:.45rem .6rem; font-size:.8rem } .rail-foot { display:none } .side { grid-template-columns:1fr } .hero { align-items:start; flex-direction:column; gap:1rem } .dispatch { display:flex; flex-wrap:wrap; border:none; padding:0 } .top { padding:.5rem 1rem; flex-wrap:wrap } }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { scroll-behavior:auto !important; animation:none !important; transition:none !important } }
+
+
+/* Ingredient planning uses the existing operations palette and its own worksheet layout. */
+.kitchen-hero { background:#122b60; align-items:center; min-height:14rem }
+.kitchen-hero::after { inset:-3rem -1rem auto auto; width:29rem; border-radius:0; transform:rotate(-15deg);
+  background:repeating-linear-gradient(0deg,#4967a83b 0 1px,transparent 1px 2.1rem),
+             repeating-linear-gradient(90deg,#4967a83b 0 1px,transparent 1px 2.1rem);
+  mask-image:linear-gradient(110deg,transparent,#000 65%); box-shadow:none; border:0 }
+.kitchen-hero h1 { max-width:15ch }
+.hero-action { background:#b2f1dd; color:#10233c; border-color:#b2f1dd; margin-top:1.15rem; gap:.6rem }
+.hero-action:hover { background:#d8fff1 }
+.kitchen-hero .dispatch { list-style:none; margin:0; padding:0; gap:.25rem; border:0; min-width:10.5rem }
+.kitchen-hero .dispatch li { padding:.5rem .85rem; border-left:2px solid #90e6cf; background:#0d2454 }
+.kitchen-hero .dispatch li + li { border-color:#7296de }
+.workspace-modes { display:flex; flex-wrap:wrap; gap:.35rem; padding:.3rem; margin-bottom:1.25rem; background:var(--sky); border-radius:.55rem }
+.workspace-modes button { flex:1 0 auto; border-color:transparent; background:transparent }
+.workspace-modes button[aria-pressed=true] { background:white; border-color:var(--line); color:var(--blue); box-shadow:0 2px 4px #19376212 }
+.kitchen-settings { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr)); gap:.75rem }
+.kitchen-settings input,.kitchen-settings select { display:block; width:100%; margin-top:.25rem }
+.kitchen-entry,.ingredient-head { display:flex; justify-content:space-between; align-items:center; gap:.75rem; margin-top:1rem }
+.kitchen-entry button { min-height:2rem; font-size:.8rem }
+.kitchen-constraints { margin-top:1rem }
+.kitchen-constraints label { display:block; margin-top:.65rem }
+.kitchen-constraints input { margin-top:.25rem }
+.ingredient-results-head { margin:1.25rem 0 .75rem }
+.ingredient-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr)); gap:.75rem }
+.ingredient { padding:.85rem; border:1px solid var(--line); border-top:3px solid #9abbe4; border-radius:.5rem; min-width:0 }
+.ingredient-head { margin:0; align-items:baseline }
+.ingredient-head h4 { margin:0; font-size:1.04rem; overflow-wrap:anywhere }
+.ingredient-quantity { color:var(--deep); white-space:nowrap; font-variant-numeric:tabular-nums }
+.ingredient .tag { margin-top:.65rem }
+.kitchen-available { background:var(--pale); color:var(--green) }
+.kitchen-partial,.kitchen-stockout,.kitchen-unmatched,.kitchen-unverified { background:#fff0ce; color:var(--amber) }
+.ingredient-offers { margin-top:.65rem; font-size:.87rem }
+.ingredient-offers summary { cursor:pointer; font-weight:600 }
+.ingredient-offers .ticket-lines { margin-top:.35rem; padding-left:1.2rem; overflow-wrap:anywhere }
+.ingredient-swap { border-left:2px solid #00846a; padding-left:.55rem }
+@media(max-width:650px) { .kitchen-hero { align-items:start } .kitchen-hero .dispatch { display:none } }

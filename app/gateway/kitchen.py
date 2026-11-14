@@ -172,7 +172,7 @@ def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
     names.update(name for alternatives in options.values() for name, _ in alternatives if name not in forced)
     ids_by_name = {name: _candidate_ids(name, excluded, request.required_claims) for name in sorted(names)}
     ids = list(dict.fromkeys(pid for matches in ids_by_name.values() for pid in matches))
-    offers, _ = service.get_offers(ids, request.delivery_date) if ids else ([], None)
+    offers, checked_at = service.get_offers(ids, request.delivery_date) if ids else ([], None)
     by_id = {offer.product_id: offer for offer in offers}
 
     def match(name, row):
@@ -193,11 +193,23 @@ def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
                 alternatives.append({"ingredient": replacement, "culinary_note": note, "compatible_dishes": compatible,
                                      "suggested_quantity": round(amount, 6), "unit": row["unit"],
                                      "review_required": True, **available})
-        row.update(status="partial" if direct else "stockout" if name in forced or ids_by_name.get(name) else "unmatched",
-                   sourcing=direct, alternatives=alternatives)
+        matched = [by_id[pid] for pid in ids_by_name.get(name, []) if pid in by_id]
+        if direct:
+            status = "partial"
+        elif name in forced:
+            status = "stockout"
+        elif not matched:
+            status = "unmatched"
+        elif all(offer.reason.value == "insufficient_stock" and not offer.stale for offer in matched):
+            status = "stockout"
+        else:
+            status = "unverified"
+        row.update(status=status, sourcing=direct, alternatives=alternatives)
 
     log_plan(principal, request, result, delivery_date=request.delivery_date.isoformat())
     return {**result, "delivery_date": request.delivery_date.isoformat(),
+            "checked_at": checked_at.isoformat() if checked_at else None,
+            "cached_offers_excluded": any(offer.stale for offer in offers),
             "notes": ["Dish templates estimate quantities. Check kitchen stock and actual recipe yield.",
                       "Each ingredient is sourced independently. Recheck combined quantities before ordering.",
                       "Culinary alternatives require review and apply only to the dishes listed."]}

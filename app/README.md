@@ -5,7 +5,7 @@ availability**, get a **signed fixed-price quote** and **place an order**. A buy
 decides whether the order is auto-approved, needs a human's approval or is rejected. Every step goes to a
 **hash-chained, human-readable audit log**.
 
-The same core is exposed three ways: an **MCP server** (`/mcp`, 9 tools for compatible clients), a **REST API** (`/docs`),
+The same core is exposed three ways: an **MCP server** (`/mcp`, 11 tools for compatible clients), a **REST API** (`/docs`),
 and a build-free **web UI** with the client workspace (`/`) and Aimo operations (`/admin`). A reference
 **buyer agent** (Claude, `claude-opus-5-5`, via the Anthropic SDK tool runner) and a deterministic **scripted** mode
 are included.
@@ -23,7 +23,7 @@ See also the root [README.md](../README.md), [ASSUMPTIONS.md](ASSUMPTIONS.md),
         v                                           v
  +-----------------------------------------------------------------------+
  |  FastAPI app  (gateway/api.py)     auth.py: key -> buyer -> mandate   |
- |    mcp_server.py (9 tools)   REST endpoints   ui/index.html  agent.py |
+ |    mcp_server.py (11 tools)   REST endpoints   ui/index.html  agent.py |
  |                         \        |        /                           |
  |                          service.py  (one core for every channel)     |
  |   search.py --- offers.py --- planner.py --- quotes.py --- policy.py  |
@@ -37,7 +37,7 @@ See also the root [README.md](../README.md), [ASSUMPTIONS.md](ASSUMPTIONS.md),
 ```
 
 MCP tools include `ping`, `search_products`, `check_offers`, `estimate_delivery`, `create_quote`,
-`place_order`, `get_order_status`, `get_audit_log`, and `get_my_mandate`.
+`place_order`, `get_order_status`, `get_audit_log`, `get_my_mandate`, `compile_ingredients`, and `source_ingredients`.
 
 Flow: `search_products` → `check_offers` (+ Mandate-aware ranked plans in sales units, auto-expanding Valio's
 listed substitutes when preferred products are unorderable) → `create_quote` (signed Ed25519 JWS, expires at the
@@ -110,8 +110,18 @@ Connect an MCP client, e.g. Claude Code:
 
 ## What is real and what is stubbed
 
-**Real:** catalog search over all **17,546** products (including `nonAllergen` `FREE_FROM` claims, `oats`/`PN`/plural allergen expansion, and 4,425 reliability + 11,033 CO2 CSV rows); live price and availability from the Valio mock API with retries and stale-cache fallback; cutoff, stock, and unknown-availability handling; Mandate-aware plans in sales units with stock splitting, CO2/reliability scoring, and automatic expansion of Valio's **189** listed substitutes; Ed25519-signed quotes with `/.well-known/jwks.json`; 12 mandate rules; strict agent/approver role separation; append-only SHA-256 hash-chained audit log; 9-tool MCP server, REST API, client workspace, and Aimo operations; **10** deterministic eval cases.
+**Real:** catalog search over all **17,546** products (including `nonAllergen` `FREE_FROM` claims, `oats`/`PN`/plural allergen expansion, and 4,425 reliability + 11,033 CO2 CSV rows); live price and availability from the Valio mock API with retries and stale-cache fallback; cutoff, stock, and unknown-availability handling; Mandate-aware plans in sales units with stock splitting, CO2/reliability scoring, and automatic expansion of Valio's **189** listed substitutes; Ed25519-signed quotes with `/.well-known/jwks.json`; 12 mandate rules; strict agent/approver role separation; append-only SHA-256 hash-chained audit log; 11-tool MCP server, REST API, client workspace, and Aimo operations; **10** deterministic eval cases.
 
 **Stubbed/simplified:** there is no Valio order API (confirmed orders are recorded locally in `gateway.db`); plaintext demo API keys in `buyers.json` instead of OAuth 2.1; heuristic planner; deterministic scripted agent mode when `ANTHROPIC_API_KEY` is unset (the LLM path is implemented for `claude-opus-5-5` and includes a hosted MCP connector option).
 
 **Open standards:** MCP (Streamable HTTP), OpenAPI 3 (`/docs`), JSON Schema (`schemas/`), JWS/JWK (RFC 7515/7517, EdDSA per RFC 8037), GS1 GTINs and GS1 allergen codes from the dataset, ISO 8601 timestamps.
+
+
+## Kitchen planning
+
+- For a menu, pass `dishes: ["Salmon soup", "Roasted potatoes"]` and `servings: 20` to `compile_ingredients`. Recognized dishes use demo ingredient estimates. Other dish names are returned in `unresolved_dishes`.
+- For an exact recipe, pass `recipes: [{"name": "Tomato salad", "servings": 4, "ingredients": [{"name": "tomato", "amount": 500, "unit": "g"}]}]`. The tool scales the ingredient list to the requested servings and combines matching ingredient units. A supplied recipe replaces a template with the same dish name.
+- Use `source_ingredients` with a delivery date to check the compiled ingredients. `exclude_allergens` applies alongside the buyer mandate. `unavailable_ingredients: ["potato"]` asks the planner to skip potatoes and look for replacements. Cross-ingredient swaps are returned with their compatible dishes and culinary trade-offs.
+- In the portal, enter one dish per line or use recipe blocks headed by `Dish name (servings)`, with lines such as `500 g tomato`. Separate recipes with a blank line.
+
+Planning calls create an audit event and leave purchasing to the existing quote and ticket flow. The current kitchen planner checks ingredients independently, so buyers should review combined stock and culinary substitutions before ordering.

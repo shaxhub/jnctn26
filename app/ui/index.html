@@ -7,6 +7,7 @@
   <title>Agent Dairy | Purchasing workspace</title>
   <link rel="stylesheet" href="/assets/portal.css">
   <script type="module" src="/assets/client.js"></script>
+  <script type="module" src="/assets/kitchen.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -18,12 +19,17 @@
   <main id="main">
     <header class="top"><span>Client portal</span><label>Workspace <select id="buyer"><option value="hotel">Hotel kitchen</option><option value="hospital">Hospital kitchen</option></select></label></header>
     <div class="content">
-      <section class="hero">
-        <div><h1>Purchasing workspace</h1><p>Check the catalog, compare live offers and send order tickets to Aimo.</p></div>
-        <div class="dispatch" aria-label="Order workflow"><span>Find an offer</span><span>Review ticket</span><span>Send to Aimo</span></div>
+      <section class="hero kitchen-hero">
+        <div><h1>Purchasing workspace</h1><p>Check live offers, turn a menu into a shopping list, and send order tickets to Aimo.</p><button type="button" id="open-kitchen" class="hero-action">Plan a menu <span aria-hidden="true">↗</span></button></div>
+        <ol class="dispatch" aria-label="Purchasing workflow"><li>Plan the menu</li><li>Check availability</li><li>Review a ticket</li></ol>
       </section>
       <div class="workspace">
-        <section class="panel" aria-labelledby="ask-title">
+        <section class="panel workspace-studio" id="kitchen-workspace" aria-label="Purchasing assistant">
+          <div class="workspace-modes" role="group" aria-label="Assistant mode">
+            <button type="button" id="products-mode" aria-pressed="true" aria-controls="product-panel">Product search</button>
+            <button type="button" id="kitchen-mode" aria-pressed="false" aria-controls="kitchen-panel">Menu planner</button>
+          </div>
+          <section id="product-panel" aria-labelledby="ask-title">
           <div class="panel-head"><h2 id="ask-title">Purchasing assistant</h2><span id="assistant-mode" class="tag">Catalog & offers</span></div>
           <form id="chat">
             <label for="message">What does your kitchen need?</label>
@@ -34,6 +40,32 @@
           </form>
           <p id="chat-status" class="feedback" role="status" hidden></p>
           <div id="results" aria-live="polite"></div>
+          </section>
+          <section id="kitchen-panel" aria-labelledby="kitchen-title" hidden>
+            <div class="panel-head"><h2 id="kitchen-title">Menu planner</h2></div>
+            <form id="kitchen-form">
+              <div class="kitchen-settings">
+                <label>Input format <select id="kitchen-format"><option value="menu">Dish names</option><option value="recipes">Recipe list</option></select></label>
+                <label>Servings per dish <input id="kitchen-servings" type="number" min="1" max="5000" value="20" required></label>
+                <label>Delivery date <input id="kitchen-date" type="date" aria-describedby="delivery-hint"></label>
+              </div>
+              <p id="delivery-hint" class="cell-note">Add a delivery date to check stock and see alternatives.</p>
+              <div class="kitchen-entry">
+                <label id="kitchen-text-label" for="kitchen-text">Dish names</label>
+                <button type="button" id="kitchen-example">Use example</button>
+              </div>
+              <textarea id="kitchen-text" rows="6" maxlength="6000" required aria-describedby="kitchen-hint"></textarea>
+              <p id="kitchen-hint" class="cell-note"></p>
+              <details class="plan-option kitchen-constraints">
+                <summary>Dietary needs and stock-outs</summary>
+                <label>Exclude allergens <input id="kitchen-allergens" placeholder="milk, gluten" maxlength="240"></label>
+                <label>Ingredients already out of stock <input id="kitchen-stockout" placeholder="potatoes, basil" maxlength="300"></label>
+              </details>
+              <div class="actions"><button class="primary" type="submit">Build ingredient list</button></div>
+            </form>
+            <p id="kitchen-status" class="feedback" role="status" hidden></p>
+            <div id="kitchen-result" aria-live="polite"></div>
+          </section>
         </section>
         <aside class="side">
           <section class="panel" aria-labelledby="draft-title"><div class="panel-head"><h2 id="draft-title">Ticket review</h2></div><div id="draft" class="empty">Create a ticket draft to review quantities, prices and the delivery date.</div></section>

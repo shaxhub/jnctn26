@@ -25,6 +25,8 @@ def log(event_type: str, actor: str, data: dict, **ids) -> dict:
 
 def _summary(ev: dict) -> str:
     d, t = ev["data"], ev["event_type"]
+    if t == "MCP_REQUEST":
+        return f'{ev["actor"]} connected over MCP ({d["method"]})'
     if t == "CLIENT_INQUIRY":
         return f"{d.get('action', 'lookup')}: {d.get('text', '')}"
     if t == "SEASONAL_DISCOVERY":

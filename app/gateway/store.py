@@ -25,6 +25,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS portal_accounts (
     username TEXT PRIMARY KEY, role TEXT NOT NULL, buyer_id TEXT, salt BLOB NOT NULL, password_hash BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_credentials (
+    id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL, label TEXT NOT NULL,
+    secret_hash TEXT NOT NULL UNIQUE, can_order INTEGER NOT NULL,
+    created_at TEXT NOT NULL, last_used_at TEXT, revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_credentials_buyer ON agent_credentials(buyer_id);
 CREATE TABLE IF NOT EXISTS portal_sessions (
     token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES portal_accounts(username), expires_at TEXT NOT NULL
 );

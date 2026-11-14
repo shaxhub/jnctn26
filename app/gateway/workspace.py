@@ -1,22 +1,63 @@
 """Client workspace projections and buyer-scoped preferences."""
 from collections import Counter, defaultdict
 import re
+import secrets
 
 from datetime import date, datetime, timedelta
 import json
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 
 from . import audit, gemini, quotes, service, store
 import anyio
 from .auth import Admin, Principal, require_client
+from .accounts import token_hash
 from .config import TZ
 from .models import QuoteLine, QuoteRequest
 from .preferences import Preferences, preferences
 
 router = APIRouter(prefix="/client")
+
+
+class AgentCredential(BaseModel):
+    label: str = Field(min_length=1, max_length=60, pattern=r"\S")
+    can_order: bool = False
+
+
+@router.get("/agent-credentials")
+def agent_credentials(response: Response, p: Principal = Depends(require_client)):
+    response.headers["Cache-Control"] = "no-store"
+    rows = store.fetchall("SELECT id,label,can_order,created_at,last_used_at FROM agent_credentials "
+                          "WHERE buyer_id=? AND revoked_at IS NULL ORDER BY created_at DESC", (p.buyer_id,))
+    return [dict(row) for row in rows]
+
+
+@router.post("/agent-credentials", status_code=201)
+def issue_agent_credential(body: AgentCredential, response: Response, p: Principal = Depends(require_client)):
+    response.headers["Cache-Control"] = "no-store"
+    credential_id = "agent_" + secrets.token_hex(8)
+    secret = "ad_mcp_" + secrets.token_urlsafe(32)
+    with store.transaction() as conn:
+        active = conn.execute("SELECT count(*) FROM agent_credentials WHERE buyer_id=? AND revoked_at IS NULL",
+                              (p.buyer_id,)).fetchone()[0]
+        if active >= 20:
+            raise service.GatewayError(409, "Revoke an existing agent key before creating another.")
+        conn.execute("INSERT INTO agent_credentials (id,buyer_id,label,secret_hash,can_order,created_at) "
+                     "VALUES (?,?,?,?,?,?)", (credential_id, p.buyer_id, body.label.strip(),
+                                               token_hash(secret), body.can_order, store.now().isoformat()))
+    return {"id": credential_id, "secret": secret}
+
+
+@router.post("/agent-credentials/{credential_id}/revoke")
+def revoke_agent_credential(credential_id: str, p: Principal = Depends(require_client)):
+    with store.transaction() as conn:
+        result = conn.execute("UPDATE agent_credentials SET revoked_at=? WHERE id=? AND buyer_id=? AND revoked_at IS NULL",
+                              (store.now().isoformat(), credential_id, p.buyer_id))
+        if not result.rowcount:
+            raise service.GatewayError(404, "Agent key not found")
+    return {"revoked": True}
 STAGES = ("pending", "registered", "retrieving", "on_delivery", "almost_there", "arrived")
 
 

@@ -22,7 +22,8 @@ from typing import Mapping
 
 from fastapi import Depends, Header, HTTPException, Request
 
-from .accounts import hosted, identity
+from .accounts import hosted, identity, token_hash
+from . import store
 
 from .config import APP_DIR
 from .models import Mandate
@@ -36,10 +37,11 @@ class Principal:
     name: str
     mandate: Mandate
     can_order: bool = True
+    credential_id: str | None = None
 
     @property
     def actor(self) -> str:
-        return f"{self.role}:{self.buyer_id}:{self.name}"
+        return f"{self.role}:{self.buyer_id}:{self.name}" + (f" [{self.credential_id}]" if self.credential_id else "")
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,20 @@ def principal_for_key(key: str | None) -> Principal | None:
         can_order = preferences(entry["buyer_id"]).agent_self_order
     return Principal(buyer_id=entry["buyer_id"], role=entry["role"], name=entry.get("name", entry["buyer_id"]),
                      mandate=load_mandate(entry["buyer_id"]), can_order=can_order)
+
+
+def principal_for_mcp_key(key: str | None) -> Principal | None:
+    if not key or not key.startswith("ad_mcp_"):
+        return principal_for_key(key)
+    if len(key) > 120:
+        return None
+    row = store.fetchone("SELECT id,buyer_id,label,can_order FROM agent_credentials WHERE secret_hash=? AND revoked_at IS NULL",
+                         (token_hash(key),))
+    if not row:
+        return None
+    from .preferences import preferences
+    return Principal(row["buyer_id"], "agent", row["label"], load_mandate(row["buyer_id"]),
+                     bool(row["can_order"]) and preferences(row["buyer_id"]).agent_self_order, row["id"])
 
 
 def key_from_headers(headers: Mapping[str, str] | None) -> str | None:
@@ -135,6 +151,9 @@ class McpAuthMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
+        root_path = scope.get("root_path", "")
+        if root_path and path.startswith(root_path + "/"):
+            path = path[len(root_path):]
         if scope["type"] != "http" or not (path == self.prefix or path.startswith(self.prefix + "/")):
             return await self.app(scope, receive, send)
         headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
@@ -145,7 +164,8 @@ class McpAuthMiddleware:
         if origin and origin not in allowed_origins:
             await send({"type": "http.response.start", "status": 403, "headers": []})
             return await send({"type": "http.response.body", "body": b"Origin forbidden"})
-        p = principal_for_key(key_from_headers(headers))
+        import anyio
+        p = await anyio.to_thread.run_sync(principal_for_mcp_key, key_from_headers(headers))
         if p is None or p.role not in {"agent", "client"}:
             body = json.dumps({"error": "Missing or unknown API key"}).encode()
             await send({"type": "http.response.start", "status": 401,
@@ -153,6 +173,15 @@ class McpAuthMiddleware:
             return await send({"type": "http.response.body", "body": body})
         token = current_principal.set(p)
         try:
+            if p.credential_id:
+                await anyio.to_thread.run_sync(_record_mcp_request, p, scope["method"])
             return await self.app(scope, receive, send)
         finally:
             current_principal.reset(token)
+
+
+def _record_mcp_request(p: Principal, method: str) -> None:
+    with store.transaction() as conn:
+        conn.execute("UPDATE agent_credentials SET last_used_at=? WHERE id=?", (store.now().isoformat(), p.credential_id))
+        store.append_in_transaction(conn, "MCP_REQUEST", p.actor,
+                                    {"credential_id": p.credential_id, "method": method}, buyer_id=p.buyer_id)

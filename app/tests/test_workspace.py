@@ -30,6 +30,19 @@ def test_split_hosts_request_tracking_and_settings(gateway):
             assert (await aimo.get("/assets/client.js")).status_code == 404
             assert (await aimo.get("/client/settings")).status_code == 404
             assert (await client.get("/client/drafts", headers=hospital)).json() == []
+            from gateway.auth import principal_for_mcp_key
+            issued = await client.post("/client/agent-credentials", headers=hotel, json={"label": "Kitchen agent"})
+            assert issued.status_code == 201
+            credential = issued.json()
+            agent = principal_for_mcp_key(credential["secret"])
+            assert agent.buyer_id == "hotel" and not agent.can_order and agent.credential_id == credential["id"]
+            listed = await client.get("/client/agent-credentials", headers=hotel)
+            assert credential["secret"] not in listed.text
+            assert (await client.get("/client/agent-credentials", headers=hospital)).json() == []
+            revoke = "/client/agent-credentials/" + credential["id"] + "/revoke"
+            assert (await client.post(revoke, headers=hospital)).status_code == 404
+            assert (await client.post(revoke, headers=hotel)).status_code == 200
+            assert principal_for_mcp_key(credential["secret"]) is None
             name_url = f"/client/drafts/{draft.quote_id}/name"
             assert (await client.post(name_url, headers=hospital, json={"name": "Other kitchen"})).status_code == 404
             named = await client.post(name_url, headers=hotel, json={"name": "Monday milk"})

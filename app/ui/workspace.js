@@ -430,32 +430,76 @@ function settingsView() {
 function agentIntegration() {
   const section = panel("Agent integration");
   section.classList.add("settings-integration");
-  if (buyer.dataset.hosted === "true") {
-    section.append(node("p", t("Agent access is managed by the Aimo deployment. Ask Aimo operations for a workspace key."), "muted"));
-    return section;
-  }
-  section.append(node("p", t("Connect an external purchasing agent with this workspace’s demo key. Keep the key private."), "muted"));
-  const command = 'claude mcp add --transport http agent-dairy ' + portalUrl("/mcp") +
-    ' --header "Authorization: Bearer demo-' + buyer.value + '-key"';
-  const pre = node("pre", command);
+  const local = (en, fi) => language() === "fi" ? fi : en;
+  const hosted = buyer.dataset.hosted === "true";
+  const url = hosted ? "https://agent-dairy-mcp.kienlebox.stream/mcp" : portalUrl("/mcp");
+  section.append(node("p", local("Create a separate key for each agent. Use Streamable HTTP and an Authorization Bearer header.",
+    "Luo jokaiselle agentille oma avain. Käytä Streamable HTTP -yhteyttä ja Authorization Bearer -otsaketta."), "muted"), node("pre", url));
+  const form = node("form", "", "workspace-form");
+  const label = node("label", local("Agent name", "Agentin nimi"));
+  const name = node("input");
+  name.required = true;
+  name.maxLength = 60;
+  label.append(name);
+  const permission = node("label", local("Allow this key to submit orders", "Salli tilausten lähettäminen tällä avaimella"), "settings-permission");
+  const canOrder = node("input");
+  canOrder.type = "checkbox";
+  permission.prepend(canOrder);
+  const create = node("button", local("Create agent key", "Luo agenttiavain"), "primary");
+  form.append(label, permission, create);
+  const secret = node("pre");
+  secret.hidden = true;
+  const list = node("ul");
   const status = node("p", "", "feedback");
   status.hidden = true;
   status.setAttribute("role", "status");
-  const copy = node("button", t("Copy command"));
-  copy.type = "button";
-  copy.addEventListener("click", async () => {
+  const key = buyerKey();
+  async function loadKeys() {
     try {
-      await navigator.clipboard.writeText(command);
-      feedback(status, t("Command copied."));
-    } catch {
-      feedback(status, t("Clipboard unavailable. Select and copy the command."), true);
-    }
+      const keys = await request("/client/agent-credentials", key);
+      list.replaceChildren();
+      for (const item of keys) {
+        const row = node("li", item.label + " · " + item.id + " · " +
+          (item.can_order ? local("Ordering enabled for key", "Tilaaminen sallittu avaimelle") : local("Read-only", "Vain luku")) +
+          (item.last_used_at ? " · " + date(item.last_used_at) : ""));
+        const revoke = node("button", local("Revoke", "Mitätöi"));
+        revoke.type = "button";
+        revoke.addEventListener("click", async () => {
+          if (!window.confirm(local("Revoke this agent key?", "Mitätöidäänkö agenttiavain?"))) return;
+          revoke.disabled = true;
+          try {
+            await request("/client/agent-credentials/" + encodeURIComponent(item.id) + "/revoke", key, {});
+            secret.hidden = true;
+            secret.textContent = "";
+            await loadKeys();
+          } catch (error) { feedback(status, error.message, true); }
+          finally { revoke.disabled = false; }
+        });
+        row.append(" ", revoke);
+        list.append(row);
+      }
+    } catch (error) { feedback(status, error.message, true); }
+  }
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    create.disabled = true;
+    try {
+      const result = await request("/client/agent-credentials", key, {label:name.value, can_order:canOrder.checked});
+      secret.textContent = "Authorization: Bearer " + result.secret;
+      secret.hidden = false;
+      form.reset();
+      feedback(status, local("Copy this key now. It is shown once.", "Kopioi avain nyt. Se näytetään vain kerran."));
+      await loadKeys();
+    } catch (error) { feedback(status, error.message, true); }
+    finally { create.disabled = false; }
   });
-  const docs = node("a", t("API reference"));
-  docs.href = portalUrl("/docs");
-  const actions = node("div", "", "actions");
-  actions.append(copy, docs);
-  section.append(pre, actions, status);
+  if (hosted) {
+    const fallback = node("p", local("Funnel endpoint", "Funnel-osoite") +
+      " · https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp", "cell-note");
+    section.append(fallback);
+    }
+  section.append(form, status, secret, list);
+  loadKeys();
   return section;
 }
 

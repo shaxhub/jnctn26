@@ -6,6 +6,7 @@ let draft = null;
 let scope = 0;
 let queryVersion = 0;
 let ordersVersion = 0;
+let seasonalVersion = 0;
 
 function connection() {
   $("mcp-command").textContent = 'claude mcp add --transport http agent-dairy ' + location.origin +
@@ -35,6 +36,28 @@ function showDraft(quote, outcome) {
   key.href = "/.well-known/jwks.json";
   proof.append(node("summary", "Signed quote"), key, node("pre", quote.signature));
   target.append(proof);
+  const history = node("details", "", "plan-option");
+  history.append(node("summary", "Recurring order comparison"));
+  history.addEventListener("toggle", async () => {
+    if (!history.open || history.childElementCount > 1) return;
+    const pending = node("p", "Comparing recent deliveries…", "cell-note");
+    history.append(pending);
+    try {
+      const comparison = await request("/client/tickets/" + encodeURIComponent(quote.quote_id) + "/recurring", buyerKey());
+      pending.remove();
+      if (!comparison.baselines.length) {
+        history.append(node("p", "A baseline needs at least three confirmed deliveries on this weekday.", "cell-note"));
+        return;
+      }
+      history.append(table(["SKU", "Usual quantity", "Proposed quantity", "Unit price change"],
+        comparison.baselines.map(item => [item.product_id, number.format(item.baseline_quantity) + " " + item.sales_unit,
+          number.format(item.current_quantity) + " " + item.sales_unit,
+          item.price_change_pct == null ? "—" : number.format(item.price_change_pct) + "%"])));
+    } catch (error) {
+      pending.textContent = error.message;
+    }
+  });
+  target.append(history);
   if (quote.policy_preview.reasons.length) {
     target.append(node("p", quote.policy_preview.reasons.join(" "), "cell-note"));
   }
@@ -125,6 +148,38 @@ function ticketButton(order) {
   return button;
 }
 
+function repeatForm(order, current, key, dialog) {
+  const form = node("form", "", "seasonal-form");
+  const label = node("label", "New delivery date");
+  const input = node("input");
+  input.type = "date";
+  input.required = true;
+  label.append(input);
+  const button = node("button", "Create repeat draft");
+  const notice = node("p", "", "feedback");
+  notice.hidden = true;
+  notice.setAttribute("role", "status");
+  form.append(label, button, notice);
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    button.disabled = true;
+    feedback(notice, "Checking current price and stock…");
+    try {
+      const draft = await request("/client/tickets/" + encodeURIComponent(order.order_id) +
+        "/repeat?delivery_date=" + encodeURIComponent(input.value), key, {});
+      if (current !== scope || !dialog.open) return;
+      dialog.close();
+      showDraft(draft);
+      $("draft-title").scrollIntoView({block:"nearest"});
+      $("draft").querySelector("button").focus();
+    } catch (error) {
+      feedback(notice, error.message, true);
+      button.disabled = false;
+    }
+  });
+  return form;
+}
+
 async function inspectTicket(id) {
   const dialog = $("ticket-details");
   const target = $("ticket-detail-body");
@@ -138,6 +193,7 @@ async function inspectTicket(id) {
     target.replaceChildren(pill(order.status), node("p", order.order_id + " · Delivery " + date(order.delivery_date),
       "cell-note"), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
       node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
+    if (order.status === "confirmed") target.append(repeatForm(order, current, key, dialog));
     const audit = await request("/audit?order_id=" + encodeURIComponent(id), key);
     if (current !== scope || !dialog.open) return;
     const events = node("ol", "", "timeline");
@@ -205,7 +261,33 @@ $("copy").addEventListener("click", async () => {
     feedback($("copy-status"), "Clipboard is unavailable. Select and copy the configuration above.", true);
   }
 });
+$("seasonal-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const version = ++seasonalVersion;
+  const target = $("seasonal-results");
+  const button = event.currentTarget.querySelector("button");
+  target.replaceChildren(node("p", "Checking seasonal stock…", "feedback"));
+  button.disabled = true;
+  try {
+    const result = await request("/client/seasonal?delivery_date=" + encodeURIComponent($("seasonal-date").value), buyerKey());
+    if (version !== seasonalVersion) return;
+    target.replaceChildren(node("p", result.calendar + " · " + date(result.delivery_date), "cell-note"));
+    if (!result.suggestions.length) target.append(node("p", "No available products match the seasonal calendar for this date.", "empty"));
+    for (const group of result.suggestions) {
+      target.append(node("h3", group.ingredient, "results"), table(
+        ["Product", "Net price / unit", "Availability", "Earliest date", "kg CO₂e/kg", "Reliability"], offerRows(group.offers)));
+    }
+  } catch (error) {
+    if (version === seasonalVersion) target.replaceChildren(node("p", error.message, "feedback error"));
+  } finally {
+    if (version === seasonalVersion) button.disabled = false;
+  }
+});
+
 buyer.addEventListener("change", () => {
+  seasonalVersion += 1;
+  $("seasonal-results").replaceChildren();
+  $("seasonal-form").querySelector("button").disabled = false;
   scope += 1;
   queryVersion += 1;
   $("chat").querySelectorAll("[type=submit]").forEach(button => { button.disabled = false; });

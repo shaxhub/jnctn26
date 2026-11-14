@@ -72,6 +72,14 @@
           <section class="panel" aria-labelledby="connect-title"><div class="panel-head"><h2 id="connect-title">Connect your agent</h2><span class="tag">MCP</span></div><p class="muted">Use Streamable HTTP with your workspace’s demo agent key.</p><pre id="mcp-command"></pre><div class="actions"><button type="button" id="copy">Copy configuration</button><a href="/docs">API reference</a></div><p id="copy-status" class="feedback" role="status" hidden></p></section>
         </aside>
       </div>
+      <section class="panel seasonal-panel" aria-labelledby="seasonal-title">
+        <div class="panel-head"><div><h2 id="seasonal-title">Seasonal produce</h2><p class="muted">Finnish produce with stock for your delivery date.</p></div></div>
+        <form id="seasonal-form" class="seasonal-form">
+          <label>Seasonal delivery date <input id="seasonal-date" type="date" required></label>
+          <button type="submit" class="primary">Check seasonal stock</button>
+        </form>
+        <div id="seasonal-results" aria-live="polite"></div>
+      </section>
       <section class="panel orders" aria-labelledby="orders-title"><div class="panel-head"><h2 id="orders-title">Your submitted tickets</h2><button id="refresh" type="button">Refresh</button></div><div id="orders" aria-live="polite"></div></section>
     </div>
   </main>

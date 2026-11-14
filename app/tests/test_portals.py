@@ -272,3 +272,23 @@ def test_later_delivery_does_not_suggest_an_excluded_allergen(gateway, monkeypat
     monkeypatch.setattr(service, "get_offers", lookup)
     request = OffersRequest(product_ids=["milk"], delivery_date=date(2026, 11, 16), include_next_delivery=True)
     assert service.check_offers(buyer, request)["next_delivery_options"] == []
+
+
+def test_concurrent_submissions_reserve_weekly_limit_atomically(gateway):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    agent = principal_for_key("demo-hotel-key")
+    buyer = replace(agent, mandate=agent.mandate.model_copy(update={"max_weekly_total": 1000}))
+    delivery = date(2026, 11, 16)
+    request = QuoteRequest(delivery_date=delivery, lines=[{"product_id": "milk", "quantity": 300}])
+    quotes = [service.create_quote(buyer, request) for _ in range(2)]
+    barrier = Barrier(2, timeout=5)
+
+    def submit(quote):
+        barrier.wait()
+        return service.place_order(buyer, quote.quote_id).status
+
+    with ThreadPoolExecutor(2) as pool:
+        assert sorted(pool.map(submit, quotes)) == ["confirmed", "pending_approval"]
+    assert store.verify_chain()["ok"]

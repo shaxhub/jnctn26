@@ -32,6 +32,26 @@ A hotel chain's agent sends this request. Your solution returns products, prices
 
 **Impact:** This is not about replacing today's e-commerce UI with a chatbot. It is about defining how a European food-service wholesaler can be safely and openly readable by autonomous agents – before that interface gets defined by someone else's platform.
 
+## Insight
+
+### Problems we'd love to see tackled
+
+- **Trust protocol:** the minimum data/verification standard for an external agent to trust Valio Aimo's claims on stock, price and origin without a manual check.
+- **Guardrails model:** which decisions require human sign-off (spend threshold, substitutions outside stated preferences) vs. fully autonomous.
+- **Response logic:** how an agent handles partial availability and substitution ranking ("good-better-best") within Valio Aimo's own assortment.
+- **Audit trail:** a usable, human-readable log of an agent's purchasing decisions, for both buyer and Valio Aimo.
+
+### Example scenarios to spark ideas
+
+- **Need → recipe → order:** a chef plans next week's menu around a seasonal ingredient. The agent suggests recipes, works out what's missing from stock, and places the order.
+- **Last-minute event:** an unexpected booking for tomorrow. The agent identifies what the recipes require, flags what can't be sourced in time, and proposes substitutions through recipe logic rather than a simple SKU swap.
+- **Supplier stock-out:** a key product runs out mid-week. The agent proposes a recipe-compatible substitute before the kitchen notices the gap, and explains the trade-off.
+- **Proactive selling agent:** Valio Aimo's own agent spots a new or seasonal product and proactively suggests it to the buyer's agent.
+- **Allergen-safe substitution under pressure:** in a school or hospital kitchen, a substitution must still satisfy strict allergen and nutrition rules.
+- **Standing order drift detection:** the agent learns a kitchen's recurring weekly order and flags anomalies (portion counts creeping up, cost drifting) before auto-renewing it.
+
+**Scope note:** we are mocking a structured data/API interface. Whether Valio Aimo's production interface eventually becomes a traditional API, an MCP-style agentic interface or a full service agent of its own is outside the scope of this challenge.
+
 # Valio Aimo®
 
 Valio Aimo® was created in 2021 as a bold leap forward by Valio, transforming traditional wholesale into a next-generation foodservice powerhouse.

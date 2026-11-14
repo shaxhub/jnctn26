@@ -5,8 +5,8 @@ availability**, get a **signed fixed-price quote** and **place an order**. A buy
 decides whether the order is auto-approved, needs a human's approval or is rejected. Every step goes to a
 **hash-chained, human-readable audit log**.
 
-The same core is exposed three ways: an **MCP server** (`/mcp`, 7 tools for any agent), a **REST API** (`/docs`),
-and a build-free **web UI** (`/`) with Request, Approvals, Audit, and Connect via MCP panels. A reference
+The same core is exposed three ways: an **MCP server** (`/mcp`, 9 tools for compatible clients), a **REST API** (`/docs`),
+and a build-free **web UI** with the client workspace (`/`) and Aimo operations (`/admin`). A reference
 **buyer agent** (Claude, `claude-opus-5-5`, via the Anthropic SDK tool runner) and a deterministic **scripted** mode
 are included.
 
@@ -23,7 +23,7 @@ See also the root [README.md](../README.md), [ASSUMPTIONS.md](ASSUMPTIONS.md),
         v                                           v
  +-----------------------------------------------------------------------+
  |  FastAPI app  (gateway/api.py)     auth.py: key -> buyer -> mandate   |
- |    mcp_server.py (7 tools)   REST endpoints   ui/index.html  agent.py |
+ |    mcp_server.py (9 tools)   REST endpoints   ui/index.html  agent.py |
  |                         \        |        /                           |
  |                          service.py  (one core for every channel)     |
  |   search.py --- offers.py --- planner.py --- quotes.py --- policy.py  |
@@ -36,8 +36,8 @@ See also the root [README.md](../README.md), [ASSUMPTIONS.md](ASSUMPTIONS.md),
  +-----------------------------------------------------------------------+
 ```
 
-MCP tools (7): `search_products`, `check_offers`, `create_quote`, `place_order`, `get_order_status`,
-`get_audit_log`, `get_my_mandate`.
+MCP tools include `ping`, `search_products`, `check_offers`, `estimate_delivery`, `create_quote`,
+`place_order`, `get_order_status`, `get_audit_log`, and `get_my_mandate`.
 
 Flow: `search_products` → `check_offers` (+ Mandate-aware ranked plans in sales units, auto-expanding Valio's
 listed substitutes when preferred products are unorderable) → `create_quote` (signed Ed25519 JWS, expires at the
@@ -50,7 +50,8 @@ human approves/rejects → `confirmed` | `rejected` | `expired`.
 Follow the [local setup in the root README](../README.md#local-setup) to configure the Valio key, import the challenge catalog, and start the app. Set `ANTHROPIC_API_KEY` in `.env` to enable the reference LLM agent, or set `DEMO_NOW` to fix the demo clock.
 
 Endpoints when running:
-- **UI:** `http://localhost:8000/`
+- **Client workspace:** `http://localhost:8000/`
+- **Aimo operations:** `http://localhost:8000/admin` (uses the private `AIMO_ADMIN_API_KEY`)
 - **OpenAPI:** `http://localhost:8000/docs`
 - **MCP:** `http://localhost:8000/mcp` (header `X-API-Key: demo-hotel-key` or `Authorization: Bearer demo-hotel-key`)
 - **JWKS:** `http://localhost:8000/.well-known/jwks.json`
@@ -69,11 +70,9 @@ uv run python -m gateway.models                   # re-export JSON Schemas to sc
 The challenge data stays in `../external/valio-aimo` (set `DATA_DIR`). **Never copy it into `app/` or commit it**:
 the terms limit it to this challenge. `external/`, `data/`, `*.db`, and `.env` are gitignored.
 
-Demo keys (`buyers.json`): `demo-hotel-key`, `demo-hospital-key` (agents), `demo-hotel-approver-key`,
-`demo-hospital-approver-key` (humans). Agents cannot approve; approvers cannot quote, order, or use MCP tools.
+Demo credentials in `buyers.json` include `demo-hotel-key` and `demo-hospital-key` for external MCP clients, plus corresponding `-client-key` values for the client workspace. The Aimo operations key is separate. New exceptions require that key to resolve. Signed quotes from earlier versions retain their original buyer-approval behavior.
 
-Demo state helpers: `POST /demo/reset` (or the **Reset demo state** button in the UI) resets `gateway.db` and
-optionally sets `DEMO_NOW` (e.g., `{"demo_now": "2026-11-14T10:00:00+02:00"}`) for reproducible cutoff demos.
+`POST /demo/reset` requires the operations key. It clears gateway state and can set a fixed `demo_now` timestamp for demos.
 
 Connect an MCP client, e.g. Claude Code:
 `claude mcp add --transport http agent-dairy http://localhost:8000/mcp --header "Authorization: Bearer demo-hotel-key"`.
@@ -111,7 +110,7 @@ Connect an MCP client, e.g. Claude Code:
 
 ## What is real and what is stubbed
 
-**Real:** catalog search over all **17,546** products (including `nonAllergen` `FREE_FROM` claims, `oats`/`PN`/plural allergen expansion, and 4,425 reliability + 11,033 CO2 CSV rows); live price and availability from the Valio mock API with retries and stale-cache fallback; cutoff, stock, and unknown-availability handling; Mandate-aware plans in sales units with stock splitting, CO2/reliability scoring, and automatic expansion of Valio's **189** listed substitutes; Ed25519-signed quotes with `/.well-known/jwks.json`; 12 mandate rules; strict agent/approver role separation; append-only SHA-256 hash-chained audit log; 7-tool MCP server; REST API; 4-scenario Web UI with `Reset demo state` and `Connect via MCP`; **10** deterministic eval cases.
+**Real:** catalog search over all **17,546** products (including `nonAllergen` `FREE_FROM` claims, `oats`/`PN`/plural allergen expansion, and 4,425 reliability + 11,033 CO2 CSV rows); live price and availability from the Valio mock API with retries and stale-cache fallback; cutoff, stock, and unknown-availability handling; Mandate-aware plans in sales units with stock splitting, CO2/reliability scoring, and automatic expansion of Valio's **189** listed substitutes; Ed25519-signed quotes with `/.well-known/jwks.json`; 12 mandate rules; strict agent/approver role separation; append-only SHA-256 hash-chained audit log; 9-tool MCP server, REST API, client workspace, and Aimo operations; **10** deterministic eval cases.
 
 **Stubbed/simplified:** there is no Valio order API (confirmed orders are recorded locally in `gateway.db`); plaintext demo API keys in `buyers.json` instead of OAuth 2.1; heuristic planner; deterministic scripted agent mode when `ANTHROPIC_API_KEY` is unset (the LLM path is implemented for `claude-opus-5-5` and includes a hosted MCP connector option).
 

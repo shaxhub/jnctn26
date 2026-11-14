@@ -1,17 +1,11 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, date, feedback, lineItems, money, node, number, pill, portalUrl, request, table} from "./common.js";
+import {$, date, dateTime, feedback, lineItems, money, node, number, parseInputDate, pill, portalUrl, request, table} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
 let scope = 0;
 let queryVersion = 0;
-let seasonalVersion = 0;
 
-function connection() {
-  $("mcp-command").textContent = 'claude mcp add --transport http agent-dairy ' + portalUrl("/mcp") +
-    ' --header "Authorization: Bearer demo-' + buyer.value + '-key"';
-  feedback($("copy-status"), "");
-}
 
 export function showDraft(quote, outcome, target = $("draft")) {
   target.classList.toggle("empty", !quote && !outcome);
@@ -26,7 +20,7 @@ export function showDraft(quote, outcome, target = $("draft")) {
     return;
   }
   target.append(node("p", "Delivery " + date(quote.delivery_date)),
-    node("p", "Quote expires " + new Date(quote.expires_at).toLocaleString("en-FI", {timeZone:"Europe/Helsinki"}), "cell-note"),
+    node("p", "Quote expires " + dateTime(quote.expires_at), "cell-note"),
     lineItems(quote.lines), node("p", money.format(quote.total_net) + " excl. VAT", "ticket-total"));
   const proof = node("details", "", "plan-option");
   const key = node("a", "Quote verification keys");
@@ -200,8 +194,6 @@ async function sendChat(requestData) {
     const result = await request("/client/chat", buyerKey(), requestData);
     if (current !== queryVersion) return;
     feedback($("chat-status"), result.message);
-    $("assistant-mode").textContent = result.mode === "gemini-4-hydrogen" ? "Gemini 4 Hydrogen" :
-      result.mode === "guided_fallback" ? "Gemini unavailable. Using guided search." : "Guided search";
     if (result.recipe) showRecipe(result.recipe);
     else showResults(result, requestData);
     if (result.draft) showDraft(result.draft);
@@ -216,67 +208,38 @@ $("chat").addEventListener("submit", event => {
   event.preventDefault();
   const text = $("message").value.trim();
   if (!text) return;
+  const rawDate = $("chat-delivery-date").value.trim();
+  const delivery = rawDate ? parseInputDate(rawDate) : null;
+  if (rawDate && !delivery) {
+    feedback($("chat-status"), "Enter the delivery date as dd.mm.yyyy.", true);
+    $("chat-delivery-date").focus();
+    return;
+  }
   sendChat({text, action: event.submitter?.value || "lookup",
-    postal_code: $("postcode").value || null, delivery_date:$("chat-delivery-date").value || null,
-    model:$("assistant-model").value, include_substitutes: $("substitutes").checked});
+    postal_code: $("postcode").value || null, delivery_date: delivery,
+    include_substitutes: $("substitutes").checked});
 });
 
 document.querySelectorAll("[data-example]").forEach(button => button.addEventListener("click", () => {
   $("message").value = button.dataset.example;
   $("message").focus();
 }));
-$("copy").addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText($("mcp-command").textContent);
-    feedback($("copy-status"), "Configuration copied.");
-  } catch {
-    feedback($("copy-status"), "Clipboard is unavailable. Select and copy the configuration above.", true);
-  }
-});
-$("seasonal-form").addEventListener("submit", async event => {
-  event.preventDefault();
-  const version = ++seasonalVersion;
-  const target = $("seasonal-results");
-  const button = event.currentTarget.querySelector("button");
-  target.replaceChildren(node("p", "Checking seasonal stock…", "feedback"));
-  button.disabled = true;
-  try {
-    const result = await request("/client/seasonal?delivery_date=" + encodeURIComponent($("seasonal-date").value), buyerKey());
-    if (version !== seasonalVersion) return;
-    target.replaceChildren(node("p", result.calendar + " · " + date(result.delivery_date), "cell-note"));
-    if (!result.suggestions.length) target.append(node("p", "No available products match the seasonal calendar for this date.", "empty"));
-    for (const group of result.suggestions) {
-      target.append(node("h3", group.ingredient, "results"), table(
-        ["Product", "Net price / unit", "Availability", "Earliest date", "kg CO₂e/kg", "Reliability"], offerRows(group.offers)));
-    }
-  } catch (error) {
-    if (version === seasonalVersion) target.replaceChildren(node("p", error.message, "feedback error"));
-  } finally {
-    if (version === seasonalVersion) button.disabled = false;
-  }
+$("seasonal-pick").addEventListener("click", () => {
+  $("message").value = "Find seasonal Finnish produce for this week";
+  $("message").focus();
+  $("message").setSelectionRange($("message").value.length, $("message").value.length);
 });
 
 buyer.addEventListener("change", () => {
-  seasonalVersion += 1;
-  $("seasonal-results").replaceChildren();
-  $("seasonal-form").querySelector("button").disabled = false;
   scope += 1;
   queryVersion += 1;
   $("chat").querySelectorAll("[type=submit]").forEach(button => { button.disabled = false; });
-  connection();
   showDraft(null);
   $("results").replaceChildren();
   feedback($("chat-status"), "");
 });
-connection();
-
 
 document.querySelector("[data-recipe]").addEventListener("click", () => {
   $("message").value = "Tomato salad (4)\n500 g tomato\n80 g red onion\n12 g basil";
   $("message").focus();
 });
-request("/client/models", buyerKey()).then(data => {
-  const model = data.models[0];
-  if (!model.available) $("assistant-mode").textContent =
-    "Gemini key pending. Guided search accepts product requests and metric recipe lists.";
-}).catch(() => {});

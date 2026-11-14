@@ -1,5 +1,5 @@
 import {orderThread} from "./order_thread.js";
-import {$, date, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
+import {$, date, dateTime, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
 
 let key = sessionStorage.getItem("aimo-operations-key") || "";
 let view = "queue";
@@ -86,7 +86,7 @@ function renderRows(rows, append) {
     : ["Time", "Client", "Event", "Details", "Ticket"];
   const values = isQueue ? rows.map(order => [ticketButton(order.order_id), order.buyer_id,
     pill(order.status), date(order.delivery_date), money.format(order.total_net), order.policy.reasons[0]])
-    : rows.map(event => [new Date(event.ts).toLocaleString("en-FI", {timeZone:"Europe/Helsinki"}),
+    : rows.map(event => [dateTime(event.ts),
       event.sector, event.event_type.toLowerCase().replaceAll("_", " "), event.summary,
       event.order_id ? ticketButton(event.order_id) : "—"]);
   if (!rows.length && !append) {

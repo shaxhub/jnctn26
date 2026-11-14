@@ -1,4 +1,4 @@
-import {feedback, node, request} from "./common.js";
+import {dateTime, feedback, node, request} from "./common.js";
 
 export const stages = ["pending", "registered", "retrieving", "on_delivery", "almost_there", "arrived"];
 const labels = {
@@ -16,7 +16,7 @@ export function orderThread(detail, {url, key, admin = false, language = "en"}) 
     section.append(node("p", "Current stage: " + stageName(state.stage, language), "tag"));
     const progress = node("ol", "", "timeline");
     for (const step of state.stages) {
-      progress.append(node("li", stageName(step.stage, language) + " · " + new Date(step.at).toLocaleString(language)));
+      progress.append(node("li", stageName(step.stage, language) + " · " + dateTime(step.at)));
     }
     section.append(progress);
     const next = stages[stages.indexOf(state.stage) + 1];
@@ -31,7 +31,7 @@ export function orderThread(detail, {url, key, admin = false, language = "en"}) 
     for (const item of state.messages) {
       const message = node("li");
       message.append(node("strong", ({aimo:"Aimo",client:"Client",agent:"Client agent"})[item.side]),
-        node("p", item.text), node("small", new Date(item.at).toLocaleString(language)));
+        node("p", item.text), node("small", dateTime(item.at)));
       list.append(message);
     }
     section.append(list);

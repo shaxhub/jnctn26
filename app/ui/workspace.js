@@ -1,4 +1,4 @@
-import {$, date, feedback, money, node, number, request, table} from "./common.js";
+import {$, date, feedback, inputDate, money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
 import {buyerKey, inspectTicket, showDraft} from "./client.js";
 import {stageName, stages} from "./order_thread.js";
 
@@ -36,7 +36,7 @@ let preferenceWrites = Promise.resolve();
 
 function viewName() {
   const name = location.hash.slice(1);
-  return Object.hasOwn(views, name) ? name : "dashboard";
+  return Object.hasOwn(views, name) ? name : "products";
 }
 
 function language() { return settings.language || "en"; }
@@ -74,6 +74,19 @@ function dashboard(data) {
   section.append(totals, pipeline);
   const closed = (data.stages.rejected || 0) + (data.stages.expired || 0);
   if (closed) section.append(node("p", closed + " rejected or expired requests", "muted"));
+  if (!data.drafts && !data.submitted) {
+    const empty = node("div", "", "empty dashboard-empty");
+    empty.append(node("p", language() === "fi"
+      ? "Ei vielä luonnoksia tai lähetettyjä pyyntöjä. Aloita etsimällä tuotteita tai liittämällä resepti."
+      : "No drafts or submitted requests yet. Start by finding products or pasting a recipe."));
+    const start = node("button", language() === "fi" ? "Aloita tuotehaku" : "Start a product search", "primary");
+    start.type = "button";
+    start.addEventListener("click", () => { location.hash = "products"; });
+    const actions = node("div", "", "actions");
+    actions.append(start);
+    empty.append(actions);
+    section.append(empty);
+  }
   root.replaceChildren(section);
 }
 
@@ -82,8 +95,10 @@ function draftEditor(quote, selected, state) {
   section.append(node("p", "Suggest changes to quantities or delivery date, then save a fresh quote.", "muted"));
   const form = node("form", "", "workspace-form");
   const input = node("input");
-  input.type = "date";
-  input.value = quote.delivery_date;
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.placeholder = "dd.mm.yyyy";
+  input.value = inputDate(quote.delivery_date);
   input.required = true;
   const label = node("label", "Delivery date");
   label.append(input);
@@ -127,7 +142,7 @@ function draftEditor(quote, selected, state) {
     propose.disabled = true;
     try {
       const suggestion = await request(base + "/help", key, {text:prompt.value});
-      input.value = suggestion.delivery_date;
+      input.value = inputDate(suggestion.delivery_date);
       for (const [sku, field] of fields) field.value = suggestion.quantities[sku] ?? 0;
       feedback(notice, "Suggestion applied to the fields. Save to refresh price and stock.");
     } catch (error) { feedback(notice, error.message, true); }
@@ -138,8 +153,10 @@ function draftEditor(quote, selected, state) {
     event.preventDefault();
     save.disabled = true;
     try {
+      const delivery = parseInputDate(input.value);
+      if (!delivery) throw new Error("Enter the delivery date as dd.mm.yyyy.");
       const quantities = Object.fromEntries([...fields].map(([sku, field]) => [sku, Number(field.value)]).filter(([, value]) => value > 0));
-      const fresh = await request(base + "/edit", key, {delivery_date:input.value, quantities});
+      const fresh = await request(base + "/edit", key, {delivery_date:delivery, quantities});
       if (state === version) showDrafts(fresh.quote_id);
     } catch (error) { feedback(notice, error.message, true); }
     finally { save.disabled = false; }
@@ -294,7 +311,86 @@ function settingsView() {
     catch (error) { feedback(note, error.message, true); }
   });
   section.append(form);
-  root.replaceChildren(section);
+  root.replaceChildren(section, agentIntegration());
+}
+
+function agentIntegration() {
+  const section = panel("Agent integration");
+  section.classList.add("settings-integration");
+  section.append(node("p", "Connect an external purchasing agent with this workspace’s demo key. Keep the key private.", "muted"));
+  if (buyer.dataset.hosted === "true") {
+    section.append(node("p", "Agent access is managed by the Aimo deployment. Ask Aimo operations for a workspace key.", "muted"));
+    return section;
+  }
+  const command = 'claude mcp add --transport http agent-dairy ' + portalUrl("/mcp") +
+    ' --header "Authorization: Bearer demo-' + buyer.value + '-key"';
+  const pre = node("pre", command);
+  const status = node("p", "", "feedback");
+  status.hidden = true;
+  status.setAttribute("role", "status");
+  const copy = node("button", "Copy command");
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      feedback(status, "Command copied.");
+    } catch {
+      feedback(status, "Clipboard unavailable. Select and copy the command.", true);
+    }
+  });
+  const docs = node("a", "API reference");
+  docs.href = portalUrl("/docs");
+  const actions = node("div", "", "actions");
+  actions.append(copy, docs);
+  section.append(pre, actions, status);
+  return section;
+}
+
+async function loadTrust() {
+  const key = buyerKey();
+  const target = $("trust");
+  if (!target) return;
+  try {
+    const me = await request("/me", key);
+    if (key === buyerKey()) renderTrust(me);
+  } catch (error) {
+    if (key === buyerKey()) {
+      target.classList.add("empty");
+      target.replaceChildren(node("p", "Limits unavailable. " + error.message, "cell-note"));
+    }
+  }
+}
+
+function approvalSummary(m) {
+  const needs = [];
+  if (m.max_order_total != null) needs.push("over " + money.format(m.max_order_total));
+  if (m.substitution_policy === "always_approval") needs.push("all substitutions");
+  else if (m.substitution_policy === "same_category") needs.push("substitutions outside category");
+  if (m.partial_coverage === "needs_approval") needs.push("partial stock");
+  if (m.unknown_availability === "needs_approval") needs.push("unverified stock");
+  if (m.may_contain_forbidden === "needs_approval" && m.forbidden_allergens.length) needs.push("trace allergens");
+  return needs.length ? needs.join(", ") : "None";
+}
+
+function renderTrust(me) {
+  const target = $("trust");
+  if (!target) return;
+  const m = me.mandate;
+  const values = [
+    ["Automatic orders", m.max_order_total == null ? "Any amount" : money.format(m.max_order_total) + " net"],
+    ["Weekly limit", m.max_weekly_total == null ? "None" : money.format(m.max_weekly_total) + " net"],
+    ["Used this week", money.format(me.weekly_spent || 0)],
+    ["Needs approval", approvalSummary(m)],
+    ["Blocked allergens", m.forbidden_allergens?.length ? m.forbidden_allergens.join(", ") : "None"],
+  ];
+  const list = node("dl", "", "limits");
+  for (const [label, value] of values) {
+    const row = node("div", "", "limit-row");
+    row.append(node("dt", label), node("dd", value));
+    list.append(row);
+  }
+  target.classList.remove("empty");
+  target.replaceChildren(list, node("p", "Mandate " + m.mandate_id + " · issued by " + m.issued_by, "cell-note"));
 }
 
 async function save(value) {
@@ -314,6 +410,8 @@ function updateHeading() {
   const [en, fi, description] = views[active];
   $("view-title").textContent = language() === "fi" ? fi : en;
   $("view-description").textContent = t(description);
+  const crumb = $("crumb-current");
+  if (crumb) crumb.textContent = language() === "fi" ? fi : en;
   for (const link of document.querySelectorAll("[data-view]")) {
     if (link.dataset.view === active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -366,11 +464,16 @@ async function connect() {
     applyPreferences();
     render();
     refreshReminder();
-  } catch (error) { root.replaceChildren(node("p", error.message, "feedback error")); }
+    loadTrust();
+  } catch (error) {
+    root.replaceChildren(node("p", error.message, "feedback error"));
+  } finally {
+    document.documentElement.classList.remove("booting");
+  }
 }
 
 window.addEventListener("hashchange", render);
-window.addEventListener("ticket-submitted", render);
+window.addEventListener("ticket-submitted", () => { render(); loadTrust(); });
 window.setInterval(refreshReminder, 60000);
 buyer.addEventListener("change", connect);
 for (const code of ["en", "fi"]) $("lang-" + code).addEventListener("click", async () => {
@@ -403,16 +506,15 @@ $("client-sign-out").addEventListener("click", async () => {
   else sessionStorage.setItem("agent-dairy-signed-out", "true");
   window.location.reload();
 });
-
 async function initialize() {
   const session = await request("/session", "");
   $("offline-demo-banner").hidden = !session.offline_demo;
   if (session.required) {
     buyer.dataset.hosted = "true";
     buyer.disabled = true;
-    $("connect-title").closest(".panel").hidden = true;
     if (!session.username) {
       loginScreen(true);
+      document.documentElement.classList.remove("booting");
       return;
     }
     buyer.value = session.buyer_id;
@@ -431,6 +533,7 @@ async function initialize() {
     signedOut.append(button);
     document.querySelector(".rail").hidden = true;
     $("main").append(signedOut);
+    document.documentElement.classList.remove("booting");
   } else {
     await connect();
   }

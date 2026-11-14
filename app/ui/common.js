@@ -2,8 +2,19 @@ export const $ = id => document.getElementById(id);
 export const portalUrl = path => new URL(path.replace(/^\//, ""), document.baseURI).href;
 export const number = new Intl.NumberFormat("en-FI", {maximumFractionDigits: 2});
 export const money = new Intl.NumberFormat("en-FI", {style: "currency", currency: "EUR"});
-const dateFormat = new Intl.DateTimeFormat("en-FI", {dateStyle: "medium", timeZone: "Europe/Helsinki"});
+const dateFormat = new Intl.DateTimeFormat("fi-FI", {dateStyle: "short", timeZone: "Europe/Helsinki"});
+const dateTimeFormat = new Intl.DateTimeFormat("fi-FI", {dateStyle: "short", timeStyle: "short", timeZone: "Europe/Helsinki"});
 export const date = value => value ? dateFormat.format(new Date(value)) : "—";
+export const dateTime = value => value ? dateTimeFormat.format(new Date(value)) : "—";
+// dd.mm.yyyy for inputs; ISO (yyyy-mm-dd) for the API.
+export const inputDate = value => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? match[3] + "." + match[2] + "." + match[1] : "";
+};
+export const parseInputDate = value => {
+  const match = String(value || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  return match ? match[3] + "-" + match[2].padStart(2, "0") + "-" + match[1].padStart(2, "0") : null;
+};
 export const statusText = {confirmed:"Confirmed", pending_approval:"Needs review", rejected:"Rejected", expired:"Expired"};
 
 export function node(tag, text = "", className = "") {

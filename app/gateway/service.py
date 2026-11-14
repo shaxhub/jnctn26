@@ -209,7 +209,7 @@ def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[s
 
 
 def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None,
-                 max_total_gross: float | None = None) -> Quote:
+                 max_total_gross: float | None = None, name: str | None = None) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
@@ -274,7 +274,8 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
                "lines": [l.model_dump(mode="json") for l in lines], "total_net": total, "total_gross": gross,
                "currency": "EUR", "created_at": now.isoformat(), "expires_at": expires.isoformat(),
                "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role,
-               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims}
+               "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims,
+               "max_total_gross": max_total_gross}
     jws = quotes.sign(payload)
     quote = Quote(**payload, policy_preview=preview, signature=jws, warnings=warnings)
     with store.transaction() as conn:
@@ -287,6 +288,9 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
         conn.execute("INSERT INTO quotes (quote_id,buyer_id,created_at,expires_at,status,total_net,payload_json,jws)"
                      " VALUES (?,?,?,?,?,?,?,?)",
                      (quote_id, p.buyer_id, now.isoformat(), expires.isoformat(), "open", total, json.dumps(payload), jws))
+        previous = conn.execute("SELECT name FROM ticket_names WHERE quote_id=?", (supersedes,)).fetchone()
+        quote.name = previous["name"] if previous else name or ticket_label(lines)
+        conn.execute("INSERT INTO ticket_names VALUES (?,?)", (quote_id, quote.name))
         evidence = {"lines": payload["lines"], "total_net": total, "expires_at": payload["expires_at"],
                     "decision": preview.decision.value, "policy_preview": preview.model_dump(mode="json"),
                     "warnings": warnings}
@@ -299,10 +303,22 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
 
 
 # --- orders ------------------------------------------------------------------------------------
+def ticket_label(lines) -> str:
+    names = list(dict.fromkeys(line.name or line.product_id for line in lines))
+    return " + ".join(names[:2])[:100]
+
+
+def ticket_name(quote_id: str, lines) -> str:
+    row = store.fetchone("SELECT name FROM ticket_names WHERE quote_id=?", (quote_id,))
+    return row["name"] if row else ticket_label(lines)
+
+
 def _order_from_row(r) -> Order:
-    return Order(order_id=r["order_id"], quote_id=r["quote_id"], buyer_id=r["buyer_id"], status=r["status"],
+    lines = [QuoteLine.model_validate(line) for line in json.loads(r["lines_json"])]
+    return Order(order_id=r["order_id"], quote_id=r["quote_id"], name=ticket_name(r["quote_id"], lines),
+                 buyer_id=r["buyer_id"], status=r["status"],
                  total_net=r["total_net"], currency=r["currency"], delivery_date=r["delivery_date"],
-                 lines=json.loads(r["lines_json"]), policy=json.loads(r["policy_json"]),
+                 lines=lines, policy=json.loads(r["policy_json"]),
                  approval_id=r["approval_id"], agent_rationale=r["agent_rationale"] or "",
                  created_at=r["created_at"], updated_at=r["updated_at"])
 

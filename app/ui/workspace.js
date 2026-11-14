@@ -1,5 +1,5 @@
 import {$, date, feedback, inputDate, money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
-import {buyerKey, inspectTicket, showDraft} from "./client.js";
+import {buyerKey, editBasket, inspectTicket, showDraft, ticketNameForm} from "./client.js";
 import {stageName, stages} from "./order_thread.js";
 
 const views = {
@@ -29,6 +29,52 @@ const translations = {
   "Daily reminder for tomorrow’s order":"Päivittäinen muistutus huomisen tilauksesta", "Save settings":"Tallenna asetukset",
 };
 const t = text => language() === "fi" ? translations[text] || text : text;
+let draftSelection;
+
+async function loadDraftFlyout() {
+  const flyout = $("draft-flyout");
+  if (flyout.hidden) return;
+  flyout.replaceChildren(node("h2", t("Saved drafts")));
+  try {
+    const drafts = await request("/client/drafts", buyerKey());
+    if (flyout.hidden) return;
+    if (!drafts.length) flyout.append(node("p", language() === "fi" ? "Ei luonnoksia." : "No saved drafts."));
+    for (const quote of drafts) {
+      const button = node("button", quote.name || quote.quote_id);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        draftSelection = quote.quote_id;
+        $("draft-flyout-toggle").click();
+        if (viewName() === "drafts") showDrafts(draftSelection);
+        else location.hash = "drafts";
+      });
+      flyout.append(button);
+    }
+  } catch (error) { flyout.append(node("p", error.message, "feedback error")); }
+}
+
+const draftsNav = document.querySelector('[data-view="drafts"]');
+const flyoutToggle = node("button", "›", "draft-flyout-toggle");
+flyoutToggle.id = "draft-flyout-toggle";
+flyoutToggle.type = "button";
+flyoutToggle.setAttribute("aria-label", "Saved drafts / Tallennetut luonnokset");
+flyoutToggle.setAttribute("aria-controls", "draft-flyout");
+flyoutToggle.setAttribute("aria-expanded", "false");
+const draftNavRow = node("div", "", "draft-nav-row");
+draftsNav.replaceWith(draftNavRow);
+draftNavRow.append(draftsNav, flyoutToggle);
+flyoutToggle.addEventListener("click", () => {
+  const flyout = $("draft-flyout");
+  flyout.hidden = !flyout.hidden;
+  $("draft-flyout-toggle").setAttribute("aria-expanded", String(!flyout.hidden));
+  loadDraftFlyout();
+});
+window.addEventListener("draft-changed", loadDraftFlyout);
+window.addEventListener("ticket-renamed", event => {
+  loadDraftFlyout();
+  if (viewName() === "drafts") showDrafts(event.detail.url.split("/").at(-1));
+  if (viewName() === "requests") showRequests();
+});
 let settings = {};
 let version = 0;
 let year = Number(new Intl.DateTimeFormat("en", {year:"numeric", timeZone:"Europe/Helsinki"}).format(new Date()));
@@ -158,6 +204,7 @@ function draftEditor(quote, selected, state) {
       const quantities = Object.fromEntries([...fields].map(([sku, field]) => [sku, Number(field.value)]).filter(([, value]) => value > 0));
       const fresh = await request(base + "/edit", key, {delivery_date:delivery, quantities});
       if (state === version) showDrafts(fresh.quote_id);
+      window.dispatchEvent(new Event("draft-changed"));
     } catch (error) { feedback(notice, error.message, true); }
     finally { save.disabled = false; }
   });
@@ -176,7 +223,7 @@ async function showDrafts(select) {
   detail.append(review);
   if (!data.length) list.append(node("p", "Create a draft from Product Search to see it here.", "empty"));
   const rows = data.map(quote => {
-    const button = node("button", quote.quote_id);
+    const button = node("button", quote.name || quote.quote_id);
     button.addEventListener("click", () => showDrafts(quote.quote_id));
     const expired = new Date(quote.expires_at) <= new Date();
     return [button, date(quote.delivery_date), money.format(quote.total_net), expired ? "Needs fresh quote" : "Ready to review"];
@@ -186,7 +233,25 @@ async function showDrafts(select) {
   grid.append(list, sidebar);
   const quote = data.find(item => item.quote_id === select) || data[0];
   if (quote) {
-    sidebar.append(draftEditor(quote, review, state), detail);
+    const base = "/client/drafts/" + encodeURIComponent(quote.quote_id);
+    const edit = node("button", language() === "fi" ? "Muokkaa tuotehaussa" : "Edit in Product Search");
+    edit.addEventListener("click", () => editBasket(quote));
+    const remove = node("button", language() === "fi" ? "Poista luonnos" : "Delete draft");
+    const notice = node("p", "", "feedback");
+    notice.hidden = true;
+    remove.addEventListener("click", async () => {
+      if (!window.confirm(language() === "fi" ? "Poistetaanko tämä luonnos?" : "Delete this draft?")) return;
+      remove.disabled = true;
+      try {
+        await request(base + "/delete", buyerKey(), {});
+        window.dispatchEvent(new Event("draft-changed"));
+        if (state === version) showDrafts();
+      } catch (error) { feedback(notice, error.message, true); }
+      finally { remove.disabled = false; }
+    });
+    detail.prepend(ticketNameForm(quote.name, base, buyerKey()), edit, remove, notice);
+    showDraft(quote, undefined, review);
+    sidebar.append(detail, draftEditor(quote, review, state));
   }
   root.replaceChildren(grid);
 }
@@ -198,7 +263,7 @@ async function showRequests(offset = 0) {
   const section = panel("Request history");
   if (!data.requests.length) section.append(node("p", "Submitted tickets will appear here.", "empty"));
   const rows = data.requests.map(({order, stage}) => {
-    const button = node("button", order.order_id);
+    const button = node("button", order.name || order.order_id);
     button.addEventListener("click", () => inspectTicket(order.order_id));
     return [button, node("span", stageName(stage, language()), "tag"), date(order.delivery_date), money.format(order.total_net)];
   });
@@ -428,7 +493,7 @@ async function render() {
   if (root.hidden) return;
   root.replaceChildren(node("p", "Loading workspace…", "empty"));
   try {
-    if (view === "drafts") await showDrafts();
+    if (view === "drafts") await showDrafts(draftSelection);
     else if (view === "requests") await showRequests();
     else if (view === "analytics") await analytics();
     else if (view === "settings") settingsView();

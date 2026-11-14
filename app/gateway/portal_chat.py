@@ -28,6 +28,7 @@ class ChatRequest(BaseModel):
     delivery_date: date | None = None
     action: Literal["lookup", "draft", "shop"] = "lookup"
     postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
+    language: Literal["en", "fi"] = "en"
     include_substitutes: bool = True
     plan_lines: list[tuple[str, float]] | None = Field(None, min_length=1, max_length=100)
 
@@ -108,25 +109,25 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     parsed = None
     if gemini.enabled():
         try:
-            parsed = await gemini.extract(text, today)
+            parsed = await gemini.extract(text, today, language="Finnish" if request.language == "fi" else "English")
             mode = gemini.MODEL
         except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
             mode = "guided_fallback"
-    school_meal = meal_planning.school_lunch(text, today, request.delivery_date, parsed=parsed)
+    school_meal = meal_planning.school_lunch(text, today, request.delivery_date, parsed=parsed, language=request.language)
     catalog_gap = None
     if request.action == "shop" and parsed and parsed.recipes and not any(
             kitchen.LINE.fullmatch(line.strip().removeprefix("- ")) for line in text.splitlines()):
         excluded = school_meal[0].exclude_allergens if school_meal else parsed.exclude_allergens
         catalog_gap = await _ground_inferred_recipes(text, parsed, excluded + p.mandate.forbidden_allergens)
         if school_meal:
-            school_meal = meal_planning.school_lunch(text, today, request.delivery_date, parsed=parsed)
+            school_meal = meal_planning.school_lunch(text, today, request.delivery_date, parsed=parsed, language=request.language)
     if school_meal:
         sourcing, meal = school_meal
         result = await _read_tool("source_ingredients", sourcing.model_dump(mode="json"), p)
         complete = all(row["status"] == "available" for row in result["ingredients"])
         if request.action == "shop" and not complete and request.include_substitutes:
             alternative, alternate_meal = meal_planning.school_lunch(
-                text, today, request.delivery_date, parsed=parsed, stock_menu=True)
+                text, today, request.delivery_date, parsed=parsed, stock_menu=True, language=request.language)
             alternate = await _read_tool("source_ingredients", alternative.model_dump(mode="json"), p)
             if all(row["status"] == "available" for row in alternate["ingredients"]):
                 sourcing, meal, result = alternative, alternate_meal, alternate
@@ -142,7 +143,9 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
             basket.exclude_allergens = sourcing.exclude_allergens
             try:
                 quote = await anyio.to_thread.run_sync(lambda: service.create_quote(
-                    p, basket, max_total_gross=meal["budgets"].get("hard")))
+                    p, basket, max_total_gross=meal["budgets"].get("hard"),
+                    name=(parsed.ticket_name if parsed and not meal.get("alternative") else None)
+                    or meal["recipes"][0]["name"]))
                 draft = quote.model_dump(mode="json")
             except service.GatewayError as exc:
                 if exc.status not in (409, 422):
@@ -171,7 +174,8 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         result = await _kitchen_result(KitchenChatRequest(
             kind="recipes", text=text, servings=servings,
             delivery_date=delivery, exclude_allergens=parsed.exclude_allergens if parsed else [],
-            draft=draft_requested), p, recipes=recipes, allow_incomplete=True)
+            draft=draft_requested), p, recipes=recipes, allow_incomplete=True,
+            name=parsed.ticket_name if parsed else recipes[0].name)
         return {"recipe": result, "draft": result.get("draft"), "mode": mode,
                 "message": ("Recipe draft ready for review." if result.get("draft") else
                             catalog_gap or result.get("draft_blocker", "Recipe shopping list ready for review."))}
@@ -185,13 +189,14 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         buyer_id=p.buyer_id))
     token = audit.inquiry_sequence.set(entry["seq"])
     try:
-        return await _handle_request(request, p, text, need, mode, draft_requested)
+        return await _handle_request(request, p, text, need, mode, draft_requested,
+                                     name=parsed.ticket_name if parsed else None)
     finally:
         audit.inquiry_sequence.reset(token)
 
 
 async def _handle_request(request: ChatRequest, p: Principal, text: str, need: Need, mode: str,
-                          draft_requested: bool) -> dict:
+                          draft_requested: bool, *, name=None) -> dict:
     if need.preferred_product_ids and need.search_text in need.preferred_product_ids:
         # A bare SKU is an exact lookup. The MCP offer tool handles its alternatives.
         found = {"results": []}
@@ -238,7 +243,7 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
         quote_request = QuoteRequest(delivery_date=need.delivery_date, need=need,
                                      lines=[{"product_id": line["product_id"], "quantity": line["quantity"]}
                                             for line in best["lines"]])
-        draft = await anyio.to_thread.run_sync(service.create_quote, p, quote_request)
+        draft = await anyio.to_thread.run_sync(lambda: service.create_quote(p, quote_request, name=name))
         response["draft"] = draft.model_dump(mode="json")
         response["message"] = "Ticket draft created. Review the quantities and total before submitting."
     return response
@@ -260,7 +265,7 @@ async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(requi
     return await _kitchen_result(request, p)
 
 
-async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=None, allow_incomplete=False):
+async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=None, allow_incomplete=False, name=None):
     try:
         dishes = [line.strip().removeprefix("- ").strip() for line in request.text.splitlines() if line.strip()]
         args = kitchen.KitchenRequest(
@@ -290,7 +295,7 @@ async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=
             basket = kitchen.basket_request(result)
             basket.exclude_allergens = request.exclude_allergens
             basket.required_claims = request.required_claims
-            quote = await anyio.to_thread.run_sync(service.create_quote, p, basket)
+            quote = await anyio.to_thread.run_sync(lambda: service.create_quote(p, basket, name=name))
         except service.GatewayError as exc:
             if not allow_incomplete or exc.status not in (409, 422):
                 raise

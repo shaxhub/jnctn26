@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS orders (
     lines_json TEXT NOT NULL, policy_json TEXT NOT NULL, approval_id TEXT, agent_rationale TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ticket_names (
+    quote_id TEXT PRIMARY KEY, name TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS approvals (
     approval_id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(order_id), buyer_id TEXT NOT NULL,
     status TEXT NOT NULL, reasons_json TEXT NOT NULL, created_at TEXT NOT NULL,

@@ -289,6 +289,7 @@ class QuoteLine(BaseModel):
 
 class Quote(BaseModel):
     quote_id: str
+    name: str | None = None
     buyer_id: str
     delivery_date: date
     lines: list[QuoteLine]
@@ -317,6 +318,7 @@ class OrderStatus(str, Enum):
 
 class Order(BaseModel):
     order_id: str
+    name: str | None = None
     quote_id: str
     buyer_id: str
     status: OrderStatus

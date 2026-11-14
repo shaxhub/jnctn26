@@ -157,3 +157,10 @@ html.booting .rail, html.booting .top, html.booting .content { visibility:hidden
 .panel-head .tag { flex:none }
 .rail a, .rail a:hover, .rail a:focus, .rail a:focus-visible { text-decoration-line:none; border-bottom:0 }
 .locale-buttons button { justify-content:center; text-align:center; padding:.25rem }
+#draft-flyout { position:fixed; z-index:3; inset:5rem auto auto 15.75rem; width:min(21rem, calc(100vw - 17rem)); max-height:75vh; overflow:auto; display:grid; gap:.55rem }
+#draft-flyout button { text-align:left; justify-content:start; overflow-wrap:anywhere }
+.draft-nav-row { display:flex; align-items:stretch; gap:.25rem }
+.draft-nav-row a { flex:1 }
+.draft-flyout-toggle { min-width:2rem; padding:.3rem; font-size:1.2rem }
+.draft-flyout-toggle[aria-expanded=true] { background:var(--yellow); color:var(--deep) }
+@media(max-width:650px) { #draft-flyout { inset:8rem 1rem auto; width:auto } }

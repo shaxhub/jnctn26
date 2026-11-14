@@ -30,14 +30,20 @@ def test_split_hosts_request_tracking_and_settings(gateway):
             assert (await aimo.get("/assets/client.js")).status_code == 404
             assert (await aimo.get("/client/settings")).status_code == 404
             assert (await client.get("/client/drafts", headers=hospital)).json() == []
+            name_url = f"/client/drafts/{draft.quote_id}/name"
+            assert (await client.post(name_url, headers=hospital, json={"name": "Other kitchen"})).status_code == 404
+            named = await client.post(name_url, headers=hotel, json={"name": "Monday milk"})
+            assert named.status_code == 200 and named.json()["name"] == "Monday milk"
             edited = await client.post(f"/client/drafts/{draft.quote_id}/edit", headers=hotel,
                                        json={"delivery_date": "2026-11-16", "quantities": {"milk": 8}})
             assert edited.status_code == 200, edited.text
             revised = edited.json()["quote_id"]
+            assert edited.json()["name"] == "Monday milk"
             assert [item["quote_id"] for item in (await client.get("/client/drafts", headers=hotel)).json()] == [revised]
             submitted = await client.post("/client/tickets/submit", headers=hotel, json={"quote_id": revised})
             assert submitted.status_code == 200, submitted.text
             order_id = submitted.json()["order_id"]
+            assert submitted.json()["name"] == "Monday milk"
             url = "/client/requests/" + order_id
             ops = "/operations/orders/" + order_id
             assert (await client.get(url, headers=hospital)).status_code == 404

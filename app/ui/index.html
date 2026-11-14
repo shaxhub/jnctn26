@@ -30,6 +30,7 @@
       <button id="client-sign-out" type="button" data-en="Sign out" data-fi="Kirjaudu ulos">Sign out</button>
     </div>
   </aside>
+  <aside id="draft-flyout" class="panel" aria-labelledby="draft-flyout-toggle" hidden></aside>
   <main id="main">
     <section id="client-login" class="panel login" hidden aria-labelledby="client-login-title">
       <h1 id="client-login-title">Sign in to Agent Dairy</h1>
@@ -58,15 +59,15 @@
             <section class="panel workspace-studio" id="kitchen-workspace" aria-label="Ask Agent Dairy">
               <section id="product-panel" aria-labelledby="ask-title">
                 <div class="panel-head">
-                  <h2 id="ask-title">Ask Agent Dairy</h2>
+                  <h2 id="ask-title" data-en="Ask Agent Dairy" data-fi="Kysy Agent Dairylta">Ask Agent Dairy</h2>
                   <svg class="sparkle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" focusable="false"><path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M19 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg>
                 </div>
                 <form id="chat">
                   <textarea id="message" rows="5" maxlength="6000" required aria-label="What does your kitchen need?" placeholder="I need 200 litres of lactose-free milk by Monday"></textarea>
                   <p class="cell-note" id="assistant-mode">Describe your request or paste a recipe with quantities.</p>
-                  <div class="form-row"><label>Delivery date <input id="chat-delivery-date" type="date" aria-describedby="delivery-help"></label><label>Delivery postcode <input id="postcode" aria-describedby="delivery-help" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="00100" title="Five-digit Finnish postal code"></label><label class="check"><input id="substitutes" type="checkbox" checked> Find alternatives</label></div>
+                  <div class="form-row"><label><span data-en="Delivery date" data-fi="Toimituspäivä">Delivery date</span> <input id="chat-delivery-date" type="date" aria-describedby="delivery-help"></label><label><span data-en="Delivery postcode" data-fi="Toimituksen postinumero">Delivery postcode</span> <input id="postcode" aria-describedby="delivery-help" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="00100"></label><label class="check"><input id="substitutes" type="checkbox" checked> <span data-en="Find alternatives" data-fi="Etsi vaihtoehtoja">Find alternatives</span></label></div>
                   <div class="actions"><button type="submit" value="shop" class="primary"><span data-en="Build shopping list" data-fi="Luo ostoslista">Build shopping list</span></button></div>
-                  <p class="action-hint" id="delivery-help">Include a delivery date and five-digit postcode in your request or enter them above.</p>
+                  <p class="action-hint" id="delivery-help" data-en="Include a delivery date and five-digit postcode in your request or enter them above." data-fi="Kirjoita toimituspäivä ja viisinumeroinen postinumero pyyntöön tai täytä yllä olevat kentät.">Include a delivery date and five-digit postcode in your request or enter them above.</p>
                 </form>
                 <p id="chat-status" class="feedback" role="status" hidden></p>
                 <div id="results" aria-live="polite"></div>
@@ -82,6 +83,7 @@
             <div id="seasonal-results" class="seasonal-results" aria-live="polite"></div>
           </div>
           <aside class="side">
+            <section id="shopping-basket" class="panel" hidden></section>
             <section class="panel" aria-labelledby="draft-title"><div class="panel-head"><h2 id="draft-title">Ticket review</h2></div><div id="draft" class="empty">Create a ticket draft to review quantities, prices and the delivery date.</div></section>
             <section class="panel" aria-labelledby="trust-title"><div class="panel-head"><h2 id="trust-title">Purchasing limits</h2><span class="tag">MANDATE</span></div><div id="trust" class="empty">Loading…</div></section>
           </aside>

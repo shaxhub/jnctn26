@@ -78,11 +78,12 @@ def _interpretation():
         servings: int | None = Field(None, ge=1, le=5000)
         delivery_date: date | None = None
         exclude_allergens: list[str] = Field(default_factory=list, max_length=20)
+        ticket_name: str | None = Field(None, max_length=100)
 
     return Interpretation
 
 
-async def extract(text: str, today):
+async def extract(text: str, today, language: str | None = None):
     return await _structured(text, (
         f"Today is {today}. Extract one purchasing Need or pasted recipes. Use Finnish catalog terms. "
         "Extract explicitly stated yields and metric ingredients. Use recipe yield if no target is stated. "
@@ -91,9 +92,26 @@ async def extract(text: str, today):
         "Respect stated dietary constraints in every relevant recipe. If groups overlap or overlap is unspecified, "
         "prefer one shared set of recipes that respects all restrictions. Put allergens to avoid in exclude_allergens. "
         "For a direct product request, return need instead. "
+        f"Write recipe titles and a short ticket_name in {language or 'the same language as the buyer'}. "
         "Set servings to the requested headcount, and resolve an explicit weekday or date into delivery_date. "
         "Never invent products or submit orders."
     ), _interpretation())
+
+
+class BasketName(BaseModel):
+    name: str = Field(min_length=1, max_length=100, pattern=r"\S")
+
+
+async def name_basket(products: list[str], language: str) -> str | None:
+    if enabled():
+        try:
+            result = await _structured(json.dumps(products),
+                f"Give this purchasing basket a short descriptive title in {language}. Use only the product names.",
+                BasketName)
+            return result.name.strip()
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+            pass
+    return None
 
 
 async def ground_recipes(text: str, recipes, candidates: list[dict]):

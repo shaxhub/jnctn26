@@ -11,7 +11,8 @@ BUDGET = re.compile(r"\b(soft|hard)\s+budget\s+(?:is\s+|of\s+)?(?:€\s*)?([\d,]
 GUIDANCE = "https://www.ruokavirasto.fi/en/foodstuffs/healthy-diet/nutrition-and-food-recommendations/school-age-children-and-teenagers/"
 
 
-def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=None, stock_menu=False):
+def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=None, stock_menu=False,
+                 language="en"):
     if not SCHOOL.search(text) or not re.search(r"\b(?:feed|lunch|meal|recipe|menu|ruokailu)\b", text, re.I):
         return None
     headcount = SERVINGS.search(text)
@@ -74,4 +75,19 @@ def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=N
                                "cross-contact controls and nutrition against its meal standards before ordering or serving. "
                                "The catalog does not establish legal compliance or allergen safety.",
                "serving_note": "Plan drinking water and the school’s approved meal beverage separately."}
+    if language == "fi":
+        details.update(
+            dietary_note="Sama ruokalista on suunniteltu kaikille annoksille pyydetyt ruokarajoitteet huomioiden.",
+            verification="Keittiön on tarkistettava ruokavaliot, tuotteiden pakkausmerkinnät, ristikontaminaation "
+                         "ehkäisy ja ravitsemus koulun ateriaohjeiden mukaisesti ennen tilaamista tai tarjoilua.",
+            serving_note="Varaa juomavesi ja keittiön hyväksymä ruokajuoma.",
+        )
+        if not generated:
+            translated = [
+                ("Linssi-peruna-porkkanapata", "Huuhtele linssit. Hauduta kasvisten kanssa kypsäksi ja lisää rypsiöljy."),
+                ("Kaali-kurkku-omenasalaatti" if stock_menu else "Tomaatti-omenasalaatti",
+                 "Pese, pilko ja sekoita. Säilytä kylmässä tarjoiluun asti."),
+                ("Kaurajuoma" if stock_menu else "Täysjyväleipä", "Tarkista tuotteen pakkausmerkinnät ennen tarjoilua."),
+            ]
+            details["recipes"] = [{"name": name, "method": method} for name, method in translated]
     return request, details

@@ -20,9 +20,38 @@ export const parseInputDate = value => {
 };
 export const statusText = {confirmed:"Confirmed", pending_approval:"Needs review", rejected:"Rejected", expired:"Expired"};
 
+const finnish = {
+  "Confirmed":"Vahvistettu", "Needs review":"Tarkistettava", "Rejected":"Hylätty", "Expired":"Vanhentunut",
+  "Product":"Tuote", "Ingredient":"Raaka-aine", "Quantity":"Määrä", "Net price / unit":"Veroton yksikköhinta",
+  "Net total":"Veroton summa", "Availability":"Saatavuus", "Earliest date":"Aikaisin toimitus",
+  "Reliability":"Toimitusvarmuus", "Stock":"Varasto", "Status":"Tila", "Delivery":"Toimitus",
+  "Draft":"Luonnos", "Request":"Pyyntö", "Stage":"Toimitusvaihe", "Used in":"Käyttökohteet",
+  "Matched products":"Sopivat tuotteet", "Recipe ingredients":"Reseptin raaka-aineet",
+  "Submit ticket to Aimo":"Lähetä tilaus Aimolle", "Review and submit":"Tarkista ja lähetä",
+  "AI Helper":"Tekoälyavustaja", "Ask AI Helper":"Kysy tekoälyavustajalta", "Suggest edit":"Ehdota muokkausta",
+  "Save revised draft":"Tallenna muutokset", "Delivery date":"Toimituspäivä",
+  "Ticket review":"Tilauksen tarkistus", "Saved drafts":"Tallennetut luonnokset", "Request history":"Pyyntöjen historia",
+  "Order plans":"Tilausvaihtoehdot", "Draft this plan":"Tee tästä luonnos",
+  "Policy decision":"Tilauspäätös", "Audit trail":"Tapahtumahistoria", "Signed quote":"Allekirjoitettu tarjous",
+  "Quote verification keys":"Tarjouksen varmennusavaimet",
+  "Recurring order comparison":"Toistuvien tilausten vertailu", "New delivery date":"Uusi toimituspäivä",
+  "Create repeat draft":"Luo uusi luonnos", "Request conversation":"Keskustelu tilauksesta",
+  "Close":"Sulje", "Previous":"Edellinen", "Next":"Seuraava", "Message":"Viesti", "Send message":"Lähetä viesti",
+  "Refresh conversation":"Päivitä keskustelu", "Delivery tracking":"Toimituksen seuranta",
+  "No messages on this request yet.":"Tilauksella ei vielä ole viestejä.",
+  "Create a draft from Product Search to see it here.":"Luo luonnos tuotehaussa, niin näet sen täällä.",
+  "Submitted tickets will appear here.":"Lähetetyt tilaukset näkyvät täällä.",
+  "Suggest changes to quantities or delivery date, then save a fresh quote.":"Pyydä muutoksia määriin tai toimituspäivään ja tallenna uusi tarjous.",
+  "Needs fresh quote":"Uusi tarjous tarvitaan", "Ready to review":"Valmis tarkistettavaksi",
+  "available":"Saatavilla", "unmatched":"Tuotetta ei löytynyt", "unverified":"Saatavuus vahvistamatta",
+  "partial":"Saatavilla osittain", "stockout":"Loppu varastosta",
+};
+export const translate = text => document.documentElement.lang === "fi" && typeof text === "string" ?
+  finnish[text] ?? text : text;
+
 export function node(tag, text = "", className = "") {
   const element = document.createElement(tag);
-  element.textContent = text;
+  element.textContent = translate(text);
   if (className) element.className = className;
   return element;
 }
@@ -40,7 +69,7 @@ export function table(headings, rows) {
     const row = body.insertRow();
     for (const value of values) {
       const cell = row.insertCell();
-      cell.append(value ?? "—");
+      cell.append(translate(value ?? "—"));
     }
   }
   const scroll = node("div", "", "table-scroll");

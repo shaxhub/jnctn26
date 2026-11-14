@@ -76,8 +76,18 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
     draft_requested = request.action == "draft" or bool(DRAFT_COMMAND.match(text))
     need, mode = await _lookup(p, text)
     need.exclude_allergens = sorted(set(need.exclude_allergens + p.mandate.forbidden_allergens))
-    audit.log("CLIENT_INQUIRY", p.actor, {"text": text, "action": "draft" if draft_requested else "lookup"},
-              buyer_id=p.buyer_id)
+    entry = await anyio.to_thread.run_sync(lambda: audit.log(
+        "CLIENT_INQUIRY", p.actor, {"text": text, "action": "draft" if draft_requested else "lookup"},
+        buyer_id=p.buyer_id))
+    token = audit.inquiry_sequence.set(entry["seq"])
+    try:
+        return await _handle_request(request, p, text, need, mode, draft_requested)
+    finally:
+        audit.inquiry_sequence.reset(token)
+
+
+async def _handle_request(request: ChatRequest, p: Principal, text: str, need: Need, mode: str,
+                          draft_requested: bool) -> dict:
     if need.preferred_product_ids and need.search_text in need.preferred_product_ids:
         # A bare SKU is an exact lookup. The MCP offer tool handles its alternatives.
         found = {"results": []}

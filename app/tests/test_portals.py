@@ -101,6 +101,8 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
                                  json={"text": "Create a ticket for 5 litres of lactose-free milk by Monday"})
             assert response.status_code == 200, response.text
             draft = response.json()["draft"]
+            unrelated = await http.post("/client/chat", headers=buyer, json={"text": "Unrelated milk lookup"})
+            assert unrelated.status_code == 200
             result = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
             assert result.status_code == 200 and result.json()["status"] == "confirmed", result.text
             replay = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
@@ -109,6 +111,12 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             analytics = (await http.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10
+            assert analytics["inquiries"] == 3
+            detail = (await http.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
+            history = detail["audit"]["events"]
+            assert [event["data"]["text"] for event in history if event["event_type"] == "CLIENT_INQUIRY"] == [
+                "Create a ticket for 5 litres of lactose-free milk by Monday"]
+            assert sum(event["event_type"] == "OFFERS_CHECKED" for event in history) == 1
             decisions = (await http.get("/operations/activity?kind=decisions", headers=admin)).json()["events"]
             assert "ORDER_CONFIRMED" in {event["event_type"] for event in decisions}
             assert (await http.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]

@@ -93,10 +93,11 @@ def analytics(period: Period = "month"):
         conn.execute("BEGIN")
         events = conn.execute(
             "SELECT buyer_id, event_type, data_json FROM audit_events WHERE julianday(ts) BETWEEN julianday(?) AND julianday(?) "
-            "AND event_type IN ('SEARCH','OFFERS_CHECKED')", window)
+            "AND event_type IN ('CLIENT_INQUIRY','SEARCH','OFFERS_CHECKED')", window)
         for event in events:
             data = json.loads(event["data_json"])
-            sectors[SECTORS.get(event["buyer_id"], "Other")]["inquiries"] += 1
+            if event["event_type"] == "CLIENT_INQUIRY" or "inquiry_seq" not in data:
+                sectors[SECTORS.get(event["buyer_id"], "Other")]["inquiries"] += 1
             categories.update(set(data.get("categories") or ()))
         states = dict(conn.execute(
             "SELECT status, count(*) FROM orders WHERE status!='received' "

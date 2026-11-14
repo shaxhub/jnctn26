@@ -145,7 +145,7 @@ async function insights(current) {
     const data = await request("/operations/analytics?period=" + encodeURIComponent($("period").value), key);
     if (current !== version) return;
     const metrics = node("dl", "", "metrics");
-    for (const [title, value] of [["Inquiry calls", data.inquiries],
+    for (const [title, value] of [["Inquiries", data.inquiries],
       ["Confirmed orders", data.statuses.confirmed ?? 0], ["Needs review", data.statuses.pending_approval ?? 0],
       ["Confirmed net spend", money.format(data.confirmed_net_eur)],
       ["Estimated kg CO₂e", data.estimated_kg_co2e == null ? "—" : number.format(data.estimated_kg_co2e)]]) {

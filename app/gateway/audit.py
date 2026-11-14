@@ -7,12 +7,19 @@ Event types (data payloads are small and human-meaningful, never secrets):
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
 from datetime import datetime
 
 from . import store
 
 
+inquiry_sequence: ContextVar[int | None] = ContextVar("inquiry_sequence", default=None)
+
+
 def log(event_type: str, actor: str, data: dict, **ids) -> dict:
+    sequence = inquiry_sequence.get()
+    if sequence is not None:
+        data = {**data, "inquiry_seq": sequence}
     return store.append_event(event_type, actor, data, **ids)
 
 
@@ -61,7 +68,14 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
 
     evs = store.events(order_id=order_id, quote_id=quote_id)
 
-    if order_id and order_row:
+    inquiry_seq = next((ev["data"].get("inquiry_seq") for ev in evs if ev["event_type"] == "QUOTE_CREATED"), None)
+    if inquiry_seq is not None and order_row:
+        rows = store.fetchall(
+            "SELECT * FROM audit_events WHERE buyer_id=? AND (seq=? OR (seq>? AND "
+            "event_type IN ('SEARCH','OFFERS_CHECKED') AND json_extract(data_json, '$.inquiry_seq')=?)) "
+            "ORDER BY seq LIMIT 30", (order_row["buyer_id"], inquiry_seq, inquiry_seq, inquiry_seq))
+        evs = sorted(evs + [store._row_event(row) for row in rows], key=lambda event: event["seq"])
+    elif order_id and order_row:
         buyer_id = order_row["buyer_id"]
         upper_ts = order_row["created_at"]
         upper_seq = next((ev["seq"] for ev in evs if ev["event_type"] == "ORDER_RECEIVED"), None)
@@ -71,7 +85,7 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
         base = (
             "SELECT * FROM audit_events"
             " WHERE buyer_id = ? AND event_type IN ('SEARCH', 'OFFERS_CHECKED')"
-            " AND order_id IS NULL AND quote_id IS NULL"
+            " AND order_id IS NULL AND quote_id IS NULL AND json_extract(data_json, '$.inquiry_seq') IS NULL"
         )
         with store.connect() as conn:
             if upper_seq is not None:

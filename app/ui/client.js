@@ -168,7 +168,7 @@ function showRecipe(recipe, meal) {
   if (meal) {
     const heading = node("h4", "School lunch for " + number.format(meal.servings) + " · " + date(meal.delivery_date));
     const methods = node("ul");
-    for (const recipe of meal.recipes) methods.append(node("li", recipe.name + " — " + recipe.method));
+    for (const recipe of meal.recipes) methods.append(node("li", recipe.name + (recipe.method ? " — " + recipe.method : "")));
     const guidance = node("a", "Finnish Food Authority school meal guidance");
     guidance.href = meal.guidance_url;
     const cost = meal.matched_total_net;
@@ -202,8 +202,8 @@ async function sendChat(requestData) {
   const current = ++queryVersion;
   const buttons = Array.from($("chat").querySelectorAll("[type=submit]"));
   buttons.forEach(button => { button.disabled = true; });
-  if (requestData.action === "draft") showDraft(null);
-  feedback($("chat-status"), "Checking the catalog and offers…");
+  if (requestData.action !== "lookup") showDraft(null);
+  feedback($("chat-status"), "Interpreting your request and checking the catalog…");
   $("results").replaceChildren();
   try {
     const result = await request("/client/chat", buyerKey(), requestData);
@@ -234,7 +234,7 @@ $("chat").addEventListener("submit", event => {
     $("chat-delivery-date").focus();
     return;
   }
-  sendChat({text, action: event.submitter?.value || "lookup",
+  sendChat({text, action: event.submitter?.value || "shop",
     postal_code: $("postcode").value || null, delivery_date: delivery,
     include_substitutes: $("substitutes").checked});
 });

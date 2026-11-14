@@ -25,7 +25,7 @@ router = APIRouter(prefix="/client")
 class ChatRequest(BaseModel):
     text: str = Field(min_length=1, max_length=6000)
     delivery_date: date | None = None
-    action: Literal["lookup", "draft"] = "lookup"
+    action: Literal["lookup", "draft", "shop"] = "lookup"
     postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
     include_substitutes: bool = True
     plan_lines: list[tuple[str, float]] | None = Field(None, min_length=1, max_length=100)
@@ -71,16 +71,6 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
         raise service.GatewayError(422, "Enter a product request")
     draft_requested = request.action == "draft" or bool(DRAFT_COMMAND.match(text))
     today = store.now().date()
-    school_meal = meal_planning.school_lunch(text, today, request.delivery_date)
-    if school_meal:
-        sourcing, meal = school_meal
-        result = await _read_tool("source_ingredients", sourcing.model_dump(mode="json"), p)
-        partial_total = round(sum(row["sourcing"]["plan"]["total_net"] for row in result["ingredients"]
-                                  if row.get("sourcing")), 2)
-        meal["matched_total_net"] = partial_total
-        meal["complete"] = all(row["status"] == "available" for row in result["ingredients"])
-        return {"recipe": result, "meal": meal, "draft": None, "mode": "guided_meal",
-                "message": "School lunch proposal and purchasing list ready for kitchen review."}
     mode = "guided"
     parsed = None
     if gemini.enabled():
@@ -89,6 +79,17 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
             mode = gemini.MODEL
         except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
             mode = "guided_fallback"
+    school_meal = meal_planning.school_lunch(text, today, request.delivery_date, parsed=parsed)
+    if school_meal:
+        sourcing, meal = school_meal
+        result = await _read_tool("source_ingredients", sourcing.model_dump(mode="json"), p)
+        partial_total = round(sum(row["sourcing"]["plan"]["total_net"] for row in result["ingredients"]
+                                  if row.get("sourcing")), 2)
+        meal["matched_total_net"] = partial_total
+        meal["complete"] = all(row["status"] == "available" for row in result["ingredients"])
+        return {"recipe": result, "meal": meal, "draft": None,
+                "mode": gemini.MODEL if meal["generated"] else "guided_meal",
+                "message": "School lunch proposal and purchasing list ready for kitchen review."}
     recipes = parsed.recipes if parsed else []
     if not recipes and "\n" in text:
         recipe_rows = sum(bool(kitchen.LINE.fullmatch(line.strip().removeprefix("- "))) for line in text.splitlines())
@@ -101,13 +102,19 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
                 raise service.GatewayError(422, "Paste recipe quantities in metric units, such as 500 g tomato.") from exc
     if recipes:
         servings = parsed.servings if parsed and parsed.servings else recipes[0].servings
+        delivery = request.delivery_date or (parsed.delivery_date if parsed else None)
+        if delivery is None and parsed and parsed.recipes:
+            delivery = parse_need_heuristic(text, today).delivery_date
+        draft_requested = delivery is not None and (draft_requested or request.action == "shop")
         result = await _kitchen_result(KitchenChatRequest(
             kind="recipes", text=text, servings=servings,
-            delivery_date=request.delivery_date or (parsed.delivery_date if parsed else None),
-            draft=draft_requested), p, recipes=recipes)
+            delivery_date=delivery, exclude_allergens=parsed.exclude_allergens if parsed else [],
+            draft=draft_requested), p, recipes=recipes, allow_incomplete=True)
         return {"recipe": result, "draft": result.get("draft"), "mode": mode,
-                "message": "Recipe ingredients compiled." if not draft_requested else "Recipe draft ready for review."}
+                "message": ("Recipe draft ready for review." if result.get("draft") else
+                            result.get("draft_blocker", "Recipe shopping list ready for review."))}
     need = parsed.need if parsed and parsed.need else _lookup(text, today)
+    draft_requested = draft_requested or (request.action == "shop" and explicit_quantity(text))
     if request.delivery_date:
         need.delivery_date = request.delivery_date
     need.exclude_allergens = sorted(set(need.exclude_allergens + p.mandate.forbidden_allergens))
@@ -157,6 +164,8 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
                 (line["product_id"], line["quantity"]) for line in plan["lines"]]), None)
             if best is None:
                 return {**response, "message": "That plan changed. Review the refreshed options before drafting."}
+        if request.action == "shop" and best["coverage"] < 0.9999:
+            return {**response, "message": "The catalog only covers part of this request. Review the matched items and the shortfall."}
         if not need.preferred_product_ids:
             fallback_ids = {offer["product_id"] for group in result.get("alternatives", {}).values()
                             for offer in group if offer["substitution_source"] == "catalog_ingredient_match"}
@@ -187,7 +196,7 @@ async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(requi
     return await _kitchen_result(request, p)
 
 
-async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=None):
+async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=None, allow_incomplete=False):
     try:
         dishes = [line.strip().removeprefix("- ").strip() for line in request.text.splitlines() if line.strip()]
         args = kitchen.KitchenRequest(
@@ -213,10 +222,15 @@ async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=
     token = audit.inquiry_sequence.set(entry["seq"])
     try:
         result = await _read_tool("source_ingredients", args, p)
-        basket = kitchen.basket_request(result)
-        basket.exclude_allergens = request.exclude_allergens
-        basket.required_claims = request.required_claims
-        quote = await anyio.to_thread.run_sync(service.create_quote, p, basket)
+        try:
+            basket = kitchen.basket_request(result)
+            basket.exclude_allergens = request.exclude_allergens
+            basket.required_claims = request.required_claims
+            quote = await anyio.to_thread.run_sync(service.create_quote, p, basket)
+        except service.GatewayError as exc:
+            if not allow_incomplete or exc.status not in (409, 422):
+                raise
+            return {**result, "draft_blocker": exc.message}
         result["draft"] = quote.model_dump(mode="json")
         return result
     finally:

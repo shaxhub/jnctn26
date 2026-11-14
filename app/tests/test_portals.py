@@ -102,6 +102,9 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             lookup = await http.post("/client/chat", headers=buyer, json={"text": "5 litres of lactose-free milk by Monday"})
             assert lookup.status_code == 200, lookup.text
             assert lookup.json()["draft"] is None
+            shopping = await http.post("/client/chat", headers=buyer,
+                                       json={"text": "5 litres of lactose-free milk by Monday", "action": "shop"})
+            assert shopping.status_code == 200 and shopping.json()["draft"]
             assert (await http.get("/orders", headers=buyer)).json() == []
             response = await http.post("/client/chat", headers=buyer,
                                  json={"text": "Create a ticket for 5 litres of lactose-free milk by Monday"})
@@ -129,7 +132,7 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             analytics = (await ops.get("/operations/analytics", headers=admin)).json()
             assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
             assert analytics["estimated_kg_co2e"] == 10
-            assert analytics["inquiries"] == 5
+            assert analytics["inquiries"] == 6
             detail = (await ops.get("/operations/orders/" + result.json()["order_id"], headers=admin)).json()
             history = detail["audit"]["events"]
             assert [event["data"]["text"] for event in history if event["event_type"] == "CLIENT_INQUIRY"] == [

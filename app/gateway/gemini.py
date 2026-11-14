@@ -77,6 +77,7 @@ def _interpretation():
         recipes: list[Recipe] = Field(default_factory=list, max_length=12)
         servings: int | None = Field(None, ge=1, le=5000)
         delivery_date: date | None = None
+        exclude_allergens: list[str] = Field(default_factory=list, max_length=20)
 
     return Interpretation
 
@@ -85,7 +86,11 @@ async def extract(text: str, today):
     return await _structured(text, (
         f"Today is {today}. Extract one purchasing Need or pasted recipes. Use Finnish catalog terms. "
         "Extract explicitly stated yields and metric ingredients. Use recipe yield if no target is stated. "
-        "If asked to design a meal from a headcount, propose recipes with metric ingredient quantities and usable ingredient names. "
+        "When the buyer describes a goal rather than naming a product, infer the shopping list by proposing recipes "
+        "with metric ingredient quantities and catalog-friendly ingredient names. Include all requested components. "
+        "Respect stated dietary constraints in every relevant recipe. If groups overlap or overlap is unspecified, "
+        "prefer one shared set of recipes that respects all restrictions. Put allergens to avoid in exclude_allergens. "
+        "For a direct product request, return need instead. "
         "Set servings to the requested headcount, and resolve an explicit weekday or date into delivery_date. "
         "Never invent products or submit orders."
     ), _interpretation())

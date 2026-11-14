@@ -11,7 +11,7 @@ BUDGET = re.compile(r"\b(soft|hard)\s+budget\s+(?:is\s+|of\s+)?(?:€\s*)?([\d,]
 GUIDANCE = "https://www.ruokavirasto.fi/en/foodstuffs/healthy-diet/nutrition-and-food-recommendations/school-age-children-and-teenagers/"
 
 
-def school_lunch(text: str, today: date, delivery_date: date | None):
+def school_lunch(text: str, today: date, delivery_date: date | None, *, parsed=None):
     if not SCHOOL.search(text) or not re.search(r"\b(?:feed|lunch|meal|recipe|menu|ruokailu)\b", text, re.I):
         return None
     headcount = SERVINGS.search(text)
@@ -20,7 +20,7 @@ def school_lunch(text: str, today: date, delivery_date: date | None):
     servings = int(headcount[1])
     if servings > 5000:
         raise service.GatewayError(422, "Plan up to 5,000 meals at a time.")
-    delivery = delivery_date or parse_need_heuristic(text, today).delivery_date
+    delivery = delivery_date or (parsed.delivery_date if parsed else None) or parse_need_heuristic(text, today).delivery_date
     if delivery < today:
         raise service.GatewayError(422, "Choose today or a future delivery date.")
     lower = text.casefold()
@@ -43,13 +43,20 @@ def school_lunch(text: str, today: date, delivery_date: date | None):
     budgets = {match[1].lower(): float(match[2].replace(",", "")) for match in BUDGET.finditer(text)}
     if budgets.get("soft", 0) > budgets.get("hard", float("inf")):
         raise service.GatewayError(422, "The soft budget must be at or below the hard budget.")
-    excluded = ["peanuts"] if peanut else []
+    generated = bool(parsed and parsed.recipes)
+    if generated:
+        recipes = parsed.recipes
+    excluded = list(parsed.exclude_allergens) if generated else []
+    if peanut:
+        excluded.append("peanuts")
     if lactose or re.search(r"\b(?:milk allergy|dairy.free|no dairy|without milk)\b", lower):
         excluded.append("milk")
     request = kitchen.SourceRequest(servings=servings, recipes=recipes, delivery_date=delivery,
-                                    exclude_allergens=excluded)
+                                    exclude_allergens=list(dict.fromkeys(excluded))[:20])
     details = {"servings": servings, "delivery_date": delivery.isoformat(), "budgets": budgets,
-               "recipes": [{"name": name, "method": method} for name, _, method in proposal],
+               "generated": generated,
+               "recipes": ([{"name": recipe.name} for recipe in recipes] if generated else
+                           [{"name": name, "method": method} for name, _, method in proposal]),
                "guidance_url": GUIDANCE,
                "dietary_note": "This proposal uses one shared menu for all servings to cover the stated "
                                "lactose and peanut restrictions where requested, without assuming the groups are separate.",

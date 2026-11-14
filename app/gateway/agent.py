@@ -50,6 +50,13 @@ ITEM_HINTS = {
     "piimä": ("piimä", None, []),
     "maito": ("maito", "10400", ["kahvi", "latte", "piimä", "kaakao", "jogurt", "soygurt"]),
     "cream": ("kerma", None, []),
+    "potato": ("peruna", None, []),
+    "tomato": ("tomaatti", None, []),
+    "carrot": ("porkkana", None, []),
+    "onion": ("sipuli", None, []),
+    "apple": ("omena", None, []),
+    "lemon": ("sitruuna", None, []),
+    "basil": ("basilika", None, []),
     "bread": ("leipä", None, []),
     "milk": ("maito", "10400", ["kahvi", "latte", "piimä", "kaakao", "jogurt", "soygurt"]),
 }

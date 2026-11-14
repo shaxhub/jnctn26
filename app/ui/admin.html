@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10233c">
+  <title>Agent Dairy | Aimo operations</title>
+  <link rel="stylesheet" href="/assets/portal.css">
+  <script type="module" src="/assets/admin.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <aside class="rail">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true">AD</span><span>Agent Dairy<small>Valio Aimo®</small></span></a>
+    <nav aria-label="Workspaces"><a href="/">Purchasing workspace</a><a aria-current="page" href="/admin">Aimo operations</a></nav>
+    <div class="rail-foot">Junction 2026 prototype</div>
+  </aside>
+  <main id="main">
+    <header class="top"><span>Admin portal</span><button id="sign-out" type="button" hidden>Sign out</button></header>
+    <div class="content">
+      <section class="hero"><div><h1>Aimo operations</h1><p>Track buyer inquiries, review order exceptions and see what clients are buying.</p></div><div class="dispatch"><span>Client inquiries</span><span>Policy decisions</span><span>Human review</span></div></section>
+      <section id="login" class="panel login" aria-labelledby="login-title">
+        <h2 id="login-title">Sign in to operations</h2>
+        <form id="sign-in"><label for="admin-key">Aimo operations key</label><input id="admin-key" type="password" required autocomplete="off"><button type="submit" class="primary">Sign in</button></form>
+        <p id="login-status" class="feedback" role="status" hidden></p>
+      </section>
+      <div id="dashboard" hidden>
+        <nav class="switcher" aria-label="Operations views"><button id="queue-tab" aria-pressed="true">Review queue</button><button id="activity-tab" aria-pressed="false">Activity log</button><button id="insights-tab" aria-pressed="false">Analytics</button></nav>
+        <section id="work" class="panel" aria-labelledby="work-title">
+          <div class="panel-head"><h2 id="work-title">Review queue</h2><button id="refresh" type="button">Refresh</button></div>
+          <form id="filters" class="filters">
+            <label>Search <input type="search" id="query" maxlength="160" placeholder="Product, ticket or keyword"></label>
+            <label>Client <select id="buyer"><option value="">All clients</option><option value="hotel">Hotel kitchen</option><option value="hospital">Hospital kitchen</option></select></label>
+            <label id="status-label">Status <select id="status"><option value="pending_approval">Needs review</option><option value="">All statuses</option><option value="confirmed">Confirmed</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label>
+            <label id="kind-label" hidden>Event <select id="kind"><option value="all">All activity</option><option value="inquiries">Inquiries</option><option value="decisions">Decisions</option></select></label>
+            <button type="submit">Apply filters</button>
+          </form>
+          <div id="records" aria-live="polite"></div>
+          <button id="more" type="button" hidden>Load more</button>
+        </section>
+        <section id="insights" class="panel" aria-labelledby="insights-title" hidden>
+          <div class="panel-head"><h2 id="insights-title">Purchasing analytics</h2><label>Period <select id="period"><option value="month">This month</option><option value="quarter">This quarter</option><option value="year">This year</option><option value="all">All time</option></select></label></div>
+          <div id="analytics" aria-live="polite"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <dialog id="details" aria-labelledby="detail-title"><div class="panel-head"><h2 id="detail-title">Ticket details</h2><form method="dialog"><button>Close</button></form></div><div id="detail-body"></div></dialog>
+</body>
+</html>

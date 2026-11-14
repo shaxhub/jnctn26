@@ -13,13 +13,16 @@ import anyio
 import httpx
 from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
 
 from . import quotes, service, store
 from .agent import compact_offers, run_agent
-from .auth import McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
+from .auth import Admin, require_admin, McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
 from .config import APP_DIR, TZ, settings
 from .mcp_server import mcp
+from .operations import router as operations_router
+from .portal_chat import router as client_router
 from .models import (AgentRunRequest, ApprovalDecisionRequest, Need, OffersRequest, OrderRequest, QuoteRequest,
                      SearchRequest)
 
@@ -40,6 +43,9 @@ app = FastAPI(title="Agent Dairy — Valio Aimo Trade Gateway", version="0.1.0",
                           "hash-chained audit log. Auth: X-API-Key (demo keys in buyers.json).")
 app.router.routes.extend(mcp_app.routes)    # serves POST/GET /mcp from the same process and port
 app.add_middleware(McpAuthMiddleware)
+app.include_router(operations_router)
+app.include_router(client_router)
+app.mount("/assets", StaticFiles(directory=APP_DIR / "ui"), name="portal-assets")
 
 
 @app.exception_handler(service.GatewayError)
@@ -66,6 +72,11 @@ async def _thread(fn, *args):
 @app.get("/", include_in_schema=False)
 def ui():
     return FileResponse(APP_DIR / "ui" / "index.html")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_ui():
+    return FileResponse(APP_DIR / "ui" / "admin.html")
 
 
 @app.get("/health")
@@ -173,8 +184,7 @@ def next_monday():
 
 
 @app.post("/demo/reset", include_in_schema=False)
-def demo_reset(payload: dict[str, Any] | None = Body(default=None)):
-    store.reset_db()
+def demo_reset(payload: dict[str, Any] | None = Body(default=None), admin: Admin = Depends(require_admin)):
     if payload is not None and "demo_now" in payload:
         raw = payload["demo_now"]
         if raw is None or raw == "":
@@ -187,4 +197,5 @@ def demo_reset(payload: dict[str, Any] | None = Body(default=None)):
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=TZ)
             store.set_demo_now(dt)
+    store.reset_db()
     return {"ok": True, "now": store.now().isoformat()}

@@ -72,3 +72,40 @@ def test_live_alternatives_filter_trace_allergens(gateway, monkeypatch):
     assert [offer["product_id"] for offer in result["alternatives"]["a"]] == ["b"]
     assert result["plan"]["plans"][0]["lines"][0]["product_id"] == "b"
     assert result["delivery_estimate"]["travel_minutes_max"] > result["delivery_estimate"]["travel_minutes_min"]
+
+
+def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
+    import asyncio
+    from httpx import ASGITransport, AsyncClient
+    from gateway.api import app
+    from gateway.models import ProductSummary, SearchResult
+
+    monkeypatch.setattr(service, "search", lambda _: SearchResult(results=[
+        ProductSummary(id="milk", sales_unit="ST", base_unit="ST", category="10400")
+    ], total_matches=1, category_counts={"10400": 1}))
+    monkeypatch.setattr(service, "get_offers", lambda *_: ([Offer(
+        product_id="milk", sales_unit="ST", unit_price=2, available_qty=2000, net_weight_kg=1,
+        co2_per_kg=2, volume_l=1, claims=["FREE_FROM_LACTOSE"], category="10400",
+        orderable=True, reason=OrderableReason.ok)], store.now()))
+    buyer = {"X-API-Key": "demo-hotel-client-key"}
+    admin = {"X-API-Key": "test-admin-credential"}
+    async def verify():
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as http:
+            assert (await http.get("/operations/activity", headers=buyer)).status_code == 401
+            assert (await http.post("/demo/reset", headers=buyer)).status_code == 401
+            lookup = await http.post("/client/chat", headers=buyer, json={"text": "5 litres of lactose-free milk by Monday"})
+            assert lookup.status_code == 200, lookup.text
+            assert lookup.json()["draft"] is None
+            assert (await http.get("/orders", headers=buyer)).json() == []
+            response = await http.post("/client/chat", headers=buyer,
+                                 json={"text": "Create a ticket for 5 litres of lactose-free milk by Monday"})
+            assert response.status_code == 200, response.text
+            draft = response.json()["draft"]
+            result = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
+            assert result.status_code == 200 and result.json()["status"] == "confirmed", result.text
+            analytics = (await http.get("/operations/analytics", headers=admin)).json()
+            assert analytics["sectors"]["Hospitality"]["confirmed_orders"] == 1
+            assert analytics["estimated_kg_co2e"] == 10
+            assert (await http.get("/operations/activity?kind=inquiries&q=ticket", headers=admin)).json()["events"]
+
+    asyncio.run(verify())

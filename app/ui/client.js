@@ -1,0 +1,167 @@
+import {$, date, feedback, lineItems, money, node, number, pill, request, table} from "./common.js";
+
+const buyer = $("buyer");
+const buyerKey = () => "demo-" + buyer.value + "-client-key";
+let draft = null;
+let scope = 0;
+let queryVersion = 0;
+let ordersVersion = 0;
+
+function connection() {
+  $("mcp-command").textContent = 'claude mcp add --transport http agent-dairy ' + location.origin +
+    '/mcp --header "Authorization: Bearer demo-' + buyer.value + '-key"';
+  feedback($("copy-status"), "");
+}
+
+function showDraft(quote, outcome) {
+  draft = quote;
+  const target = $("draft");
+  target.classList.toggle("empty", !quote && !outcome);
+  target.replaceChildren();
+  if (outcome) {
+    target.append(pill(outcome.status), node("p", outcome.order_id, "cell-note"),
+      node("p", outcome.policy.reasons.join(" "), "cell-note"));
+    return;
+  }
+  if (!quote) {
+    target.append("Create a ticket draft to review quantities, prices and the delivery date.");
+    return;
+  }
+  target.append(node("p", "Delivery " + date(quote.delivery_date)),
+    node("p", "Quote expires " + new Date(quote.expires_at).toLocaleString("en-FI", {timeZone:"Europe/Helsinki"}), "cell-note"),
+    lineItems(quote.lines), node("p", money.format(quote.total_net) + " excl. VAT", "ticket-total"));
+  if (quote.policy_preview.reasons.length) {
+    target.append(node("p", quote.policy_preview.reasons.join(" "), "cell-note"));
+  }
+  const button = node("button", "Submit ticket to Aimo", "primary");
+  const actions = node("div", "", "actions");
+  const info = node("p", "", "feedback");
+  info.hidden = true;
+  info.setAttribute("role", "status");
+  actions.append(button);
+  target.append(actions, info);
+  button.addEventListener("click", async () => {
+    const current = scope;
+    button.disabled = true;
+    feedback(info, "Submitting ticket…");
+    try {
+      const order = await request("/client/tickets/submit", buyerKey(), {quote_id: draft.quote_id});
+      if (current === scope && draft === quote) {
+        showDraft(null, order);
+        await loadOrders();
+      }
+    } catch (error) {
+      feedback(info, error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function offerRows(offers) {
+  return offers.map(item => {
+    const product = node("span", item.name || item.product_id);
+    product.append(node("small", item.product_id + " · " + item.sales_unit, "cell-note"));
+    const availability = item.orderable
+      ? item.unlimited ? "Supplier stock unverified" : number.format(item.available_qty) + " " + item.sales_unit
+      : item.reason.replaceAll("_", " ");
+    return [product, item.unit_price == null ? "—" : money.format(item.unit_price),
+      availability, item.available_date ? date(item.available_date) : "—",
+      item.co2_per_kg == null ? "—" : number.format(item.co2_per_kg),
+      item.reliability == null ? "—" : number.format(item.reliability * 100) + "%"];
+  });
+}
+
+function showResults(result) {
+  const target = $("results");
+  target.replaceChildren();
+  if (!result.offers?.length) return;
+  const eta = result.delivery_estimate;
+  if (eta) {
+    target.append(node("p", eta.status === "estimated"
+      ? "Estimated travel from Rautatientori · " + eta.travel_minutes_min + "–" + eta.travel_minutes_max + " min after dispatch"
+      : "Travel estimate is unavailable for this postcode.", "feedback"));
+  }
+  const plans = result.plan?.plans ?? [];
+  if (plans.length) {
+    const plan = plans[0];
+    target.append(node("h3", "Best available plan", "results"), lineItems(plan.lines),
+      node("p", number.format(plan.coverage * 100) + "% of requested quantity · " +
+        money.format(plan.total_net) + " excl. VAT", "cell-note"));
+  }
+  const headings = ["Product", "Net price / unit", "Availability", "Earliest date", "kg CO₂e/kg", "Reliability"];
+  target.append(node("h3", "Live offers", "results"), table(headings, offerRows(result.offers)));
+  for (const [productId, alternatives] of Object.entries(result.alternatives ?? {})) {
+    if (alternatives.length) {
+      target.append(node("h3", "Listed alternatives for " + productId, "results"),
+        table(headings, offerRows(alternatives)));
+    }
+  }
+}
+
+async function loadOrders() {
+  const current = ++ordersVersion;
+  const target = $("orders");
+  target.replaceChildren(node("p", "Loading tickets…", "empty"));
+  try {
+    const orders = await request("/orders", buyerKey());
+    if (current !== ordersVersion) return;
+    target.replaceChildren(orders.length ? table(["Ticket", "Status", "Delivery", "Net total"],
+      orders.map(order => [order.order_id, pill(order.status), date(order.delivery_date), money.format(order.total_net)]))
+      : node("p", "Submitted tickets will appear here.", "empty"));
+  } catch (error) {
+    if (current === ordersVersion) target.replaceChildren(node("p", error.message, "feedback error"));
+  }
+}
+
+$("chat").addEventListener("submit", async event => {
+  event.preventDefault();
+  const text = $("message").value.trim();
+  if (!text) return;
+  const current = ++queryVersion;
+  const buttons = Array.from(event.currentTarget.querySelectorAll("[type=submit]"));
+  buttons.forEach(button => { button.disabled = true; });
+  const action = event.submitter?.value || "lookup";
+  if (action === "draft") showDraft(null);
+  feedback($("chat-status"), "Checking the Valio catalog and live offers…");
+  $("results").replaceChildren();
+  try {
+    const result = await request("/client/chat", buyerKey(), {text, action,
+      postal_code: $("postcode").value || null, include_substitutes: $("substitutes").checked});
+    if (current !== queryVersion) return;
+    feedback($("chat-status"), result.message);
+    $("assistant-mode").textContent = result.mode === "ai" ? "AI-assisted" : "Guided search";
+    showResults(result);
+    if (result.draft) showDraft(result.draft);
+  } catch (error) {
+    if (current === queryVersion) feedback($("chat-status"), error.message, true);
+  } finally {
+    if (current === queryVersion) buttons.forEach(button => { button.disabled = false; });
+  }
+});
+
+document.querySelectorAll("[data-example]").forEach(button => button.addEventListener("click", () => {
+  $("message").value = button.dataset.example;
+  $("message").focus();
+}));
+$("copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("mcp-command").textContent);
+    feedback($("copy-status"), "Configuration copied.");
+  } catch {
+    feedback($("copy-status"), "Clipboard is unavailable. Select and copy the configuration above.", true);
+  }
+});
+buyer.addEventListener("change", () => {
+  scope += 1;
+  queryVersion += 1;
+  $("chat").querySelectorAll("[type=submit]").forEach(button => { button.disabled = false; });
+  connection();
+  showDraft(null);
+  $("results").replaceChildren();
+  feedback($("chat-status"), "");
+  loadOrders();
+});
+$("refresh").addEventListener("click", loadOrders);
+connection();
+loadOrders();

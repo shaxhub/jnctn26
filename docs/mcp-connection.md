@@ -17,10 +17,13 @@
    ```sh
    curl -i https://agent-dairy-mcp.kienlebox.stream/mcp
    curl -fsS https://agent-dairy-mcp.kienlebox.stream/.well-known/oauth-protected-resource/mcp
+   curl -fsS https://agent-dairy-mcp.kienlebox.stream/.well-known/oauth-protected-resource
    curl -fsS https://agent-dairy-mcp.kienlebox.stream/.well-known/oauth-authorization-server
    ```
 
 4. Create the custom MCP app in ChatGPT using that server URL. Choose OAuth and Client ID Metadata Document registration. Agent Dairy recognizes the stable ChatGPT client ID and callback documented by OpenAI. Connect a buyer account and test a product lookup across two separate buyer accounts before sharing it. [OpenAI MCP authentication guide](https://developers.openai.com/plugins/build/auth)
+
+If ChatGPT only offers manual client registration, select **Use your own OAuth client credentials** if the form accepts a public client. Use client ID `https://chatgpt.com/oauth/client.json`, authentication method `None`, and an empty secret. The callback must be `https://chatgpt.com/connector_platform_oauth_redirect`. If the form requires a secret or shows a different callback, this public client registration is incompatible with that form.
 
 The existing Tailscale Funnel can also host OAuth directly. Set `MCP_PUBLIC_URL=https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp`. The existing `/agent-dairy` mount serves MCP, login and token exchange. A Tailscale operator must add the two exact discovery routes below. Then set `MCP_OAUTH_ENABLED=1` on both client services and restart them.
 

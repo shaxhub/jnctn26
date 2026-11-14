@@ -1,5 +1,6 @@
 const routes = new Set([
   "/mcp",
+  "/.well-known/oauth-protected-resource",
   "/.well-known/oauth-protected-resource/mcp",
   "/.well-known/oauth-authorization-server",
   "/authorize",
@@ -14,7 +15,10 @@ export default {
       return new Response("Not found", { status: 404 });
     }
     const upstream = new URL("https://kienlebox.tail80aa1e.ts.net");
-    upstream.pathname = "/agent-dairy" + incoming.pathname;
+    const path = incoming.pathname === "/.well-known/oauth-protected-resource"
+      ? "/.well-known/oauth-protected-resource/mcp"
+      : incoming.pathname;
+    upstream.pathname = "/agent-dairy" + path;
     upstream.search = incoming.search;
     const headers = new Headers(request.headers);
     headers.delete("Host");

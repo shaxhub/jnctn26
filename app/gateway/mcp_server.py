@@ -13,13 +13,14 @@ from __future__ import annotations
 
 from datetime import date
 from functools import partial
+from typing import Annotated
 
 import anyio
 import httpx
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from . import kitchen, seasonal, service, store, workspace
 from .agent import compact_offers
@@ -283,10 +284,14 @@ async def create_quote(delivery_date: str, lines: list[dict], need: dict | None 
 
 @mcp.tool()
 async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None,
-                      delivery_address: str | None = None) -> dict:
+                      delivery_address: str | None = None,
+                      postal_code: Annotated[str, Field(pattern=r"^[0-9]{5}$")] | None = None) -> dict:
     """Place an order from an unexpired quote. agent_rationale: one or two sentences on why this option was
-    chosen; it is stored in the audit log for the human reviewer. delivery_address (optional, max 240
-    characters): where to deliver; omit it to use the address saved in the buyer's workspace settings.
+    chosen; it is stored in the audit log for the human reviewer.
+
+    Use delivery_address for the street address and postal_code for the five-digit Finnish postcode
+    (for example "00580"). You can also put the complete address in delivery_address.
+    The combined address can be at most 240 characters. Omit both fields to use the buyer's saved delivery address.
 
     The gateway re-checks availability and applies the buyer's mandate. Resulting status:
     confirmed (auto-approved), pending_approval (a human must approve; this is normal, do not retry or split
@@ -297,6 +302,15 @@ async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None,
         raise ToolError("Rationale must be at most 1,000 characters")
     if delivery_address and len(delivery_address) > 240:
         raise ToolError("Delivery address must be at most 240 characters")
+    if postal_code is not None:
+        address = (delivery_address or "").strip().rstrip(",").rstrip()
+        if not address:
+            raise ToolError("Provide a street address in delivery_address when using postal_code")
+        embedded_postcode = postal_code_from_address(address)
+        if embedded_postcode is None:
+            delivery_address = f"{address}, {postal_code}"
+        elif embedded_postcode != postal_code:
+            raise ToolError("postal_code must match the postcode already in delivery_address")
     order = await _run(service.place_order, p, quote_id, agent_rationale, delivery_address=delivery_address)
     return order.model_dump(mode="json")
 

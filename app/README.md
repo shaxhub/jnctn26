@@ -50,6 +50,8 @@ Start with `get_my_mandate` to read the effective permissions. A buyer can disab
 
 A typical external agent discovers authority, searches for products, checks offers for the requested delivery date, creates a signed quote, and places the order by quote ID. Quote lines use **sales units**. Check order status and request history to track registration and fulfillment. Inspect current tool argument schemas with MCP discovery rather than hard-coding schemas from this guide.
 
+To override the saved delivery address for one order, pass `delivery_address` and `postal_code` to `place_order`. For example, use `"delivery_address": "Testikuja 15 B 089"` and `"postal_code": "00580"`. Send the postcode as a five-digit string so it keeps the leading zero. You can also supply the complete address in `delivery_address`. Omitting both fields uses the buyer's saved workspace address. The order records the resolved address and returns it in `get_order_status`.
+
 For `compile_ingredients`, pass `servings: 20` and `dishes: ["Salmon soup", "Roasted potatoes"]`. Known dish names use estimated templates. To use your own amounts, pass a recipe such as `{"name":"Tomato salad","servings":4,"ingredients":[{"name":"tomato","amount":500,"unit":"g"}]}` in `recipes`. Use `source_ingredients` with a `delivery_date` for live offers. The optional `unavailable_ingredients` list supports culinary alternatives where the planner knows one.
 
 ## Configuration and contracts

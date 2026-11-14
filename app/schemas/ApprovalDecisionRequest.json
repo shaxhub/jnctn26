@@ -1,0 +1,22 @@
+{
+  "properties": {
+    "decision": {
+      "enum": [
+        "approve",
+        "reject"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "comment": {
+      "default": "",
+      "title": "Comment",
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision"
+  ],
+  "title": "ApprovalDecisionRequest",
+  "type": "object"
+}

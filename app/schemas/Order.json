@@ -1,0 +1,291 @@
+{
+  "$defs": {
+    "Decision": {
+      "enum": [
+        "auto",
+        "needs_approval",
+        "reject"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "FiredRule": {
+      "properties": {
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/$defs/Decision"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "effect",
+        "message"
+      ],
+      "title": "FiredRule",
+      "type": "object"
+    },
+    "OrderStatus": {
+      "enum": [
+        "confirmed",
+        "pending_approval",
+        "rejected",
+        "expired"
+      ],
+      "title": "OrderStatus",
+      "type": "string"
+    },
+    "PolicyResult": {
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/Decision"
+        },
+        "fired_rules": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FiredRule"
+          },
+          "title": "Fired Rules",
+          "type": "array"
+        },
+        "reasons": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "mandate_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mandate Id"
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "title": "PolicyResult",
+      "type": "object"
+    },
+    "QuoteLine": {
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "number"
+        },
+        "sales_unit": {
+          "title": "Sales Unit",
+          "type": "string"
+        },
+        "unit_price": {
+          "title": "Unit Price",
+          "type": "number"
+        },
+        "unit_price_with_tax": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Price With Tax"
+        },
+        "line_total": {
+          "title": "Line Total",
+          "type": "number"
+        },
+        "closing_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Closing Time"
+        },
+        "covers": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Amount of the need covered, in need units.",
+          "title": "Covers"
+        },
+        "is_substitute": {
+          "default": false,
+          "title": "Is Substitute",
+          "type": "boolean"
+        },
+        "substitute_for": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Substitute For"
+        },
+        "substitute_for_category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Substitute For Category"
+        }
+      },
+      "required": [
+        "product_id",
+        "quantity",
+        "sales_unit",
+        "unit_price",
+        "line_total"
+      ],
+      "title": "QuoteLine",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "order_id": {
+      "title": "Order Id",
+      "type": "string"
+    },
+    "quote_id": {
+      "title": "Quote Id",
+      "type": "string"
+    },
+    "buyer_id": {
+      "title": "Buyer Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/OrderStatus"
+    },
+    "total_net": {
+      "title": "Total Net",
+      "type": "number"
+    },
+    "currency": {
+      "default": "EUR",
+      "title": "Currency",
+      "type": "string"
+    },
+    "delivery_date": {
+      "format": "date",
+      "title": "Delivery Date",
+      "type": "string"
+    },
+    "lines": {
+      "items": {
+        "$ref": "#/$defs/QuoteLine"
+      },
+      "title": "Lines",
+      "type": "array"
+    },
+    "policy": {
+      "$ref": "#/$defs/PolicyResult"
+    },
+    "approval_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approval Id"
+    },
+    "agent_rationale": {
+      "default": "",
+      "title": "Agent Rationale",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "order_id",
+    "quote_id",
+    "buyer_id",
+    "status",
+    "total_net",
+    "delivery_date",
+    "lines",
+    "policy",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "Order",
+  "type": "object"
+}

@@ -1,0 +1,13 @@
+# secrets
+.env
+# local state and catalog (built from the challenge data; never commit the data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

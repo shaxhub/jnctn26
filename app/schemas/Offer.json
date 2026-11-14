@@ -1,0 +1,374 @@
+{
+  "$defs": {
+    "OrderableReason": {
+      "enum": [
+        "ok",
+        "cutoff_passed",
+        "no_availability_data",
+        "sales_block",
+        "insufficient_stock",
+        "later_date",
+        "no_price"
+      ],
+      "title": "OrderableReason",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "product_id": {
+      "title": "Product Id",
+      "type": "string"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "brand": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Brand"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Category"
+    },
+    "sales_unit": {
+      "title": "Sales Unit",
+      "type": "string"
+    },
+    "base_unit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Unit"
+    },
+    "allowed_lot_size": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Allowed Lot Size"
+    },
+    "base_units_per_sales_unit": {
+      "default": 1.0,
+      "title": "Base Units Per Sales Unit",
+      "type": "number"
+    },
+    "volume_l": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Volume L"
+    },
+    "net_weight_kg": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Net Weight Kg"
+    },
+    "content_per_sales_unit": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "How many L or KG one sales unit contains.",
+      "title": "Content Per Sales Unit"
+    },
+    "content_unit": {
+      "anyOf": [
+        {
+          "enum": [
+            "L",
+            "KG"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Unit"
+    },
+    "content_source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "price_api (catalogPrice/comparisonPrice) or catalog.",
+      "title": "Content Source"
+    },
+    "unit_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Net price per sales unit, EUR, without VAT.",
+      "title": "Unit Price"
+    },
+    "unit_price_with_tax": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unit Price With Tax"
+    },
+    "tax_rate": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tax Rate"
+    },
+    "price_per_content_unit": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "EUR per L or KG without VAT.",
+      "title": "Price Per Content Unit"
+    },
+    "currency": {
+      "default": "EUR",
+      "title": "Currency",
+      "type": "string"
+    },
+    "price_valid_to": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Price Valid To"
+    },
+    "net_price_found": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Net Price Found"
+    },
+    "available_qty": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Sales units available; None when unlimited or unknown.",
+      "title": "Available Qty"
+    },
+    "unlimited": {
+      "default": false,
+      "title": "Unlimited",
+      "type": "boolean"
+    },
+    "available_date": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Available Date"
+    },
+    "closing_time": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Order cutoff for this delivery date.",
+      "title": "Closing Time"
+    },
+    "logistic_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Logistic Model"
+    },
+    "orderable": {
+      "title": "Orderable",
+      "type": "boolean"
+    },
+    "reason": {
+      "$ref": "#/$defs/OrderableReason"
+    },
+    "reliability": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reliability"
+    },
+    "co2_per_kg": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Co2 Per Kg"
+    },
+    "allergens_contains": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allergens Contains",
+      "type": "array"
+    },
+    "allergens_may_contain": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allergens May Contain",
+      "type": "array"
+    },
+    "claims": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "labels": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Labels",
+      "type": "array"
+    },
+    "substitutes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Substitutes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "product_id",
+    "sales_unit",
+    "orderable",
+    "reason"
+  ],
+  "title": "Offer",
+  "type": "object"
+}

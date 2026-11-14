@@ -1,0 +1,64 @@
+{
+  "properties": {
+    "text": {
+      "default": "",
+      "description": "Free text, matched as a substring of fi/en/sv names and brand (min 3 chars per word).",
+      "title": "Text",
+      "type": "string"
+    },
+    "free_from": {
+      "description": "nutritionalClaim ids that must be present, e.g. FREE_FROM_LACTOSE, FREE_FROM_GLUTEN, VEGAN.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Free From",
+      "type": "array"
+    },
+    "exclude_allergens": {
+      "description": "Allergen codes (AM, AW...) or groups (milk, gluten, nuts) the product must not CONTAIN.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Exclude Allergens",
+      "type": "array"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Category code or prefix, e.g. '10400' (milk) or '104'.",
+      "title": "Category"
+    },
+    "labels": {
+      "description": "packagingMarkedLabel ids that must be present, e.g. GOODS_FROM_FINLAND_BLUE_SWAN.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Labels",
+      "type": "array"
+    },
+    "exclude_terms": {
+      "description": "Drop products whose name contains any of these words (e.g. kahvi, kaakao).",
+      "items": {
+        "type": "string"
+      },
+      "title": "Exclude Terms",
+      "type": "array"
+    },
+    "limit": {
+      "default": 20,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    }
+  },
+  "title": "SearchRequest",
+  "type": "object"
+}

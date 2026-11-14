@@ -1,0 +1,21 @@
+# Challenge data (never commit per challenge terms)
+external/
+
+# Local SQLite DBs, generated keys, and Python artifacts
+app/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment & secrets
+.env
+
+# Python / virtualenv / caches
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Pitch prep and submission drafts (kept local, not public)
+deliverables/

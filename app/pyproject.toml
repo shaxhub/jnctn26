@@ -1,0 +1,24 @@
+[project]
+name = "valio-gateway"
+version = "0.1.0"
+description = "Valio Aimo trade gateway for AI purchasing agents (Junction 2026)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.8.0,<3",
+    "cryptography>=50.0.2",
+    "fastapi>=0.162.7",
+    "httpx>=0.28.1",
+    "mcp>=2.3.0,<3",  # v2 API: MCPServer (FastMCP renamed)
+    "pydantic>=2.14.3",
+    "python-dotenv>=1.2.4",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

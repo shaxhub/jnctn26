@@ -1,0 +1,73 @@
+{
+  "$defs": {
+    "Decision": {
+      "enum": [
+        "auto",
+        "needs_approval",
+        "reject"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "FiredRule": {
+      "properties": {
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/$defs/Decision"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "effect",
+        "message"
+      ],
+      "title": "FiredRule",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "decision": {
+      "$ref": "#/$defs/Decision"
+    },
+    "fired_rules": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FiredRule"
+      },
+      "title": "Fired Rules",
+      "type": "array"
+    },
+    "reasons": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "mandate_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mandate Id"
+    }
+  },
+  "required": [
+    "decision"
+  ],
+  "title": "PolicyResult",
+  "type": "object"
+}

@@ -1,0 +1,87 @@
+{
+  "description": "What the buyer asked for, in structured form (shown to the user before anything is ordered).",
+  "properties": {
+    "item": {
+      "description": "Short description, e.g. 'lactose-free milk'.",
+      "title": "Item",
+      "type": "string"
+    },
+    "quantity": {
+      "exclusiveMinimum": 0,
+      "title": "Quantity",
+      "type": "number"
+    },
+    "unit": {
+      "description": "L, KG, PCS (consumer pieces) or a sales unit code such as KI.",
+      "title": "Unit",
+      "type": "string"
+    },
+    "delivery_date": {
+      "format": "date",
+      "title": "Delivery Date",
+      "type": "string"
+    },
+    "search_text": {
+      "default": "",
+      "title": "Search Text",
+      "type": "string"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Category"
+    },
+    "free_from": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Free From",
+      "type": "array"
+    },
+    "exclude_allergens": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Exclude Allergens",
+      "type": "array"
+    },
+    "exclude_terms": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Exclude Terms",
+      "type": "array"
+    },
+    "preferred_product_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Preferred Product Ids",
+      "type": "array"
+    },
+    "allow_partial": {
+      "default": true,
+      "title": "Allow Partial",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "item",
+    "quantity",
+    "unit",
+    "delivery_date"
+  ],
+  "title": "Need",
+  "type": "object"
+}

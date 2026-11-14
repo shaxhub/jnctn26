@@ -1,0 +1,81 @@
+{
+  "properties": {
+    "seq": {
+      "title": "Seq",
+      "type": "integer"
+    },
+    "ts": {
+      "format": "date-time",
+      "title": "Ts",
+      "type": "string"
+    },
+    "event_type": {
+      "title": "Event Type",
+      "type": "string"
+    },
+    "actor": {
+      "title": "Actor",
+      "type": "string"
+    },
+    "buyer_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Buyer Id"
+    },
+    "order_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Order Id"
+    },
+    "quote_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quote Id"
+    },
+    "data": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Data",
+      "type": "object"
+    },
+    "prev_hash": {
+      "title": "Prev Hash",
+      "type": "string"
+    },
+    "hash": {
+      "title": "Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "seq",
+    "ts",
+    "event_type",
+    "actor",
+    "prev_hash",
+    "hash"
+  ],
+  "title": "AuditEvent",
+  "type": "object"
+}

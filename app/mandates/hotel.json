@@ -1,0 +1,18 @@
+{
+  "mandate_id": "mandate-hotel-2026-11",
+  "buyer_id": "hotel",
+  "buyer_name": "Hotel Aurora Helsinki (demo)",
+  "issued_by": "F&B manager (demo persona)",
+  "issued_at": "2026-11-01",
+  "valid_until": "2027-01-31",
+  "currency": "EUR",
+  "max_order_total": 1000,
+  "max_weekly_total": 5000,
+  "forbidden_allergens": [],
+  "may_contain_forbidden": "ignore",
+  "allowed_categories": null,
+  "substitution_policy": "same_category",
+  "unknown_availability": "needs_approval",
+  "partial_coverage": "needs_approval",
+  "notes": "Kitchen agent may buy anything up to EUR 1000 per order and EUR 5000 per week (net). Substitutes within the same category are fine; anything else goes to the F&B manager."
+}

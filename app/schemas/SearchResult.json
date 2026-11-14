@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "ProductSummary": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name_fi": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name Fi"
+        },
+        "name_en": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name En"
+        },
+        "brand": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Brand"
+        },
+        "vendor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vendor"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "sales_unit": {
+          "title": "Sales Unit",
+          "type": "string"
+        },
+        "base_unit": {
+          "title": "Base Unit",
+          "type": "string"
+        },
+        "base_units_per_sales_unit": {
+          "default": 1.0,
+          "title": "Base Units Per Sales Unit",
+          "type": "number"
+        },
+        "volume_l": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Litres per sales unit (catalog-derived).",
+          "title": "Volume L"
+        },
+        "net_weight_kg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Kilograms per sales unit (catalog-derived).",
+          "title": "Net Weight Kg"
+        },
+        "allowed_lot_size": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Lot Size"
+        },
+        "allergens_contains": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allergens Contains",
+          "type": "array"
+        },
+        "allergens_may_contain": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allergens May Contain",
+          "type": "array"
+        },
+        "claims": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "labels": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "array"
+        },
+        "reliability": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reliability"
+        },
+        "co2_per_kg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Co2 Per Kg"
+        },
+        "substitutes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Substitutes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "sales_unit",
+        "base_unit"
+      ],
+      "title": "ProductSummary",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "results": {
+      "items": {
+        "$ref": "#/$defs/ProductSummary"
+      },
+      "title": "Results",
+      "type": "array"
+    },
+    "total_matches": {
+      "title": "Total Matches",
+      "type": "integer"
+    },
+    "category_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "description": "Matches per category code, to help narrow the search.",
+      "title": "Category Counts",
+      "type": "object"
+    }
+  },
+  "required": [
+    "results",
+    "total_matches"
+  ],
+  "title": "SearchResult",
+  "type": "object"
+}

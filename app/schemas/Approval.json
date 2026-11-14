@@ -1,0 +1,84 @@
+{
+  "properties": {
+    "approval_id": {
+      "title": "Approval Id",
+      "type": "string"
+    },
+    "order_id": {
+      "title": "Order Id",
+      "type": "string"
+    },
+    "buyer_id": {
+      "title": "Buyer Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decided_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decided At"
+    },
+    "decided_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decided By"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "required": [
+    "approval_id",
+    "order_id",
+    "buyer_id",
+    "status",
+    "reasons",
+    "created_at"
+  ],
+  "title": "Approval",
+  "type": "object"
+}

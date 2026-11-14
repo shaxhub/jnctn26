@@ -1,0 +1,252 @@
+{
+  "$defs": {
+    "Plan": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "strategy": {
+          "title": "Strategy",
+          "type": "string"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/PlanLine"
+          },
+          "title": "Lines",
+          "type": "array"
+        },
+        "requested": {
+          "title": "Requested",
+          "type": "number"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "covered": {
+          "title": "Covered",
+          "type": "number"
+        },
+        "coverage": {
+          "title": "Coverage",
+          "type": "number"
+        },
+        "total_net": {
+          "title": "Total Net",
+          "type": "number"
+        },
+        "currency": {
+          "default": "EUR",
+          "title": "Currency",
+          "type": "string"
+        },
+        "avg_reliability": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avg Reliability"
+        },
+        "estimated_co2_kg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Co2 Kg"
+        },
+        "notes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "strategy",
+        "lines",
+        "requested",
+        "unit",
+        "covered",
+        "coverage",
+        "total_net"
+      ],
+      "title": "Plan",
+      "type": "object"
+    },
+    "PlanLine": {
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "quantity": {
+          "description": "In sales units.",
+          "title": "Quantity",
+          "type": "number"
+        },
+        "sales_unit": {
+          "title": "Sales Unit",
+          "type": "string"
+        },
+        "covers": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Amount of the need covered, in need units.",
+          "title": "Covers"
+        },
+        "unit_price": {
+          "title": "Unit Price",
+          "type": "number"
+        },
+        "line_total": {
+          "title": "Line Total",
+          "type": "number"
+        },
+        "closing_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Closing Time"
+        },
+        "is_substitute": {
+          "default": false,
+          "title": "Is Substitute",
+          "type": "boolean"
+        },
+        "substitute_for": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Substitute For"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "co2_per_kg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Co2 Per Kg"
+        },
+        "reliability": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reliability"
+        }
+      },
+      "required": [
+        "product_id",
+        "quantity",
+        "sales_unit",
+        "unit_price",
+        "line_total"
+      ],
+      "title": "PlanLine",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "plans": {
+      "items": {
+        "$ref": "#/$defs/Plan"
+      },
+      "title": "Plans",
+      "type": "array"
+    },
+    "excluded": {
+      "description": "Offers that were not usable, with reason.",
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Excluded",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plans"
+  ],
+  "title": "PlanResult",
+  "type": "object"
+}

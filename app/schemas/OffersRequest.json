@@ -1,0 +1,51 @@
+{
+  "properties": {
+    "product_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 1000,
+      "minItems": 1,
+      "title": "Product Ids",
+      "type": "array"
+    },
+    "delivery_date": {
+      "format": "date",
+      "title": "Delivery Date",
+      "type": "string"
+    },
+    "quantity": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional: needed amount, to also get a plan.",
+      "title": "Quantity"
+    },
+    "unit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Unit of quantity: L, KG, PCS or a sales unit code.",
+      "title": "Unit"
+    }
+  },
+  "required": [
+    "product_ids",
+    "delivery_date"
+  ],
+  "title": "OffersRequest",
+  "type": "object"
+}

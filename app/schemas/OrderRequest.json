@@ -1,0 +1,19 @@
+{
+  "properties": {
+    "quote_id": {
+      "title": "Quote Id",
+      "type": "string"
+    },
+    "agent_rationale": {
+      "default": "",
+      "description": "Why the agent chose this quote; stored in the audit log.",
+      "title": "Agent Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "quote_id"
+  ],
+  "title": "OrderRequest",
+  "type": "object"
+}

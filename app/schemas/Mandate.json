@@ -1,0 +1,166 @@
+{
+  "description": "Rules a buyer organisation issues to its purchasing agent. The gateway enforces them; the\nagent cannot pass or change limits (no tool accepts them).",
+  "properties": {
+    "mandate_id": {
+      "title": "Mandate Id",
+      "type": "string"
+    },
+    "buyer_id": {
+      "title": "Buyer Id",
+      "type": "string"
+    },
+    "buyer_name": {
+      "title": "Buyer Name",
+      "type": "string"
+    },
+    "issued_by": {
+      "description": "Person/role at the buyer who issued the mandate.",
+      "title": "Issued By",
+      "type": "string"
+    },
+    "issued_at": {
+      "format": "date",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "valid_until": {
+      "format": "date",
+      "title": "Valid Until",
+      "type": "string"
+    },
+    "currency": {
+      "default": "EUR",
+      "title": "Currency",
+      "type": "string"
+    },
+    "max_order_total": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Net EUR per order; above -> needs_approval.",
+      "title": "Max Order Total"
+    },
+    "max_weekly_total": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Net EUR per ISO week incl. pending orders; above -> needs_approval.",
+      "title": "Max Weekly Total"
+    },
+    "hard_cap_order_total": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Net EUR per order; above -> reject (hard_cap). Default 5x max_order_total.",
+      "title": "Hard Cap Order Total"
+    },
+    "max_quantity_multiple": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 5.0,
+      "description": "Reject (hard_cap) a quote covering more than this multiple of the requested quantity.",
+      "title": "Max Quantity Multiple"
+    },
+    "forbidden_allergens": {
+      "description": "Codes or groups; CONTAINS -> reject, always.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Allergens",
+      "type": "array"
+    },
+    "may_contain_forbidden": {
+      "default": "needs_approval",
+      "enum": [
+        "ignore",
+        "needs_approval",
+        "reject"
+      ],
+      "title": "May Contain Forbidden",
+      "type": "string"
+    },
+    "allowed_categories": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Category code prefixes; null = any.",
+      "title": "Allowed Categories"
+    },
+    "substitution_policy": {
+      "default": "same_category",
+      "enum": [
+        "allowed",
+        "same_category",
+        "always_approval"
+      ],
+      "title": "Substitution Policy",
+      "type": "string"
+    },
+    "unknown_availability": {
+      "default": "needs_approval",
+      "enum": [
+        "needs_approval",
+        "reject"
+      ],
+      "title": "Unknown Availability",
+      "type": "string"
+    },
+    "partial_coverage": {
+      "default": "needs_approval",
+      "enum": [
+        "allowed",
+        "needs_approval"
+      ],
+      "title": "Partial Coverage",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    }
+  },
+  "required": [
+    "mandate_id",
+    "buyer_id",
+    "buyer_name",
+    "issued_by",
+    "issued_at",
+    "valid_until"
+  ],
+  "title": "Mandate",
+  "type": "object"
+}

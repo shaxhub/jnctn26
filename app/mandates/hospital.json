@@ -1,0 +1,18 @@
+{
+  "mandate_id": "mandate-hospital-2026-11",
+  "buyer_id": "hospital",
+  "buyer_name": "Meilahti ward kitchen (demo)",
+  "issued_by": "Clinical dietitian (demo persona)",
+  "issued_at": "2026-11-01",
+  "valid_until": "2027-01-31",
+  "currency": "EUR",
+  "max_order_total": 2000,
+  "max_weekly_total": 8000,
+  "forbidden_allergens": ["milk", "gluten"],
+  "may_contain_forbidden": "needs_approval",
+  "allowed_categories": null,
+  "substitution_policy": "always_approval",
+  "unknown_availability": "needs_approval",
+  "partial_coverage": "needs_approval",
+  "notes": "Ward serves milk-allergic and coeliac patients: products that CONTAIN milk or gluten are always rejected, trace warnings need the dietitian. Every substitution needs the dietitian's approval."
+}

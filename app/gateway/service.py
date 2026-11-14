@@ -133,8 +133,11 @@ def weekly_spent(buyer_id: str, at: datetime | None = None, *, conn=None) -> flo
     at = at or store.now()
     monday = (at - timedelta(days=at.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     fetch = store.fetchone if conn is None else lambda sql, params: conn.execute(sql, params).fetchone()
-    row = fetch("SELECT COALESCE(SUM(total_net),0) AS s FROM orders WHERE buyer_id=? AND created_at>=?"
-                         " AND status IN ('confirmed','pending_approval')", (buyer_id, monday.isoformat()))
+    row = fetch(
+        "SELECT COALESCE(SUM(o.total_net),0) AS s FROM orders o JOIN quotes q USING(quote_id) "
+        "WHERE o.buyer_id=? AND julianday(o.created_at)>=julianday(?) AND "
+        "(o.status='confirmed' OR (o.status='pending_approval' AND julianday(q.expires_at)>julianday(?)))",
+        (buyer_id, monday.isoformat(), at.isoformat()))
     return float(row["s"])
 
 
@@ -358,7 +361,29 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
     return get_order(p, order_id)
 
 
+def expire_pending(*, buyer_id: str | None = None, order_id: str | None = None) -> None:
+    now = store.now().isoformat()
+    query = (
+        "SELECT a.approval_id, o.order_id, o.quote_id, o.buyer_id, q.expires_at "
+        "FROM approvals a JOIN orders o USING(order_id) JOIN quotes q USING(quote_id) "
+        "WHERE a.status='pending' AND julianday(q.expires_at)<=julianday(?) "
+        "AND (? IS NULL OR o.buyer_id=?) AND (? IS NULL OR o.order_id=?)"
+    )
+    params = (now, buyer_id, buyer_id, order_id, order_id)
+    if not store.fetchone(query + " LIMIT 1", params):
+        return
+    with store.transaction() as conn:
+        for row in conn.execute(query, params).fetchall():
+            reason = f"Quote expired at {row['expires_at']} before approval"
+            conn.execute("UPDATE approvals SET status='rejected', decided_at=?, decided_by=?, comment=? WHERE approval_id=?",
+                         (now, "gateway:expiry", reason, row["approval_id"]))
+            conn.execute("UPDATE orders SET status='expired', updated_at=? WHERE order_id=?", (now, row["order_id"]))
+            store.append_in_transaction(conn, "ORDER_EXPIRED", "gateway:expiry", {"reason": reason},
+                                        buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])
+
+
 def get_order(p: Principal | Admin, order_id: str) -> Order:
+    expire_pending(buyer_id=p.buyer_id if isinstance(p, Principal) else None, order_id=order_id)
     r = store.fetchone("SELECT * FROM orders WHERE order_id=?", (order_id,))
     if r is None or r["status"] == "received" or (isinstance(p, Principal) and r["buyer_id"] != p.buyer_id):
         raise GatewayError(404, f"Order {order_id} not found for this buyer")
@@ -366,6 +391,7 @@ def get_order(p: Principal | Admin, order_id: str) -> Order:
 
 
 def list_orders(p: Principal, limit: int = 50) -> list[Order]:
+    expire_pending(buyer_id=p.buyer_id)
     rows = store.fetchall("SELECT * FROM orders WHERE buyer_id=? AND status!='received' ORDER BY created_at DESC LIMIT ?", (p.buyer_id, limit))
     return [_order_from_row(r) for r in rows]
 
@@ -378,6 +404,7 @@ def _approval_from_row(r) -> Approval:
 
 
 def list_approvals(p: Principal, status: str | None = "pending") -> list[dict]:
+    expire_pending(buyer_id=p.buyer_id)
     sql, params = "SELECT * FROM approvals WHERE buyer_id=?", [p.buyer_id]
     if status:
         sql += " AND status=?"

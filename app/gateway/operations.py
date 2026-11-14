@@ -26,6 +26,7 @@ Period = Literal["month", "quarter", "year", "all"]
 @router.get("/activity")
 def activity(kind: Literal["all", "inquiries", "decisions"] = "all", buyer: str = Query("", max_length=80),
              q: str = Query("", max_length=160), before: int | None = Query(None, ge=1)):
+    service.expire_pending(buyer_id=buyer or None)
     kinds = EVENT_TYPES[kind]
     where = [f"event_type IN ({','.join('?' for _ in kinds)})"]
     params = list(kinds)
@@ -51,6 +52,7 @@ def activity(kind: Literal["all", "inquiries", "decisions"] = "all", buyer: str 
 def orders(status: Literal["pending_approval", "confirmed", "rejected", "expired"] | None = None,
            buyer: str = Query("", max_length=80), q: str = Query("", max_length=160),
            offset: int = Query(0, ge=0)):
+    service.expire_pending(buyer_id=buyer or None)
     rows = store.fetchall(
         "SELECT * FROM orders WHERE status!='received' AND (? IS NULL OR status=?) AND (?='' OR buyer_id=?) "
         "AND (?='' OR instr(lower(order_id || ' ' || lines_json || ' ' || coalesce(agent_rationale,'')),lower(?))>0) "
@@ -79,6 +81,7 @@ def _period_start(period: Period, now: datetime) -> datetime:
 
 @router.get("/analytics")
 def analytics(period: Period = "month"):
+    service.expire_pending()
     now = store.now().astimezone(TZ)
     start = _period_start(period, now)
     window = (start.isoformat(), now.isoformat())

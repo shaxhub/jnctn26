@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -217,3 +217,17 @@ def test_fresh_valio_reads_bypass_cache_and_propagate_failure(monkeypatch):
             client.get_offers_raw(["milk"], delivery, fresh=True)
     finally:
         client._http.close()
+
+
+def test_expired_pending_order_leaves_queue_and_releases_spend(gateway):
+    buyer = principal_for_key("demo-hotel-key")
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=date(2026, 11, 16),
+                                                    lines=[{"product_id": "milk", "quantity": 1000}]))
+    order = service.place_order(buyer, quote.quote_id)
+    assert service.weekly_spent(buyer.buyer_id) == 2000
+    store.set_demo_now(quote.expires_at + timedelta(seconds=1))
+    assert service.weekly_spent(buyer.buyer_id) == 0
+    assert service.list_approvals(buyer) == []
+    assert service.get_order(buyer, order.order_id).status == "expired"
+    timeline = service.get_audit_log(buyer, order.order_id)
+    assert sum(event["event_type"] == "ORDER_EXPIRED" for event in timeline["events"]) == 1

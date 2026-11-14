@@ -11,6 +11,7 @@ The tool descriptions below are the agent's documentation: keep them precise.
 """
 from __future__ import annotations
 
+from datetime import date
 from functools import partial
 
 import anyio
@@ -19,7 +20,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
-from . import kitchen, service, store
+from . import kitchen, seasonal, service, store
 from .agent import compact_offers
 from .auth import Principal, current_principal, key_from_headers, principal_for_key
 from .delivery import estimate, postal_code_from_address
@@ -27,7 +28,7 @@ from .valio_client import get_client
 from .models import LineRequest, Need, OffersRequest, QuoteRequest, SearchRequest
 
 READ_TOOLS = ("ping", "get_my_mandate", "search_products", "check_offers",
-              "estimate_delivery", "check_recurring_quote", "get_order_status", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
+              "estimate_delivery", "discover_seasonal_products", "check_recurring_quote", "get_order_status", "get_audit_log", "get_kitchen_capabilities", "compile_ingredients", "source_ingredients")
 
 INSTRUCTIONS = """Valio Aimo trade gateway for food-service purchasing agents.
 Typical flow: get_my_mandate -> search_products -> check_offers (with quantity+unit to get plans)
@@ -81,6 +82,20 @@ async def ping(ctx: Context = None) -> dict:
     except ToolError:
         upstream = "unavailable"
     return {"status": "ok", "valio": upstream, "checked_at": store.now().isoformat()}
+
+
+@mcp.tool()
+async def discover_seasonal_products(delivery_date: str, exclude_allergens: list[kitchen.Text] | None = None,
+                                     required_claims: list[kitchen.Text] | None = None, ctx: Context = None) -> dict:
+    """Suggest in-season Finnish produce with verified availability for the requested date.
+    Applies buyer constraints and returns price, origin, and sustainability evidence when available.
+    """
+    principal = _principal(ctx)
+    delivery = _parse_args(lambda: date.fromisoformat(delivery_date))
+    excluded, claims = exclude_allergens or [], required_claims or []
+    if len(excluded) > 20 or len(claims) > 10:
+        raise ToolError("Use at most 20 allergen exclusions and 10 required claims")
+    return await _run(seasonal.discover, principal, delivery, excluded, claims)
 
 
 @mcp.tool()

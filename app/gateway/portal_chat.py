@@ -53,7 +53,7 @@ async def _lookup(p: Principal, text: str) -> tuple[Need, str]:
     return need, "guided"
 
 
-async def _read_tool(name: Literal["search_products", "check_offers", "compile_ingredients", "source_ingredients"], args: dict, p: Principal) -> dict:
+async def _read_tool(name: Literal["search_products", "check_offers", "compile_ingredients", "source_ingredients", "discover_seasonal_products"], args: dict, p: Principal) -> dict:
     token = current_principal.set(p)
     try:
         result = await mcp.call_tool(name, args)
@@ -164,6 +164,27 @@ async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(requi
     args.update(delivery_date=request.delivery_date.isoformat(), exclude_allergens=request.exclude_allergens,
                 required_claims=request.required_claims, unavailable_ingredients=request.unavailable_ingredients)
     return await _read_tool("source_ingredients", args, p)
+
+
+@router.get("/seasonal")
+async def seasonal_products(delivery_date: date, p: Principal = Depends(require_client)):
+    return await _read_tool("discover_seasonal_products", {"delivery_date": delivery_date.isoformat()}, p)
+
+
+@router.post("/tickets/{order_id}/repeat")
+def repeat_ticket(order_id: str, delivery_date: date, p: Principal = Depends(require_client)):
+    if delivery_date < store.now().date():
+        raise service.GatewayError(422, "Choose today or a future delivery date")
+    original = service.get_order(p, order_id)
+    if original.status != "confirmed":
+        raise service.GatewayError(409, "Choose a confirmed ticket to repeat")
+    signed = store.fetchone("SELECT payload_json FROM quotes WHERE quote_id=?", (original.quote_id,))
+    need = (json.loads(signed["payload_json"]).get("need") if signed else None)
+    if need:
+        need["delivery_date"] = delivery_date.isoformat()
+    return service.create_quote(p, QuoteRequest(delivery_date=delivery_date, need=need, lines=[
+        {"product_id": line.product_id, "quantity": line.quantity} for line in original.lines
+    ]))
 
 
 @router.get("/tickets/{quote_id}/recurring")

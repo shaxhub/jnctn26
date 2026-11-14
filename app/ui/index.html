@@ -43,5 +43,9 @@
       <section class="panel orders" aria-labelledby="orders-title"><div class="panel-head"><h2 id="orders-title">Your submitted tickets</h2><button id="refresh" type="button">Refresh</button></div><div id="orders" aria-live="polite"></div></section>
     </div>
   </main>
+  <dialog id="ticket-details" aria-labelledby="ticket-detail-title">
+    <div class="panel-head"><h2 id="ticket-detail-title">Submitted ticket</h2><form method="dialog"><button>Close</button></form></div>
+    <div id="ticket-detail-body" aria-live="polite"></div>
+  </dialog>
 </body>
 </html>

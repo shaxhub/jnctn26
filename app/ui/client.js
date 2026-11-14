@@ -106,6 +106,36 @@ function showResults(result, requestData) {
   }
 }
 
+function ticketButton(order) {
+  const button = node("button", order.order_id);
+  button.addEventListener("click", () => inspectTicket(order.order_id));
+  return button;
+}
+
+async function inspectTicket(id) {
+  const dialog = $("ticket-details");
+  const target = $("ticket-detail-body");
+  const current = scope;
+  const key = buyerKey();
+  target.replaceChildren(node("p", "Loading ticket…", "empty"));
+  dialog.showModal();
+  try {
+    const order = await request("/orders/" + encodeURIComponent(id), key);
+    if (current !== scope || !dialog.open) return;
+    target.replaceChildren(pill(order.status), node("p", order.order_id + " · Delivery " + date(order.delivery_date),
+      "cell-note"), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
+      node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
+    const audit = await request("/audit?order_id=" + encodeURIComponent(id), key);
+    if (current !== scope || !dialog.open) return;
+    const events = node("ol", "", "timeline");
+    for (const event of audit.events) events.append(node("li", event.summary));
+    target.append(node("h3", "Audit trail", "results"), events,
+      node("p", audit.chain.ok ? "Audit chain verified" : "Audit chain verification failed", "cell-note"));
+  } catch (error) {
+    if (current === scope && dialog.open) target.append(node("p", error.message, "feedback error"));
+  }
+}
+
 async function loadOrders() {
   const current = ++ordersVersion;
   const target = $("orders");
@@ -114,7 +144,7 @@ async function loadOrders() {
     const orders = await request("/orders", buyerKey());
     if (current !== ordersVersion) return;
     target.replaceChildren(orders.length ? table(["Ticket", "Status", "Delivery", "Net total"],
-      orders.map(order => [order.order_id, pill(order.status), date(order.delivery_date), money.format(order.total_net)]))
+      orders.map(order => [ticketButton(order), pill(order.status), date(order.delivery_date), money.format(order.total_net)]))
       : node("p", "Submitted tickets will appear here.", "empty"));
   } catch (error) {
     if (current === ordersVersion) target.replaceChildren(node("p", error.message, "feedback error"));

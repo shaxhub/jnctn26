@@ -58,3 +58,13 @@ def test_kitchen_portal_reuses_mcp_and_creates_no_orders(monkeypatch):
             assert "draft" not in result
 
     asyncio.run(run())
+
+
+def test_recipe_rejects_a_zero_yield_or_unmeasurable_amount():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        kitchen.recipes_from_text("Soup (0)\n100 g potato", 20)
+    with pytest.raises(ValidationError):
+        kitchen.Ingredient(name="potato", unit="g", amount=.00000001)

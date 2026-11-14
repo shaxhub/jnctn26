@@ -122,7 +122,8 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 .kitchen-constraints { margin-top:1rem }
 .kitchen-constraints label { display:block; margin-top:.65rem }
 .kitchen-constraints input { margin-top:.25rem }
-.ingredient-results-head { margin:1.25rem 0 .75rem }
+.ingredient-results-head { margin:1.25rem 0 .75rem; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.75rem }
+.ingredient-results-head button { min-height:2rem; font-size:.8rem }
 .ingredient-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr)); gap:.75rem }
 .ingredient { padding:.85rem; border:1px solid var(--line); border-top:3px solid #9abbe4; border-radius:.5rem; min-width:0 }
 .ingredient-head { margin:0; align-items:baseline }

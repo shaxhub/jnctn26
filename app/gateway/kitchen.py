@@ -34,7 +34,7 @@ EXCLUDED = {
 
 class Ingredient(BaseModel):
     name: Text
-    amount: float = Field(gt=0, le=100_000, allow_inf_nan=False)
+    amount: float = Field(ge=.001, le=100_000, allow_inf_nan=False)
     unit: Unit
 
 
@@ -106,8 +106,8 @@ def compile_ingredients(request: KitchenRequest) -> dict:
     if len(rows) > 40:
         raise service.GatewayError(422, "Use at most 40 distinct ingredient and unit combinations")
     for row in rows.values():
-        row["quantity"] = round(row["quantity"], 6)
-        row["quantities_by_dish"] = {name: round(amount, 6) for name, amount in row["quantities_by_dish"].items()}
+        row["quantity"] = round(row["quantity"], 9)
+        row["quantities_by_dish"] = {name: round(amount, 9) for name, amount in row["quantities_by_dish"].items()}
     return {"servings_per_dish": request.servings, "ingredients": list(rows.values()),
             "unresolved_dishes": unresolved, "known_dishes": sorted(DISHES)}
 
@@ -175,7 +175,7 @@ def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
     offers, checked_at = service.get_offers(ids, request.delivery_date) if ids else ([], None)
     by_id = {offer.product_id: offer for offer in offers}
 
-    def match(name, row):
+    def match(name: str, row: dict) -> dict | None:
         return _pick(principal, name, row, [by_id[pid] for pid in ids_by_name.get(name, []) if pid in by_id], request)
 
     for row in rows:
@@ -191,7 +191,7 @@ def source_ingredients(principal: Principal, request: SourceRequest) -> dict:
             available = match(replacement, {**row, "quantity": amount})
             if available:
                 alternatives.append({"ingredient": replacement, "culinary_note": note, "compatible_dishes": compatible,
-                                     "suggested_quantity": round(amount, 6), "unit": row["unit"],
+                                     "suggested_quantity": round(amount, 9), "unit": row["unit"],
                                      "review_required": True, **available})
         matched = [by_id[pid] for pid in ids_by_name.get(name, []) if pid in by_id]
         if direct:

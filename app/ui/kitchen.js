@@ -7,6 +7,7 @@ const format = $("kitchen-format");
 const target = $("kitchen-result");
 const notice = $("kitchen-status");
 const buyer = $("buyer");
+const countLabel = (amount, noun) => amount + " " + noun + (amount === 1 ? "" : "s");
 const examples = {
   menu: "Salmon soup\nRoasted potatoes\nTomato salad",
   recipes: "Tomato salad (4)\n520 g tomato\n80 g red onion\n12 g basil\n\nRoasted potatoes (4)\n880 g potato\n48 ml rapeseed oil",
@@ -43,6 +44,14 @@ function ingredientCard(row) {
     const details = node("details", "", "ingredient-offers");
     details.append(node("summary", money.format(plan.total_net) + " excl. VAT · " +
       number.format(plan.coverage * 100) + "% of ingredient"), lineItems(plan.lines));
+    for (const offer of row.sourcing.offers) {
+      const evidence = [
+        offer.country,
+        offer.co2_per_kg == null ? null : number.format(offer.co2_per_kg) + " kg CO₂e/kg",
+        offer.reliability == null ? null : number.format(offer.reliability * 100) + "% delivery reliability",
+      ].filter(Boolean);
+      if (evidence.length) details.append(node("p", offer.product_id + " · " + evidence.join(" · "), "cell-note"));
+    }
     card.append(details);
   }
   for (const alternative of row.alternatives ?? []) {
@@ -62,9 +71,24 @@ function ingredientCard(row) {
 function render(result) {
   const heading = node("div", "", "ingredient-results-head");
   const available = result.ingredients.filter(row => row.status === "available").length;
-  heading.append(node("h3", "Ingredient list"), node("p", result.delivery_date
-    ? available + " of " + result.ingredients.length + " ingredients covered for " + date(result.delivery_date)
-    : result.ingredients.length + " ingredients for " + result.servings_per_dish + " servings per dish", "muted"));
+  const titles = node("div");
+  titles.append(node("h3", "Ingredient list"), node("p", result.delivery_date
+    ? available + " of " + countLabel(result.ingredients.length, "ingredient") + " covered for " + date(result.delivery_date)
+    : countLabel(result.ingredients.length, "ingredient") + " for " + countLabel(result.servings_per_dish, "serving") + " per dish", "muted"));
+  heading.append(titles);
+  if (result.ingredients.length) {
+    const copy = node("button", "Copy ingredient list");
+    copy.addEventListener("click", async () => {
+      const lines = result.ingredients.map(item => item.quantity + " " + item.unit + " " + item.ingredient);
+      try {
+        await navigator.clipboard.writeText(lines.join("\n"));
+        feedback(notice, "Ingredient list copied.");
+      } catch {
+        feedback(notice, "Clipboard access is unavailable. Select the ingredient text to copy it.", true);
+      }
+    });
+    heading.append(copy);
+  }
   target.append(heading);
   if (result.unresolved_dishes.length) {
     target.append(node("p", "Add recipes for " + result.unresolved_dishes.join(", ") + ".", "feedback"));

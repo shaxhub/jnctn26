@@ -1,6 +1,6 @@
 # ADR 0006: Serve Aimo operations on a separate host
 
-**Status:** Accepted · Junction 2026 prototype
+**Status:** Superseded by [ADR 0007](0007-unified-portal.md)
 
 ## Context
 

@@ -9,9 +9,11 @@ import contextlib
 
 import anyio
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .accounts import router as session_router
+from .accounts import hosted, identity, router as session_router
+from .operations import demo_router, router as operations_router
 from . import gemini, quotes, service, store
 from .agent import compact_offers, run_agent
 from .auth import McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
@@ -38,13 +40,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Agent Dairy — Valio Aimo Trade Gateway", version="0.1.0", lifespan=lifespan,
               description="Search, offers, signed quotes, mandate-governed orders, human approvals and a "
                           "hash-chained audit log. Auth: X-API-Key (demo keys in buyers.json).")
+app.state.unified_portal = True
 app.router.routes.extend(mcp_app.routes)    # serves POST/GET /mcp from the same process and port
 app.add_middleware(McpAuthMiddleware)
 app.include_router(client_router)
 app.include_router(workspace_router)
 configure_errors(app)
-app.include_router(session_router('client'))
-mount_assets(app, {"client.js", "common.js", "portal.css", "workspace.js", "workspace.css", "order_thread.js"})
+app.include_router(session_router('portal'))
+app.include_router(operations_router)
+app.include_router(demo_router)
+mount_assets(app, {"theme.js", "admin.js", "client.js", "common.js", "portal.css", "workspace.js", "workspace.css", "order_thread.js"})
 
 
 async def _thread(fn, *args):
@@ -56,6 +61,17 @@ async def _thread(fn, *args):
 @app.get("/", include_in_schema=False)
 def ui(request: Request):
     return portal_page(request, "index.html")
+
+
+@app.get("/admin", include_in_schema=False)
+@app.get("/admin/", include_in_schema=False)
+def admin_panel(request: Request):
+    user = identity(request, "portal")
+    if user and user["role"] != "admin":
+        raise HTTPException(403, "Administrator access required.")
+    if hosted() and not user:
+        return RedirectResponse(request.scope.get("root_path", "").rstrip("/") + "/", status_code=303)
+    return portal_page(request, "admin.html")
 
 
 @app.get("/health")

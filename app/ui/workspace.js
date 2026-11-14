@@ -109,7 +109,7 @@ function viewName() {
 function language() { return settings.language || "en"; }
 
 function applyPreferences() {
-  document.documentElement.dataset.theme = settings.theme || "light";
+  window.portalTheme.apply(settings.theme);
   document.documentElement.lang = language();
   for (const label of document.querySelectorAll("[data-en][data-fi]")) label.textContent = label.dataset[language()];
   const prompt = $("message");
@@ -632,7 +632,13 @@ async function connect() {
 window.addEventListener("hashchange", render);
 window.addEventListener("ticket-submitted", () => { render(); loadTrust(); });
 window.setInterval(refreshReminder, 60000);
-buyer.addEventListener("change", connect);
+buyer.addEventListener("change", () => {
+  if (buyer.dataset.admin === "true") {
+    sessionStorage.setItem("agent-dairy-admin-buyer", buyer.value);
+    // Reload so pending requests and open editors cannot cross workspace boundaries.
+    window.location.reload();
+  } else connect();
+});
 for (const code of ["en", "fi"]) $("lang-" + code).addEventListener("click", async () => {
   try { await save({...settings, language:code}); render(); loadTrust(); loadDraftFlyout(); }
   catch (error) { feedback($("reminder"), error.message, true); }
@@ -666,30 +672,33 @@ $("client-sign-out").addEventListener("click", async () => {
 async function initialize() {
   const session = await request("/session", "");
   $("offline-demo-banner").hidden = !session.offline_demo;
-  if (session.required) {
+  $("admin-panel-link").hidden = session.role !== "admin";
+  if (session.required || session.username) {
     buyer.dataset.hosted = "true";
-    buyer.disabled = true;
+    buyer.disabled = session.role !== "admin";
     if (!session.username) {
       loginScreen(true);
       document.documentElement.classList.remove("booting");
       return;
     }
-    buyer.value = session.buyer_id;
+    if (session.role === "admin") {
+      buyer.dataset.admin = "true";
+      const selected = sessionStorage.getItem("agent-dairy-admin-buyer");
+      buyer.value = ["hotel", "hospital"].includes(selected) ? selected : "hotel";
+    } else buyer.value = session.buyer_id;
     loginScreen(false);
     await connect();
     return;
   }
   if (sessionStorage.getItem("agent-dairy-signed-out")) {
-    $("main").replaceChildren();
-    const signedOut = panel("Signed out");
-    const button = node("button", "Open demo workspace", "primary");
+    loginScreen(true);
+    const button = node("button", "Open demo workspace");
+    button.type = "button";
     button.addEventListener("click", () => {
       sessionStorage.removeItem("agent-dairy-signed-out");
       window.location.reload();
     });
-    signedOut.append(button);
-    document.querySelector(".rail").hidden = true;
-    $("main").append(signedOut);
+    $("client-login").append(button);
     document.documentElement.classList.remove("booting");
   } else {
     await connect();

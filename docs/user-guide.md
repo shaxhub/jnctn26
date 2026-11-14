@@ -1,6 +1,6 @@
 # Agent Dairy user guide
 
-Agent Dairy turns a kitchen’s product request or recipe into a quote the buyer can check before sending it to Aimo. Start both apps using the [local setup](../README.md#run-locally).
+Agent Dairy turns a kitchen’s product request or recipe into a quote the buyer can check before sending it to Aimo. Start the shared portal using the [local setup](../README.md#run-locally).
 
 ## Client workspace
 
@@ -53,7 +53,7 @@ Analytics use available observations. Monthly product availability is based on r
 
 ## Aimo operations
 
-Open [the separate operations app](http://127.0.0.1:8001/) and sign in with the local `AIMO_ADMIN_API_KEY`.
+Sign in at [the workspace](http://127.0.0.1:8000/) with an admin account, then choose **Admin panel** in the sidebar. The panel shares your login; buyer accounts do not see this button and cannot access operations. Admin accounts also have the complete buyer workspace, with a Workspace selector for hotel and hospital kitchens. Returning from operations keeps the selected kitchen. For local API-key demos, open `/admin/` and enter `AIMO_ADMIN_API_KEY`.
 
 1. In **Review queue**, filter by client, status, product, or ticket. Open a request to inspect policy reasons, order details, and the audit trail.
 2. Approve or reject a pending exception. Approval checks expiry and rechecks current orderability. A request can expire or fail that recheck before registration.

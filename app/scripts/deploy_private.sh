@@ -55,17 +55,15 @@ WantedBy=default.target
 UNIT
   }
   write_unit client gateway.api "$host" 8000 ""
-  write_unit admin gateway.admin_app "$host" 8001 ""
   if [[ ${FUNNEL_PORTALS:-0} == 1 ]]; then
     write_unit client-funnel gateway.api 127.0.0.1 18200 "--root-path /agent-dairy"
-    write_unit admin-funnel gateway.admin_app 127.0.0.1 18201 "--root-path /agent-dairy-admin"
   fi
   systemctl --user daemon-reload
   systemctl --user enable "${units[@]}"
   systemctl --user restart "${units[@]}"
 else
   printf 'Persistent user services require an enabled systemd user manager and lingering.\n' >&2
-  printf 'To run both portals in this SSH session, use: %s\n' "$python scripts/run_local.py --host $host" >&2
+  printf 'To run the shared portal in this SSH session, use: %s\n' "$python scripts/run_local.py --host $host" >&2
   exit 1
 fi
-printf 'Client: http://%s:8000/\nAimo operations: http://%s:8001/\n' "$host" "$host"
+printf 'Workspace: http://%s:8000/\nAdmin panel: http://%s:8000/admin/\n' "$host" "$host"

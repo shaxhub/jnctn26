@@ -571,10 +571,10 @@ def decide_approval(p: Principal | Admin, approval_id: str, decision: str, comme
         expired = decision == "approve" and now >= _aware(datetime.fromisoformat(row["expires_at"]))
         if decision == "approve" and not expired and fulfillment.enabled():
             snapshot, warehouse_rules = fulfillment.assess(lines, date.fromisoformat(row["delivery_date"]), now, conn=conn)
+            problems.extend(rule.message for rule in warehouse_rules if rule.effect == Decision.reject)
             unresolved = {"warehouse_evidence_missing", "warehouse_unit_mismatch", "warehouse_capacity"}
             if any(rule.rule_id in unresolved for rule in warehouse_rules) and not problems:
                 raise GatewayError(409, "Record current warehouse evidence and confirm handling and capacity before approving.")
-            problems.extend(rule.message for rule in warehouse_rules if rule.effect == Decision.reject)
             store.append_in_transaction(conn, "AIMO_APPROVAL_RECHECKED", p.actor, {
                 "evidence": snapshot, "checks": [rule.model_dump(mode="json") for rule in warehouse_rules],
             }, buyer_id=row["buyer_id"], order_id=row["order_id"], quote_id=row["quote_id"])

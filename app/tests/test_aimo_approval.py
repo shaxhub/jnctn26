@@ -35,6 +35,7 @@ def _evidence(**changes):
     ("spend", "pending_approval", "per_order_limit"),
     ("shelf_life", "rejected", "warehouse_shelf_life"),
     ("dispatch", "rejected", "warehouse_timing"),
+    ("inbound_delay", "rejected", "warehouse_timing"),
 ])
 def test_submission_applies_warehouse_and_model_review(gateway, monkeypatch, case, status, rule):
     monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
@@ -59,6 +60,8 @@ def test_submission_applies_warehouse_and_model_review(gateway, monkeypatch, cas
             changes["lots"] = [{"lot_id": "old", "quantity": 2000, "date_mark": "use_by", "marked_date": "2026-11-15"}]
         elif case == "dispatch":
             changes["dispatch_by"] = "2026-11-14T10:05:00+02:00"
+        elif case == "inbound_delay":
+            changes["ready_to_pick_at"] = "2026-11-16T09:45:00+02:00"
         fulfillment.save("milk", DAY, _evidence(**changes))
 
     buyer = principal_for_key("demo-hotel-client-key")
@@ -81,6 +84,21 @@ def test_submission_applies_warehouse_and_model_review(gateway, monkeypatch, cas
             service.decide_approval(admin, order.approval_id, "approve")
         fulfillment.save("milk", DAY, _evidence())
         assert service.decide_approval(admin, order.approval_id, "approve").status == "confirmed"
+
+
+def test_hard_warehouse_failure_takes_precedence_at_human_review(gateway, monkeypatch):
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
+    monkeypatch.setenv("OFFLINE_DEMO", "0")
+    buyer = principal_for_key("demo-hotel-client-key")
+    quote = service.create_quote(buyer, QuoteRequest(delivery_date=DAY, lines=[{"product_id": "milk", "quantity": 5}]))
+    order = service.place_order(buyer, quote.quote_id)
+    assert order.status == "pending_approval"
+    fulfillment.save("milk", DAY, _evidence(route_capacity_available=False,
+                                             ready_to_pick_at="2026-11-16T09:45:00+02:00"))
+    admin = admin_for_key("test-admin-credential")
+    result = service.decide_approval(admin, order.approval_id, "approve")
+    assert result.status == "rejected"
+    assert "Stock readiness" in service.get_audit_log(admin, order.order_id)["text"]
 
 
 def test_warehouse_evidence_endpoint_requires_admin(gateway):

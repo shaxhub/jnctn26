@@ -47,6 +47,7 @@ class Evidence(BaseModel):
     valid_until: AwareDatetime
     dispatch_by: AwareDatetime
     deliver_by: AwareDatetime
+    ready_to_pick_at: AwareDatetime | None = None
     pick_setup_minutes: int = Field(ge=0, le=1440)
     pick_units_per_minute: float = Field(gt=0, allow_inf_nan=False, ge=0.01, le=1e6)
     load_minutes: int = Field(ge=0, le=1440)
@@ -115,7 +116,7 @@ def assess(lines: list[QuoteLine], delivery: date, now: datetime, *, conn=None) 
     rules = []
     facts = []
     prep = 0
-    known = []
+    work = []
 
     def flag(code: str, message: str, effect: Decision = Decision.needs_approval) -> None:
         rules.append(FiredRule(rule_id=code, effect=effect, message=message))
@@ -142,26 +143,33 @@ def assess(lines: list[QuoteLine], delivery: date, now: datetime, *, conn=None) 
             flag("warehouse_capacity", f"{sku}: route capacity or {evidence.handling} handling needs confirmation.")
         minutes = evidence.pick_setup_minutes + ceil(required / evidence.pick_units_per_minute) + evidence.load_minutes
         prep += minutes
-        known.append(evidence)
+        ready = evidence.ready_to_pick_at
+        work.append((max(now, ready) if ready else now, minutes, evidence))
         facts.append({"product_id": sku, "required": required, "unit": evidence.unit, "eligible_quantity": available,
                       "earliest_eligible_date_mark": min((lot.marked_date.isoformat() for lot in eligible if lot.marked_date), default=None),
                       "minimum_shelf_life_days": evidence.minimum_shelf_life_days, "handling": evidence.handling,
                       "capacity_available": evidence.route_capacity_available, "handling_ready": evidence.handling_ready,
+                      "ready_to_pick_at": ready.isoformat() if ready else None,
                       "preparation_minutes": minutes, "transit_minutes": evidence.transit_minutes,
                       "observed_at": evidence.observed_at.isoformat(), "valid_until": evidence.valid_until.isoformat()})
     timing = {}
-    if known:
-        transit = max(evidence.transit_minutes for evidence in known)
-        dispatch = min(evidence.dispatch_by for evidence in known)
-        deadline = min(evidence.deliver_by for evidence in known)
-        # Serial preparation and the slowest quoted route give a conservative bound.
-        margin = min((dispatch - now).total_seconds() / 60 - prep,
-                     (deadline - now).total_seconds() / 60 - prep - transit)
+    if work:
+        transit = max(evidence.transit_minutes for _, _, evidence in work)
+        dispatch = min(evidence.dispatch_by for _, _, evidence in work)
+        deadline = min(evidence.deliver_by for _, _, evidence in work)
+        # Prepare available items first, waiting for each remaining stock release if necessary.
+        loaded_at = now
+        for ready_at, minutes, _ in sorted(work, key=lambda task: task[0]):
+            loaded_at = max(loaded_at, ready_at) + timedelta(minutes=minutes)
+        arrival = loaded_at + timedelta(minutes=transit)
+        margin = min((dispatch - loaded_at).total_seconds(), (deadline - arrival).total_seconds()) / 60
         timing = {"preparation_minutes": prep, "transit_minutes": transit,
                   "dispatch_by": dispatch.isoformat(), "deliver_by": deadline.isoformat(),
+                  "estimated_loaded_at": loaded_at.isoformat(), "estimated_arrival": arrival.isoformat(),
                   "margin_minutes": round(margin, 1)}
         if margin < 0:
-            flag("warehouse_timing", "Picking, loading or transport cannot meet the recorded deadlines.", Decision.reject)
+            flag("warehouse_timing", "Stock readiness, picking, loading or transport cannot meet the recorded deadlines.",
+                 Decision.reject)
         elif margin < 15:
             flag("warehouse_timing_margin", "The dispatch or delivery deadline has less than 15 minutes of slack.")
     return {"source": source, "delivery_date": delivery.isoformat(), "lines": facts, **timing}, rules

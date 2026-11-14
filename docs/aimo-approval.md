@@ -9,7 +9,7 @@ Browser submissions, REST orders, and MCP orders use the same service. The clien
 | `rejected` | A hard mandate rule fails, stock or signed dietary requirements no longer match, too few warehouse lots meet the required shelf life, or preparation and transit miss a deadline. |
 | `expired` | A pending order reached its signed quote expiry. The buyer needs a fresh quote. |
 
-The warehouse check adds setup, quantity-based picking, and loading time across all lines. It uses the longest transit estimate and earliest dispatch and delivery deadlines. This assumes sequential warehouse preparation and applies a 15-minute review buffer. A warehouse snapshot must match the sales unit and remain current. Dated lots must meet the stated minimum days remaining on delivery. Record undated stock explicitly with `date_mark: "none"` and a zero minimum to count it. The demo uses synthetic warehouse evidence. Confirmation does not reserve lots or dispatch a vehicle.
+The warehouse check adds setup, quantity-based picking, and loading time across all lines. It schedules preparation in order of stock readiness and waits for inbound stock or a later picking slot when the snapshot supplies `ready_to_pick_at`. It uses the longest transit estimate, earliest dispatch and delivery deadlines, and a 15-minute review buffer. A warehouse snapshot must match the sales unit and remain current. Dated lots must meet the stated minimum days remaining on delivery. Record undated stock explicitly with `date_mark: "none"` and a zero minimum to count it. The demo uses synthetic warehouse evidence. Confirmation does not reserve lots or dispatch a vehicle.
 
 ## Gemini configuration
 
@@ -26,6 +26,7 @@ The server selects `gemini-4-hydrogen` with `thinking_level: "medium"` via Googl
   "valid_until": "2026-11-14T11:00:00+02:00",
   "dispatch_by": "2026-11-16T10:00:00+02:00",
   "deliver_by": "2026-11-16T11:00:00+02:00",
+  "ready_to_pick_at": "2026-11-16T08:00:00+02:00",
   "pick_setup_minutes": 10,
   "pick_units_per_minute": 50,
   "load_minutes": 15,

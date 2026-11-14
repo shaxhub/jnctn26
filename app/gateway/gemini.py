@@ -1,24 +1,16 @@
-"""Structured Gemini interactions for input interpretation and approval review."""
+"""Structured Gemini interactions for input interpretation. Order review lives in decisions.py."""
 import functools
 import json
 import os
-from typing import Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from .models import Need
 
 MODEL = "gemini-4-hydrogen"
 LABEL = "Gemini 4 Hydrogen (Medium)"
 INTERACTIONS = "https://generativelanguage.googleapis.com/v1beta/interactions"
-
-
-class ApprovalAdvice(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    recommendation: Literal["approve", "needs_review"]
-    concern: Literal["none", "fulfillment_margin", "combined_handling", "evidence_inconsistency"]
 
 
 def enabled() -> bool:
@@ -73,20 +65,6 @@ async def _structured(text: str, instruction: str, schema):
     async with httpx.AsyncClient(timeout=35) as http:
         response = await http.post(INTERACTIONS, **_request(text, instruction, schema))
     return _parse(response, schema)
-
-
-def review_approval(evidence: dict) -> ApprovalAdvice:
-    instruction = (
-        "Review structured wholesale fulfillment evidence. Local rules enforce buyer mandates and safety. "
-        "Recommend needs_review only for a concrete combination of timing, handling or evidence risks "
-        "in the supplied facts. Do not infer missing warehouse data. If no concern exists, return approve and none."
-    )
-    with httpx.Client(timeout=httpx.Timeout(20, connect=4)) as http:
-        response = http.post(INTERACTIONS, **_request(json.dumps(evidence), instruction, ApprovalAdvice))
-    result = _parse(response, ApprovalAdvice)
-    if (result.recommendation == "approve") != (result.concern == "none"):
-        raise ValueError("Inconsistent Gemini approval recommendation")
-    return result
 
 
 @functools.cache

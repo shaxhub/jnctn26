@@ -5,7 +5,7 @@ from datetime import date
 import httpx
 import pytest
 
-from gateway import fulfillment, gemini, service, store
+from gateway import decisions, fulfillment, service, store
 from gateway.auth import admin_for_key, principal_for_key
 from gateway.models import QuoteRequest
 from test_portals import gateway
@@ -30,7 +30,7 @@ def _evidence(**changes):
 @pytest.mark.parametrize(("case", "status", "rule"), [
     ("clean", "confirmed", None),
     ("provider_down", "confirmed", None),
-    ("model_flag", "pending_approval", "gemini_combined_handling"),
+    ("model_flag", "pending_approval", "decision_not_duplicate"),
     ("missing", "pending_approval", "warehouse_evidence_missing"),
     ("capacity", "pending_approval", "warehouse_capacity"),
     ("spend", "pending_approval", "per_order_limit"),
@@ -44,15 +44,23 @@ def test_submission_applies_warehouse_and_model_review(gateway, monkeypatch, cas
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     calls = []
 
-    def review(snapshot):
-        calls.append(snapshot)
+    def respond(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        assert request.url.path == "/v1beta/decisions" and request.headers["x-goog-api-key"] == "test"
+        assert body["model"] == "gemini-decision-1" and set(body["questions"]) == {"quantity_typical", "not_duplicate"}
+        assert "hotel" not in body["input"] and "warehouse" not in body["input"]  # no buyer identity or evidence
         if case == "provider_down":
             raise httpx.ReadTimeout("simulated")
-        if case == "model_flag":
-            return gemini.ApprovalAdvice(recommendation="needs_review", concern="combined_handling")
-        return gemini.ApprovalAdvice(recommendation="approve", concern="none")
+        likely = 0.4 if case == "model_flag" else 0.97
+        return httpx.Response(200, json={"answers": {
+            "not_duplicate": {"type": "noul", "noul": likely, "confidence": max(likely, 1 - likely)},
+            "quantity_typical": {"type": "score", "score": 0.1, "confidence": 0.9,
+                                 "probabilities": {"0": 0.9, "1": 0.1, "2": 0.0}}}})
 
-    monkeypatch.setattr(gemini, "review_approval", review)
+    client_class = httpx.Client
+    monkeypatch.setattr(decisions.httpx, "Client",
+                        lambda **options: client_class(transport=httpx.MockTransport(respond), **options))
     if case != "missing":
         changes = {}
         if case == "capacity":
@@ -66,6 +74,10 @@ def test_submission_applies_warehouse_and_model_review(gateway, monkeypatch, cas
         fulfillment.save("milk", DAY, _evidence(**changes))
 
     buyer = principal_for_key("demo-hotel-client-key")
+    # An order with no need, substitute or history has nothing to ask, so the first one makes no model call.
+    earlier = service.create_quote(buyer, QuoteRequest(delivery_date=DAY, lines=[{"product_id": "milk", "quantity": 4}]))
+    service.place_order(buyer, earlier.quote_id)
+    assert not calls
     quote = service.create_quote(buyer, QuoteRequest(
         delivery_date=DAY, lines=[{"product_id": "milk", "quantity": 1000 if case == "spend" else 5}]))
     order = service.place_order(buyer, quote.quote_id, replay=True)
@@ -79,6 +91,14 @@ def test_submission_applies_warehouse_and_model_review(gateway, monkeypatch, cas
     assert len(events) == 1 and audit["chain"]["ok"]
     if case == "provider_down":
         assert events[0]["data"]["method"] == "rules_fallback"
+    if case in {"clean", "model_flag"}:
+        admin_event = next(event for event in service.get_audit_log(
+            admin_for_key("test-admin-credential"), order.order_id)["events"]
+            if event["event_type"] == "AIMO_APPROVAL_EVALUATED")
+        assert admin_event["data"]["method"] == "gemini_decision" and admin_event["data"]["model"] == "gemini-decision-1"
+        assert admin_event["data"]["answers"]["not_duplicate"]["flagged"] == (case == "model_flag")
+        assert "Gemini Decision 1 (2 questions" in admin_event["summary"]
+        assert "answers" not in events[0]["data"]  # the buyer view omits model probabilities
     if case in {"missing", "capacity"}:
         admin = admin_for_key("test-admin-credential")
         with pytest.raises(service.GatewayError, match="Record current warehouse evidence"):
@@ -232,3 +252,75 @@ def test_warehouse_evidence_endpoint_requires_admin(gateway):
             assert store.fetchone("SELECT 1 FROM fulfillment_evidence WHERE product_id='milk'")
 
     asyncio.run(check())
+
+
+def test_decision_questions_follow_the_order_and_route_by_threshold():
+    order = {
+        "delivery_date": "2026-11-16",
+        "order_lines": [
+            {"product_id": "milk", "name": "Milk 1 L", "quantity": 40, "sales_unit": "ST", "usual_quantity": 5,
+             "ratio_to_usual": 8.0},
+            {"product_id": "oat", "name": "Oat drink 1 L", "quantity": 5, "sales_unit": "ST", "is_substitute": True,
+             "substitute_for": "soy"}],
+        "buyer_request": {"item": "milk", "quantity": 45, "unit": "L", "covered_quantity": 45},
+        "agent_rationale": "Weekly breakfast order.",
+    }
+    questions = decisions._applicable(order)
+    assert set(questions) == {"matches_request", "substitution_fit", "quantity_typical",
+                              "rationale_consistent", "free_of_instructions"}
+    assert set(decisions._applicable({"order_lines": order["order_lines"][:1]})) == {"quantity_typical"}
+    assert decisions.review({"order_lines": [{"product_id": "milk", "quantity": 5}]}) is None
+
+    def read(key, **answer):
+        return decisions._read(questions[key], {"type": questions[key]["type"], **answer})["flagged"]
+
+    assert not read("matches_request", noul=0.85, confidence=0.85)
+    assert read("matches_request", noul=0.84, confidence=0.84)
+    assert not read("substitution_fit", choice="equivalent", confidence=0.9)
+    assert read("substitution_fit", choice="equivalent", confidence=0.6)
+    assert read("substitution_fit", choice="acceptable_with_consent", confidence=0.95)
+    assert not read("quantity_typical", score=0.3, confidence=0.7)
+    assert read("quantity_typical", score=1.6, confidence=0.6)
+    for bad in ({"type": "choice", "choice": "equivalent", "confidence": 0.9}, {"type": "noul", "noul": 1.4, "confidence": 0.9},
+                {"type": "noul", "confidence": 0.9}):
+        with pytest.raises((ValueError, KeyError)):
+            decisions._read(questions["matches_request"], bad)
+    review = decisions.Review({"matches_request": {"flagged": True}, "not_duplicate": {"flagged": False}})
+    assert [rule.rule_id for rule in review.rules()] == ["decision_matches_request"]
+
+
+def test_decision_context_adds_history_without_buyer_identity(gateway, monkeypatch):
+    monkeypatch.setenv("AIMO_FULFILLMENT_CHECKS", "1")
+    monkeypatch.setenv("OFFLINE_DEMO", "0")
+    fulfillment.save("milk", DAY, _evidence())
+    buyer = principal_for_key("demo-hotel-client-key")
+
+    def quote(quantity):
+        return service.create_quote(buyer, QuoteRequest(delivery_date=DAY, lines=[{"product_id": "milk", "quantity": quantity}]))
+
+    assert service.place_order(buyer, quote(5).quote_id).status == "confirmed"
+    lines = [service.QuoteLine(**line) for line in json.loads(store.fetchone(
+        "SELECT payload_json FROM quotes WHERE quote_id=?", (quote(20).quote_id,))["payload_json"])["lines"]]
+    order = decisions.context(buyer.buyer_id, lines, None, {"required_claims": [], "exclude_allergens": []}, "",
+                              DAY, store.now())
+    assert order["order_lines"][0]["usual_quantity"] == 5 and order["order_lines"][0]["ratio_to_usual"] == 4
+    assert order["recent_orders"][0]["same_delivery_date"] and not order["recent_orders"][0]["identical_lines"]
+    assert "dietary_requirements" not in order and "agent_rationale" not in order
+    assert buyer.buyer_id not in json.dumps(order)
+    assert set(decisions._applicable(order)) == {"quantity_typical", "not_duplicate"}
+
+
+@pytest.mark.parametrize(("quantity", "flagged"), [(100, False), (300, False), (301, True), (1, False)])
+def test_order_far_above_the_stated_need_goes_to_review(gateway, quantity, flagged):
+    from gateway.models import Need, Offer, OrderableReason, QuoteLine
+
+    buyer = principal_for_key("demo-hotel-key")
+    offer = Offer(product_id="milk", sales_unit="ST", unit_price=.1, available_qty=2000, category="10400",
+                  orderable=True, reason=OrderableReason.ok)
+    # A single sales unit may exceed a small need, because the buyer cannot order less.
+    need = Need(item="milk", quantity=.2 if quantity == 1 else 100, unit="L", delivery_date=DAY)
+    line = QuoteLine(product_id="milk", quantity=quantity, sales_unit="ST", unit_price=.1, line_total=quantity * .1,
+                     covers=quantity)
+    result = service._evaluate(buyer, [line], {"milk": offer}, line.line_total, need, delivery=DAY)
+    assert ("over_coverage" in {rule.rule_id for rule in result.fired_rules}) == flagged, result.reasons
+    assert result.decision.value == ("needs_approval" if flagged else "auto"), result.reasons

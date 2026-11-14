@@ -59,15 +59,16 @@ def _summary(ev: dict) -> str:
         return f"waiting for a human approver ({d.get('approval_id')})"
     if t in ("AIMO_APPROVAL_EVALUATED", "AIMO_APPROVAL_RECHECKED"):
         evidence = d.get("evidence") or {}  # absent in the buyer view
-        subject = "Aimo fulfillment review"
+        subject = "Aimo order review"
         if d.get("decision"):
             subject += " → " + d["decision"].replace("_", " ")
-        if d.get("method") == "gemini":
-            subject += " with Gemini 4 Hydrogen"
+        if d.get("method") == "gemini_decision":
+            answers = (d.get("answers") or {}).values()  # absent in the buyer view
+            subject += " with Gemini Decision 1"
+            if answers:
+                subject += f" ({len(answers)} questions, {sum(answer['flagged'] for answer in answers)} flagged)"
         elif d.get("method") == "rules_fallback":
             subject += " using verified rules after Gemini was unavailable"
-        elif d.get("method") == "rules_after_evidence_change":
-            subject += " after warehouse evidence changed during model review"
         if "preparation_minutes" in evidence:
             subject += (f". {evidence['preparation_minutes']} min picking and loading, "
                         f"{evidence['transit_minutes']} min transit, {evidence['margin_minutes']:g} min slack")
@@ -148,10 +149,10 @@ def timeline(order_id: str | None = None, quote_id: str | None = None) -> list[d
 
 
 def buyer_view(events: list[dict]) -> list[dict]:
-    """Copy of a timeline without internal warehouse evidence or the names of Aimo operators."""
+    """Copy of a timeline without warehouse evidence, model probabilities or the names of Aimo operators."""
     out = []
     for ev in events:
-        ev = {**ev, "data": {key: value for key, value in ev["data"].items() if key != "evidence"}}
+        ev = {**ev, "data": {key: value for key, value in ev["data"].items() if key not in ("evidence", "answers")}}
         if ev["actor"].startswith("admin:"):
             ev["actor"] = "admin"
         ev["summary"] = _summary(ev)

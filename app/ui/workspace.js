@@ -235,8 +235,26 @@ async function analytics() {
   const charts = node("div", "", "workspace-metrics-grid");
   charts.append(chart("Monthly net spend", byMonth(m => m.net), money.format),
     chart("Observed stock availability", byMonth(m => m.checked ? 100*m.available/m.checked : null), v => number.format(v)+"%", 100),
-    chart("Average hours between stages", stages.slice(1).map(s => [stageName(s, language()), data.stage_hours[s]?.average ?? null]),
-      v => number.format(v)+" h"));
+    chart("Average hours between stages", [
+      ["Submission to arrival", data.stage_hours.end_to_end?.average ?? null],
+      ...stages.slice(1).map(s => [stageName(s, language()), data.stage_hours[s]?.average ?? null])
+    ], v => number.format(v)+" h"));
+  const availability = Object.entries(data.availability_by_sku);
+  if (availability.length) {
+    const section = panel("Monthly availability by product");
+    const select = node("select");
+    const label = node("label", "Most checked product codes");
+    label.append(select);
+    for (const [sku] of availability) select.append(new Option(sku, sku));
+    const graph = node("div");
+    const draw = () => graph.replaceChildren(chart(select.value, data.availability_by_sku[select.value].map(month =>
+      [months.format(new Date(Date.UTC(year, month.month-1, 1))), month.checked ? 100*month.available/month.checked : null]),
+      v => number.format(v)+"%", 100));
+    select.addEventListener("change", draw);
+    draw();
+    section.append(label, graph);
+    charts.append(section);
+  }
   const items = panel("Most ordered products");
   items.append(data.products.length ? table(["Product","Quantity","Sales unit"], data.products.map(item =>
     [item.name || item.id, number.format(item.quantity), item.unit])) : node("p", "No confirmed orders for this year.", "empty"));

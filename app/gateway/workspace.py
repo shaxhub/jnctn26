@@ -178,6 +178,7 @@ def analytics(p: Principal = Depends(require_client), year: int | None = Query(N
     timeline = [{"month": month, "orders": 0, "net": 0.0, "checked": 0, "available": 0}
                 for month in range(1, 13)]
     products, durations = Counter(), defaultdict(list)
+    availability = defaultdict(lambda: [{"month": month, "checked": 0, "available": 0} for month in range(1, 13)])
     for row in orders:
         order = service._order_from_row(row)
         bucket = timeline[order.delivery_date.month - 1]
@@ -186,6 +187,10 @@ def analytics(p: Principal = Depends(require_client), year: int | None = Query(N
         for line in order.lines:
             products[(line.product_id, line.name, line.sales_unit)] += line.quantity
         stages = ticket_activity(order, with_messages=False)["stages"]
+        if stages[-1]["stage"] == "arrived":
+            elapsed = datetime.fromisoformat(stages[-1]["at"]) - datetime.fromisoformat(stages[0]["at"])
+            if elapsed.total_seconds() >= 0:
+                durations["end_to_end"].append(elapsed.total_seconds() / 3600)
         for before, after in zip(stages, stages[1:]):
             hours = (datetime.fromisoformat(after["at"]) - datetime.fromisoformat(before["at"])).total_seconds() / 3600
             if hours >= 0:
@@ -197,7 +202,13 @@ def analytics(p: Principal = Depends(require_client), year: int | None = Query(N
         bucket = timeline[datetime.fromisoformat(event["ts"]).astimezone(TZ).month - 1]
         bucket["checked"] += values.get("count", 0)
         bucket["available"] += values.get("orderable", 0)
-    return {"year": year, "months": timeline,
+        available_ids = set(values.get("orderable_product_ids", []))
+        for sku in set(values.get("observed_product_ids", [])):
+            point = availability[sku][bucket["month"]-1]
+            point["checked"] += 1
+            point["available"] += sku in available_ids
+    ranked_skus = sorted(availability, key=lambda sku: (-sum(point["checked"] for point in availability[sku]), sku))
+    return {"year": year, "months": timeline, "availability_by_sku": {sku: availability[sku] for sku in ranked_skus[:20]},
             "stage_hours": {stage: {"average": round(sum(values)/len(values), 2), "samples": len(values)}
                             for stage, values in durations.items()},
             "products": [{"id": sku, "name": name, "unit": unit, "quantity": count}

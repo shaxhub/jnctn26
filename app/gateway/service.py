@@ -116,6 +116,8 @@ def check_offers(p: Principal, req: OffersRequest) -> dict:
     audit.log("OFFERS_CHECKED", p.actor, {"count": len(offers), "delivery_date": req.delivery_date.isoformat(),
                                           "orderable": sum(o.orderable for o in offers), "excluded": excluded,
                                           "product_ids": req.product_ids,
+                                          "observed_product_ids": [o.product_id for o in offers],
+                                          "orderable_product_ids": [o.product_id for o in offers if o.orderable],
                                           "categories": sorted({o.category for o in offers if o.category})},
               buyer_id=p.buyer_id)
     return result

@@ -126,6 +126,10 @@ def analytics(period: Period = "month"):
                     sector["kg_co2e"] += emissions
                     sector["carbon_covered_lines"] += 1
 
+    for sector in sectors.values():
+        sector["net_eur"] = round(sector["net_eur"], 2)
+        sector["kg_co2e"] = round(sector["kg_co2e"], 2)
+
     return {
         "period": period, "from": window[0], "to": window[1], "statuses": states,
         "inquiries": sum(sector["inquiries"] for sector in sectors.values()),

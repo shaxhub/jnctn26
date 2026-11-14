@@ -138,6 +138,24 @@ function chart(title, labels) {
   return section;
 }
 
+function periodSummary(data) {
+  const sectors = Object.entries(data.sectors).sort((a, b) => b[1].inquiries - a[1].inquiries);
+  const [leader, stats] = sectors[0] ?? [];
+  const share = value => number.format(100 * value / data.inquiries) + "%";
+  const first = leader && data.inquiries
+    ? leader + " led inquiry activity with " + number.format(stats.inquiries) + " (" + share(stats.inquiries) + ")."
+    : "No inquiries were recorded in this period.";
+  const product = data.products[0];
+  const buyer = data.buyers[0];
+  const messages = [first];
+  if (product) messages.push((product.name || product.product_id) + " was the most ordered product by sales units (" +
+    number.format(product.quantity) + " " + product.sales_unit + ").");
+  if (buyer) messages.push(buyer.buyer_id + " placed the most confirmed orders (" + number.format(buyer.orders) + ").");
+  const region = node("section", "", "period-summary");
+  region.append(node("h3", "Period summary"), node("p", messages.join(" ")));
+  return region;
+}
+
 async function insights(current) {
   const target = $("analytics");
   target.replaceChildren(node("p", "Loading analytics…", "empty"));
@@ -159,7 +177,7 @@ async function insights(current) {
       chart("Estimated kg CO₂e by sector", sectors.filter(([, stats]) => stats.carbon_covered_lines)
         .map(([sector, stats]) => [sector, stats.kg_co2e])),
       chart("Most queried product categories", Object.entries(data.categories)));
-    target.replaceChildren(metrics, node("p", "Carbon coverage · " + data.carbon_covered_lines +
+    target.replaceChildren(periodSummary(data), metrics, node("p", "Carbon coverage · " + data.carbon_covered_lines +
       " confirmed lines estimated, " + data.carbon_missing_lines + " with missing factors or weights", "cell-note"), charts,
       node("h3", "Most ordered products", "results"),
       table(["Product", "Code", "Quantity", "Sales unit"], data.products.map(p => [p.name, p.product_id, number.format(p.quantity), p.sales_unit])),

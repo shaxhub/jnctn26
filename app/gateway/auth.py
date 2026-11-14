@@ -8,7 +8,6 @@ request headers).
 Accepted headers: `X-API-Key: <key>` or `Authorization: Bearer <key>` (the Claude MCP connector
 sends `authorization_token` as a Bearer token).
 
-TODO(C): real identity (OAuth 2.1 client credentials for agents, SSO for approvers), hashed keys.
 """
 from __future__ import annotations
 
@@ -21,12 +20,14 @@ from functools import lru_cache
 from typing import Mapping
 
 from fastapi import Depends, Header, HTTPException, Request
+from starlette.middleware.cors import CORSMiddleware
 
 from .accounts import hosted, identity, token_hash
 from . import store
 
 from .config import APP_DIR
 from .models import Mandate
+from .mcp_oauth import ACCESS_PREFIX, SCOPE, oauth
 from .policy import load_mandate
 
 
@@ -38,6 +39,7 @@ class Principal:
     mandate: Mandate
     can_order: bool = True
     credential_id: str | None = None
+    oauth_read_only: bool = False
 
     @property
     def actor(self) -> str:
@@ -103,6 +105,18 @@ def principal_for_mcp_key(key: str | None) -> Principal | None:
                      bool(row["can_order"]) and preferences(row["buyer_id"]).agent_self_order, row["id"])
 
 
+def principal_for_mcp_request(headers: Mapping[str, str]) -> Principal | None:
+    authz = headers.get("authorization", "")
+    if authz.lower().startswith("bearer ") and (key := authz[7:].strip()).startswith(ACCESS_PREFIX):
+        provider = oauth()
+        row = provider.access_grant(key) if provider and hosted() else None
+        if row:
+            return Principal(row["buyer_id"], "agent", "ChatGPT " + row["username"], load_mandate(row["buyer_id"]),
+                             can_order=False, credential_id=row["id"], oauth_read_only=True)
+        return None
+    return principal_for_mcp_key(key_from_headers(headers))
+
+
 def key_from_headers(headers: Mapping[str, str] | None) -> str | None:
     if not headers:
         return None
@@ -146,30 +160,82 @@ def require_approver(p: Principal) -> Principal:
 class McpAuthMiddleware:
     """Pure ASGI middleware: authenticates /mcp requests and sets current_principal."""
 
+    _OAUTH_CORS_PATHS = {
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+        "/.well-known/oauth-authorization-server",
+        "/token",
+    }
+
     def __init__(self, app, prefix: str = "/mcp"):
         self.app, self.prefix = app, prefix
+        self._cors_cache: dict[tuple[str, ...], CORSMiddleware] = {}
+
+    def _allowed_origins(self, provider) -> list[str]:
+        origins = [
+            value.strip()
+            for value in os.getenv(
+                "MCP_ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,https://chatgpt.com"
+            ).split(",")
+            if value.strip() and value.strip() != "*"
+        ]
+        if provider and provider.origin not in origins:
+            origins.append(provider.origin)
+        return origins
+
+    def _browser_app(self, origins: list[str]) -> CORSMiddleware:
+        key = tuple(origins)
+        cached = self._cors_cache.get(key)
+        if cached is None:
+            cached = CORSMiddleware(
+                self.authenticate,
+                allow_origins=list(key),
+                allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+                allow_headers=[
+                    "Authorization",
+                    "Content-Type",
+                    "Accept",
+                    "MCP-Protocol-Version",
+                    "MCP-Session-Id",
+                    "Last-Event-ID",
+                    "X-API-Key",
+                ],
+                expose_headers=["WWW-Authenticate", "MCP-Protocol-Version", "MCP-Session-Id"],
+            )
+            self._cors_cache[key] = cached
+        return cached
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
         root_path = scope.get("root_path", "")
         if root_path and path.startswith(root_path + "/"):
             path = path[len(root_path):]
-        if scope["type"] != "http" or not (path == self.prefix or path.startswith(self.prefix + "/")):
+        if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
-        origin = headers.get("origin")
-        allowed_origins = {value.strip() for value in os.getenv(
-            "MCP_ALLOWED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
-        ).split(",") if value.strip()}
-        if origin and origin not in allowed_origins:
+        is_mcp = path == self.prefix or path.startswith(self.prefix + "/")
+        if not is_mcp and path not in self._OAUTH_CORS_PATHS:
+            return await self.app(scope, receive, send)
+        provider = oauth()
+        allowed_origins = self._allowed_origins(provider)
+        origin = dict(scope.get("headers", [])).get(b"origin")
+        if is_mcp and origin is not None and origin.decode("latin1") not in allowed_origins:
             await send({"type": "http.response.start", "status": 403, "headers": []})
             return await send({"type": "http.response.body", "body": b"Origin forbidden"})
+        return await self._browser_app(allowed_origins)({**scope, "agent_dairy_mcp": is_mcp}, receive, send)
+
+    async def authenticate(self, scope, receive, send):
+        if not scope["agent_dairy_mcp"]:
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
         import anyio
-        p = await anyio.to_thread.run_sync(principal_for_mcp_key, key_from_headers(headers))
+        p = await anyio.to_thread.run_sync(principal_for_mcp_request, headers)
         if p is None or p.role not in {"agent", "client"}:
-            body = json.dumps({"error": "Missing or unknown API key"}).encode()
+            provider = oauth()
+            challenge = f'Bearer resource_metadata="{provider.metadata}", scope="{SCOPE}"' if provider and hosted() else "Bearer"
+            body = json.dumps({"error": "Missing or invalid MCP credentials"}).encode()
             await send({"type": "http.response.start", "status": 401,
-                        "headers": [(b"content-type", b"application/json"), (b"www-authenticate", b"Bearer")]})
+                        "headers": [(b"content-type", b"application/json"), (b"www-authenticate", challenge.encode()),
+                                    (b"cache-control", b"no-store")]})
             return await send({"type": "http.response.body", "body": body})
         token = current_principal.set(p)
         try:
@@ -182,6 +248,7 @@ class McpAuthMiddleware:
 
 def _record_mcp_request(p: Principal, method: str) -> None:
     with store.transaction() as conn:
-        conn.execute("UPDATE agent_credentials SET last_used_at=? WHERE id=?", (store.now().isoformat(), p.credential_id))
+        table = "mcp_oauth_grants" if p.oauth_read_only else "agent_credentials"
+        conn.execute(f"UPDATE {table} SET last_used_at=? WHERE id=?", (store.now().isoformat(), p.credential_id))
         store.append_in_transaction(conn, "MCP_REQUEST", p.actor,
                                     {"credential_id": p.credential_id, "method": method}, buyer_id=p.buyer_id)

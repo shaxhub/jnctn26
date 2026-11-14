@@ -1,5 +1,7 @@
 export const $ = id => document.getElementById(id);
 export const portalUrl = path => new URL(path.replace(/^\//, ""), document.baseURI).href;
+let clockOffset = 0;
+export const gatewayNow = () => new Date(Date.now() + clockOffset);
 export const number = new Intl.NumberFormat("en-FI", {maximumFractionDigits: 2});
 export const money = new Intl.NumberFormat("en-FI", {style: "currency", currency: "EUR"});
 const dateFormat = new Intl.DateTimeFormat("fi-FI", {dateStyle: "short", timeZone: "Europe/Helsinki"});
@@ -88,14 +90,52 @@ export function feedback(target, text, error = false) {
   target.textContent = text;
 }
 
+function formatErrorDetail(data) {
+  if (typeof data?.detail === "string" && data.detail.trim()) return data.detail;
+  if (Array.isArray(data?.detail) && data.detail.length) {
+    const parts = data.detail.map(item => {
+      if (typeof item === "string") return item.trim();
+      const rawMsg = String(item?.msg || "").replace(/^Value error,\s*/i, "").trim();
+      if (!rawMsg) return "";
+      const loc = Array.isArray(item?.loc)
+        ? item.loc.filter(part => part !== "body" && part !== "query" && part !== "path")
+        : [];
+      const field = loc.length ? String(loc.at(-1)).replaceAll("_", " ") : "";
+      const msg = field && !rawMsg.toLowerCase().includes(field.toLowerCase())
+        ? field + ": " + rawMsg
+        : rawMsg;
+      return /[.!?]$/.test(msg) ? msg : msg + ".";
+    }).filter(Boolean);
+    if (parts.length) return parts.join(" ");
+  }
+  if (typeof data?.error === "string" && data.error.trim()) return data.error;
+  return "The server could not process this request.";
+}
+
 export async function request(path, key, payload) {
   const headers = key ? {"X-API-Key": key} : {};
   if (payload !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(portalUrl(path), {method: payload === undefined ? "GET" : "POST", headers,
     body: payload === undefined ? undefined : JSON.stringify(payload)});
-  const data = await response.json();
+  const serverNow = response.headers.get("X-Gateway-Now");
+  if (serverNow) {
+    const parsed = Date.parse(serverNow);
+    if (Number.isFinite(parsed)) clockOffset = parsed - Date.now();
+  }
+  const raw = await response.text();
+  let data = null;
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = null;
+    }
+  }
   if (!response.ok) {
-    throw new Error(typeof data.detail === "string" ? data.detail : "The server could not process this request.");
+    throw new Error(formatErrorDetail(data));
+  }
+  if (raw && data === null) {
+    throw new Error("The server returned an unexpected response.");
   }
   return data;
 }

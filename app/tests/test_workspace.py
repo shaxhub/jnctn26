@@ -79,4 +79,26 @@ def test_split_hosts_request_tracking_and_settings(gateway):
                 "text": "Tomato salad (4)\n500 g tomato\n80 g red onion"})
             assert recipe.status_code == 200, recipe.text
             assert recipe.json()["recipe"]["ingredients"][0]["quantity"] == .5
+            assert recipe.headers["X-Gateway-Now"] == "2026-11-14T10:00:00+02:00"
+    asyncio.run(verify())
+
+
+def test_unhandled_exception_returns_json_500():
+    from fastapi import FastAPI
+    from gateway.web_common import configure_errors
+
+    boom_app = FastAPI()
+    configure_errors(boom_app)
+
+    @boom_app.get("/boom")
+    def boom():
+        raise ZeroDivisionError("unexpected math error")
+
+    async def verify():
+        async with AsyncClient(transport=ASGITransport(app=boom_app, raise_app_exceptions=False),
+                               base_url="http://test") as client:
+            res = await client.get("/boom")
+            assert res.status_code == 500
+            assert res.json() == {"detail": "An unexpected server error occurred."}
+
     asyncio.run(verify())

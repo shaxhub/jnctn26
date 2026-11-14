@@ -54,8 +54,8 @@ UMask=0077
 WantedBy=default.target
 UNIT
   }
-  write_unit client gateway.api "$host" 8000 ""
-  write_unit admin gateway.admin_app "$host" 8001 ""
+  write_unit client gateway.api "$host" 8000 "--no-proxy-headers"
+  write_unit admin gateway.admin_app "$host" 8001 "--no-proxy-headers"
   if [[ ${FUNNEL_PORTALS:-0} == 1 ]]; then
     write_unit client-funnel gateway.api 127.0.0.1 18200 "--root-path /agent-dairy"
     write_unit admin-funnel gateway.admin_app 127.0.0.1 18201 "--root-path /agent-dairy-admin"

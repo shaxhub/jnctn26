@@ -1,5 +1,5 @@
 """Small synthetic catalog for running the demo without Valio data or credentials."""
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 import sqlite3
 
 from .config import TZ, settings
@@ -53,7 +53,7 @@ def offers(ids: list[str], delivery: date, now: datetime) -> RawOffers:
     for sku, _, _, _, unit, _, price, stock in ITEMS:
         if sku not in ids:
             continue
-        closing = datetime.combine(delivery, time(18), TZ) if delivery <= now.date() else datetime.combine(delivery - timedelta(days=1), time(18), TZ)
+        closing = datetime.combine(delivery, time(18), TZ)
         products[sku] = {
             "price": {"catalogPrice": {"value": price, "valueWithTax": round(price * 1.135, 2)}},
             "availability": {"logisticModel": "Stock", "closingTime": closing.isoformat(),

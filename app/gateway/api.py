@@ -10,12 +10,14 @@ import contextlib
 import anyio
 from fastapi import Depends, FastAPI, HTTPException, Request
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.routing import Route
 
-from .accounts import router as session_router
+from .accounts import hosted, router as session_router
 from . import gemini, quotes, service, store
 from .agent import compact_offers, run_agent
 from .auth import McpAuthMiddleware, Principal, require_agent, require_approver, require_principal
 from .config import demo_catalog_enabled, settings
+from .mcp_connect import oauth_routes, router as agent_integration_router
 from .mcp_server import mcp
 from .workspace import router as workspace_router
 from .web_common import configure_errors, mount_assets, portal_page
@@ -23,25 +25,65 @@ from .portal_chat import router as client_router
 from .models import (AgentRunRequest, ApprovalDecisionRequest, Need, OffersRequest, OrderRequest, QuoteRequest,
                      SearchRequest)
 
-# stateless + JSON responses: every MCP request is independent, which suits a horizontally scaled gateway.
-# McpAuthMiddleware enforces the configured browser Origin allowlist.
-mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp", stateless_http=True, json_response=True,
-                                  transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
+
+def _build_mcp_app():
+    # stateless + JSON responses: every MCP request is independent, which suits a horizontally scaled gateway.
+    # McpAuthMiddleware enforces the configured browser Origin allowlist.
+    return mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        stateless_http=True,
+        json_response=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+
+mcp_app = _build_mcp_app()
+mcp_session_manager = mcp.session_manager
+
+
+class _McpRouteApp:
+    async def __call__(self, scope, receive, send):
+        await mcp_session_manager.asgi_app(scope, receive, send)
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with mcp.session_manager.run():   # the MCP session manager must run inside the app's lifespan
+    global mcp_app, mcp_session_manager
+    if mcp_session_manager._has_started:
+        mcp_app = _build_mcp_app()
+        mcp_session_manager = mcp.session_manager
+    async with mcp_session_manager.run():
         yield
+
+
+class GatewayClockMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_clock(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"x-gateway-now", store.now().isoformat().encode()))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_clock)
 
 
 app = FastAPI(title="Agent Dairy — Valio Aimo Trade Gateway", version="0.1.0", lifespan=lifespan,
               description="Search, offers, signed quotes, mandate-governed orders, human approvals and a "
                           "hash-chained audit log. Auth: X-API-Key (demo keys in buyers.json).")
-app.router.routes.extend(mcp_app.routes)    # serves POST/GET /mcp from the same process and port
+app.router.routes.append(Route("/mcp", endpoint=_McpRouteApp(), include_in_schema=False))
+app.router.routes.extend(oauth_routes())
 app.add_middleware(McpAuthMiddleware)
+app.add_middleware(GatewayClockMiddleware)
 app.include_router(client_router)
 app.include_router(workspace_router)
+app.include_router(agent_integration_router)
 configure_errors(app)
 app.include_router(session_router('client'))
 mount_assets(app, {"client.js", "common.js", "portal.css", "workspace.js", "workspace.css", "order_thread.js"})
@@ -135,6 +177,8 @@ def approvals(status: str | None = "pending", p: Principal = Depends(require_pri
 
 @app.post("/approvals/{approval_id}")
 def decide(approval_id: str, req: ApprovalDecisionRequest, p: Principal = Depends(require_principal)):
+    if hosted():
+        raise HTTPException(403, "Review approvals in the Aimo operations portal.")
     require_approver(p)
     return service.decide_approval(p, approval_id, req.decision, req.comment).model_dump(mode="json")
 

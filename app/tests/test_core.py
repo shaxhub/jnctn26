@@ -376,3 +376,34 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
         assert store.verify_chain()["ok"]
     finally:
         store.set_demo_now(None)
+
+
+def test_long_thousand_word_search_succeeds_without_operational_error(tmp_path, monkeypatch):
+    import asyncio
+    from httpx import ASGITransport, AsyncClient
+    from gateway import demo_catalog, search as search_mod
+    from gateway.api import app
+
+    monkeypatch.setattr(store, "settings", replace(store.settings, db_path=tmp_path / "search_orders.db"))
+    catalog_settings = replace(demo_catalog.settings, catalog_db_path=tmp_path / "catalog.db")
+    monkeypatch.setattr(demo_catalog, "settings", catalog_settings)
+    monkeypatch.setattr(search_mod, "settings", catalog_settings)
+    search_mod._catalog_path.cache_clear()
+    demo_catalog.build()
+
+    async def verify():
+        headers = {"X-API-Key": "demo-hotel-key"}
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+            repeated = await http.post("/search", headers=headers, json={"text": " ".join(["maito"] * 1000)})
+            assert repeated.status_code == 200, repeated.text
+            assert repeated.json()["total_matches"] >= 1
+
+            distinct = await http.post("/search", headers=headers,
+                                       json={"text": " ".join(f"word{i:04d}" for i in range(1000))})
+            assert distinct.status_code == 200, distinct.text
+            assert distinct.json()["results"] == []
+
+    try:
+        asyncio.run(verify())
+    finally:
+        search_mod._catalog_path.cache_clear()

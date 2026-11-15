@@ -6,7 +6,7 @@ The live Agent Dairy MCP server is for hackathon partners only. You’ll need an
 
 1. Open the buyer workspace you want your agent to use. Go to **Settings and Tools → Agent integration**.
 2. In **Agent name**, enter a name you’ll recognize later, such as `OpenCode on my laptop`.
-3. Leave **Allow this key to submit orders** unchecked for a read-only connection. Select **Create agent key**.
+3. Check **Allow this key to submit orders** for a fully autonomous workflow. Your agent will be able to submit orders on your behalf when **Allow agents to place orders** is also enabled in your buyer workspace settings. Select **Create agent key**.
 4. Select **Copy key** while the key is displayed. The web app shows it only once. Store it in your MCP client’s credential settings or in a local environment variable named `AGENT_DAIRY_MCP_TOKEN`. Keep the raw key out of chat and source control.
 
 ## Configure your MCP client
@@ -26,5 +26,3 @@ If you’re using an environment variable, make it available to the process that
 Refresh or restart the client, then ask it to run Agent Dairy’s `get_my_mandate` tool and confirm that the returned buyer workspace is yours. Try a read-only follow-up such as “Find lactose-free milk in Agent Dairy.”
 
 If you get HTTP 401, check that the URL ends in `/mcp`, the client is sending the key, and the key is still active under **Agent integration**. If you lose the key or no longer need it, select **Revoke** beside that key in the web app. Create a new key if you need to reconnect.
-
-If you want the agent to submit orders, create a key with **Allow this key to submit orders** checked and enable **Allow agents to place orders** in the buyer workspace settings.

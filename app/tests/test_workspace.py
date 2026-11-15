@@ -81,8 +81,13 @@ def test_shared_portal_request_tracking_and_settings(gateway):
             result = await client.get("/client/analytics?year=2026", headers=hotel)
             assert result.json()["months"][10]["net"] == 16
             saved = await client.post("/client/settings", headers=hotel,
-                                      json={"agent_self_order": False, "theme": "dark", "recurring_prompt": "Milk tomorrow"})
+                                      json={"agent_self_order": False, "theme": "dark", "recurring_prompt": "Milk tomorrow",
+                                            "address": "Testikatu", "postal_code": "00580"})
             assert saved.status_code == 200 and saved.json()["theme"] == "dark"
+            preferences = (await client.get("/client/settings", headers=hotel)).json()
+            assert preferences["address"] == "Testikatu" and preferences["postal_code"] == "00580"
+            invalid_postcode = await client.post("/client/settings", headers=hotel, json={"postal_code": "580"})
+            assert invalid_postcode.status_code == 422
             assert not principal_for_key("demo-hotel-key").can_order
             assert principal_for_key("demo-hospital-key").can_order
             assert (await client.get("/client/reminders", headers=hotel)).json()["reminder"]["delivery_date"] == "2026-11-15"

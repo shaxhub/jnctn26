@@ -100,8 +100,9 @@ def test_admin_can_order_as_buyer_then_review_without_another_login(gateway, mon
             hotel = {"Origin": origin, "X-Workspace-Buyer": "hotel"}
             hospital = {"Origin": origin, "X-Workspace-Buyer": "hospital"}
             created = await http.post("/client/basket", headers=hotel,
-                                      json={"delivery_date": "2026-11-16", "quantities": {"milk": 1000}})
+                                      json={"delivery_date": "2026-11-16", "postal_code": "00580", "quantities": {"milk": 1000}})
             assert created.status_code == 200, created.text
+            assert created.json()["postal_code"] == "00580"
             quote_id = created.json()["quote_id"]
             assert (await http.get(f"/client/drafts/{quote_id}", headers=hospital)).status_code == 404
             submitted = await http.post("/client/tickets/submit", headers=hotel, json={"quote_id": quote_id})

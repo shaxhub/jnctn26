@@ -19,6 +19,10 @@ def postal_code_from_address(address: str) -> str | None:
     return match.group(1) if match else None
 
 
+def address_without_postcode(address: str) -> str:
+    return _POSTAL_CODE.sub("", address).strip(" ,")
+
+
 def has_street_address_and_postcode(address: str) -> bool:
     """Require a five-digit postcode and some address text."""
     address_text, postcodes = _POSTAL_CODE.subn("", address)

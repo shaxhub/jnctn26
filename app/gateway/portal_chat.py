@@ -175,7 +175,8 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
             kind="recipes", text=text, servings=servings,
             delivery_date=delivery, exclude_allergens=parsed.exclude_allergens if parsed else [],
             draft=draft_requested), p, recipes=recipes, allow_incomplete=True,
-            name=parsed.ticket_name if parsed else recipes[0].name)
+            name=parsed.ticket_name if parsed else recipes[0].name,
+            postal_code=request.postal_code or postal_code_from_address(text))
         return {"recipe": result, "draft": result.get("draft"), "mode": mode,
                 "message": ("Recipe draft ready for review." if result.get("draft") else
                             catalog_gap or result.get("draft_blocker", "Recipe shopping list ready for review."))}
@@ -266,7 +267,8 @@ async def kitchen_chat(request: KitchenChatRequest, p: Principal = Depends(requi
     return await _kitchen_result(request, p)
 
 
-async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=None, allow_incomplete=False, name=None):
+async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=None, allow_incomplete=False, name=None,
+                          postal_code: str | None = None):
     try:
         dishes = [line.strip().removeprefix("- ").strip() for line in request.text.splitlines() if line.strip()]
         args = kitchen.KitchenRequest(
@@ -298,7 +300,7 @@ async def _kitchen_result(request: KitchenChatRequest, p: Principal, *, recipes=
             basket = kitchen.basket_request(result)
             basket.exclude_allergens = request.exclude_allergens
             basket.required_claims = request.required_claims
-            quote = await anyio.to_thread.run_sync(lambda: service.create_quote(p, basket, name=name))
+            quote = await anyio.to_thread.run_sync(lambda: service.create_quote(p, basket, name=name, postal_code=postal_code))
         except service.GatewayError as exc:
             if not allow_incomplete or exc.status not in (409, 422):
                 raise

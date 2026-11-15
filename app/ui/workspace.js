@@ -1,4 +1,5 @@
-import {$, date, feedback, gatewayNow, inputDate, money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
+import {$, configurePostcodeInput, date, deliveryAddressParts, feedback, gatewayNow, inputDate,
+  money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
 import {buyerKey, editBasket, inspectTicket, showDraft, ticketNameForm} from "./client.js";
 import {stageName, stages} from "./order_thread.js";
 
@@ -29,6 +30,7 @@ const translations = {
   "Monthly net spend":"Kuukausittaiset nettokulut", "Observed stock availability":"Havaittu saatavuus",
   "Average hours between stages":"Keskimääräiset tunnit vaiheiden välillä", "Most ordered products":"Tilatuimmat tuotteet",
   "Appearance":"Ulkoasu", "Default language":"Oletuskieli", "Client business":"Yritys", "Delivery address":"Toimitusosoite",
+  "Postcode":"Postinumero",
   "Billing email":"Laskutussähköposti", "Payment method":"Maksutapa", "Invoice reference":"Laskuviite",
   "Allow agents to place orders":"Salli agenttien tehdä tilauksia", "Reminder time (Helsinki)":"Muistutusaika (Helsinki)",
   "Daily reminder for tomorrow’s order":"Päivittäinen muistutus huomisen tilauksesta", "Save settings":"Tallenna asetukset",
@@ -436,9 +438,11 @@ async function analytics() {
 function settingsView() {
   const section = panel("Workspace preferences");
   const form = node("form", "", "workspace-form settings-form");
+  const savedAddress = deliveryAddressParts(settings.address);
+  const values = {...settings, address:savedAddress.address, postal_code:settings.postal_code || savedAddress.postalCode};
   const groups = [
     ["Display and language", [["theme","Appearance",{light:"Light",dark:"Dark"}], ["language","Default language",{en:"English",fi:"Suomi"}]]],
-    ["Business and delivery", [["business","Client business"], ["address","Delivery address"]]],
+    ["Business and delivery", [["business","Client business"], ["address","Delivery address"], ["postal_code","Postcode"]]],
     ["Billing", [["billing_email","Billing email",null,"email"],
       ["payment_method","Payment method",{invoice:"Invoice",bank_transfer:"Bank transfer",purchase_order:"Purchase order"}],
       ["invoice_reference","Invoice reference"]]],
@@ -455,11 +459,16 @@ function settingsView() {
       control.name = id;
       if (options) for (const [key, name] of Object.entries(options)) control.append(new Option(t(name), key));
       else control.type = type || "text";
+      if (id === "address") {
+        control.autocomplete = "street-address";
+        control.maxLength = 240;
+      }
+      if (id === "postal_code") configurePostcodeInput(control);
       if (type === "checkbox") {
         control.checked = Boolean(settings[id]);
         label.prepend(control);
       } else {
-        control.value = settings[id] ?? "";
+        control.value = values[id] ?? "";
         label.append(control);
       }
       grid.append(label);

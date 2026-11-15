@@ -17,7 +17,7 @@ import httpx
 from . import audit, decisions, fulfillment, gemini, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ, demo_catalog_enabled
-from .delivery import estimate, has_street_address_and_postcode, postal_code_from_address
+from .delivery import address_without_postcode, estimate, has_street_address_and_postcode, postal_code_from_address
 from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, Order, OrderableReason, OrderStatus, PlanResult,
                      PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult, expand_allergens)
 from .offers import get_offers
@@ -444,11 +444,17 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
         raise _quote_invalid(p, quote_id, 409, f"Quote {quote_id} expired; request a new quote")
 
     # Snapshot the explicit address or the buyer's saved address when placing a new order.
-    address = delivery_address if delivery_address is not None else preferences(p.buyer_id).address
+    postcode = payload.get("postal_code")
+    address = delivery_address
+    if address is None:
+        saved = preferences(p.buyer_id)
+        address = saved.address
+        postcode = postcode or saved.postal_code
+        if postcode and postal_code_from_address(address) != postcode:
+            address = address_without_postcode(address)
     address = " ".join(address.split())
-    # A draft already carries the postcode entered when it was requested; do not ask for it twice.
-    if address and payload.get("postal_code") and postal_code_from_address(address) is None:
-        address = f"{address.rstrip(',').rstrip()}, {payload['postal_code']}"
+    if address and postcode and postal_code_from_address(address) is None:
+        address = f"{address.rstrip(',').rstrip()}, {postcode}"
     if len(address) > 240:
         raise GatewayError(422, "Delivery address must be at most 240 characters")
     if not has_street_address_and_postcode(address):

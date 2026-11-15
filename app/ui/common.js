@@ -8,6 +8,22 @@ const dateFormat = new Intl.DateTimeFormat("fi-FI", {dateStyle: "short", timeZon
 const dateTimeFormat = new Intl.DateTimeFormat("fi-FI", {dateStyle: "short", timeStyle: "short", timeZone: "Europe/Helsinki"});
 export const date = value => value ? dateFormat.format(new Date(value)) : "—";
 export const dateTime = value => value ? dateTimeFormat.format(new Date(value)) : "—";
+
+export function deliveryAddressParts(value = "") {
+  const postcodePattern = /(?<![\p{L}\p{N}_])(?:FI-)?([0-9]{5})(?![\p{L}\p{N}_])/giu;
+  const postalCode = value.matchAll(postcodePattern).next().value?.[1] || "";
+  const address = value.replace(postcodePattern, "").split(",").map(part => part.trim()).filter(Boolean).join(", ");
+  return {address, postalCode};
+}
+
+export function configurePostcodeInput(input) {
+  input.inputMode = "numeric";
+  input.autocomplete = "postal-code";
+  input.pattern = "[0-9]{5}";
+  input.maxLength = 5;
+  input.placeholder = "00100";
+}
+
 // dd.mm.yyyy for inputs; ISO (yyyy-mm-dd) for the API.
 export const inputDate = value => {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);

@@ -536,6 +536,12 @@ def test_draft_postcode_completes_the_delivery_address(gateway):
     save_settings(Preferences(address="Saved kitchen, Testikatu 3"), client)
     saved = service.create_quote(client, request, postal_code="00100")
     assert service.place_order(client, saved.quote_id).delivery_address == "Saved kitchen, Testikatu 3, 00100"
+    save_settings(Preferences(address="Testikatu, 00200 Helsinki", postal_code="00200"), client)
+    searched = service.create_quote(client, request, postal_code="00580")
+    assert service.place_order(client, searched.quote_id).delivery_address == "Testikatu, Helsinki, 00580"
+    save_settings(Preferences(address="Testikatu", postal_code="00200"), client)
+    from_settings = service.create_quote(client, request)
+    assert service.place_order(client, from_settings.quote_id).delivery_address == "Testikatu, 00200"
     # Without a draft postcode the address must still contain one.
     bare = service.create_quote(client, request)
     with pytest.raises(service.GatewayError):

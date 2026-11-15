@@ -79,6 +79,7 @@ class TicketName(BaseModel):
 
 
 class BasketEdit(DraftEdit):
+    postal_code: str | None = Field(None, pattern=r"^[0-9]{5}$")
     exclude_allergens: list[str] = Field(default_factory=list, max_length=20)
     required_claims: list[str] = Field(default_factory=list, max_length=10)
 
@@ -285,7 +286,7 @@ def _save_basket(body: DraftEdit, p: Principal, *, quote_id: str | None = None,
         required_claims=sorted(set(old.get("required_claims", []) + getattr(body, "required_claims", []))),
         lines=[{"product_id": sku, "quantity": quantity} for sku, quantity in body.quantities.items()]),
         supersedes=quote_id, max_total_gross=old.get("max_total_gross"), name=name,
-        postal_code=old.get("postal_code"))
+        postal_code=getattr(body, "postal_code", None) or old.get("postal_code"))
     return fresh
 
 

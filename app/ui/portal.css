@@ -204,4 +204,6 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 body:has(#client-login:not([hidden])) { grid-template-columns:1fr }
 .delivery-address { margin:.6rem 0; overflow-wrap:anywhere }
 .delivery-address strong { display:block; font-size:.76rem; color:var(--muted); font-weight:600 }
-.delivery-address-field { display:grid; gap:.3rem; margin:.9rem 0 .6rem }
+.delivery-address-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(6rem,8rem); gap:.65rem; margin:.9rem 0 .6rem }
+.delivery-address-field { display:grid; gap:.3rem; min-width:0 }
+@media(max-width:450px) { .delivery-address-fields { grid-template-columns:minmax(0,1fr) } }

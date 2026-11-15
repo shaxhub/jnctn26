@@ -183,7 +183,11 @@ export function showDraft(quote, outcome, target = $("draft")) {
   address.placeholder = tr("Street, postcode and city", "Katuosoite, postinumero ja kaupunki");
   addressLabel.append(address);
   request("/client/settings", buyerKey()).then(saved => {
-    if (!address.value && saved.address) address.value = saved.address;
+    if (address.value || !saved.address) return;
+    // The draft keeps the postcode entered when it was requested; add it if the saved address lacks one.
+    const hasPostcode = /(^|\D)\d{5}(\D|$)/.test(saved.address);
+    address.value = hasPostcode || !quote.postal_code ? saved.address
+      : saved.address.trim().replace(/,$/, "") + ", " + quote.postal_code;
   }).catch(() => {});
   target.append(addressLabel, actions, info);
   button.addEventListener("click", async () => {

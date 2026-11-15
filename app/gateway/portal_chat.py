@@ -145,7 +145,7 @@ async def chat(request: ChatRequest, p: Principal = Depends(require_client)):
                 quote = await anyio.to_thread.run_sync(lambda: service.create_quote(
                     p, basket, max_total_gross=meal["budgets"].get("hard"),
                     name=(parsed.ticket_name if parsed and not meal.get("alternative") else None)
-                    or meal["recipes"][0]["name"]))
+                    or meal["recipes"][0]["name"], postal_code=request.postal_code))
                 draft = quote.model_dump(mode="json")
             except service.GatewayError as exc:
                 if exc.status not in (409, 422):
@@ -243,7 +243,8 @@ async def _handle_request(request: ChatRequest, p: Principal, text: str, need: N
         quote_request = QuoteRequest(delivery_date=need.delivery_date, need=need,
                                      lines=[{"product_id": line["product_id"], "quantity": line["quantity"]}
                                             for line in best["lines"]])
-        draft = await anyio.to_thread.run_sync(lambda: service.create_quote(p, quote_request, name=name))
+        draft = await anyio.to_thread.run_sync(lambda: service.create_quote(
+            p, quote_request, name=name, postal_code=request.postal_code or postal_code_from_address(text)))
         response["draft"] = draft.model_dump(mode="json")
         response["message"] = "Ticket draft created. Review the quantities and total before submitting."
     return response

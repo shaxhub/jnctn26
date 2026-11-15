@@ -284,7 +284,8 @@ def _save_basket(body: DraftEdit, p: Principal, *, quote_id: str | None = None,
         exclude_allergens=sorted(set(old.get("exclude_allergens", []) + getattr(body, "exclude_allergens", []))),
         required_claims=sorted(set(old.get("required_claims", []) + getattr(body, "required_claims", []))),
         lines=[{"product_id": sku, "quantity": quantity} for sku, quantity in body.quantities.items()]),
-        supersedes=quote_id, max_total_gross=old.get("max_total_gross"), name=name)
+        supersedes=quote_id, max_total_gross=old.get("max_total_gross"), name=name,
+        postal_code=old.get("postal_code"))
     return fresh
 
 

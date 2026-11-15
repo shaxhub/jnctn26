@@ -293,6 +293,7 @@ class Quote(BaseModel):
     name: str | None = None
     buyer_id: str
     delivery_date: date
+    postal_code: str | None = Field(None, description="Delivery postcode given when the quote was requested, if any.")
     lines: list[QuoteLine]
     total_net: float
     total_gross: float

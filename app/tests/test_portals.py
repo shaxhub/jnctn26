@@ -513,3 +513,30 @@ def test_order_records_delivery_address_snapshot(gateway):
         assert "delivery_address" not in {row[1] for row in db.execute("PRAGMA table_info(orders)")}
     with store.connect(old) as conn:
         assert "delivery_address" in {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}
+
+
+def test_draft_postcode_completes_the_delivery_address(gateway):
+    from gateway.preferences import Preferences
+    from gateway.workspace import DraftEdit, _save_basket, save_settings
+
+    client = principal_for_key("demo-hotel-client-key")
+    request = QuoteRequest(delivery_date=date(2026, 11, 16), lines=[{"product_id": "milk", "quantity": 5}])
+    quote = service.create_quote(client, request, postal_code="00100")
+    assert quote.postal_code == "00100"
+    # Editing the draft keeps the postcode it was requested with.
+    edited = _save_basket(DraftEdit(delivery_date=date(2026, 11, 17), quantities={"milk": 6}), client,
+                          quote_id=quote.quote_id)
+    assert edited.postal_code == "00100"
+    order = service.place_order(client, edited.quote_id, delivery_address="Testikatu 1,")
+    assert order.delivery_address == "Testikatu 1, 00100"
+    # A postcode already in the address wins, and the saved address is completed the same way.
+    other = service.create_quote(client, request, postal_code="00100")
+    assert service.place_order(client, other.quote_id,
+                               delivery_address="Testitie 2, 33100 Tampere").delivery_address == "Testitie 2, 33100 Tampere"
+    save_settings(Preferences(address="Saved kitchen, Testikatu 3"), client)
+    saved = service.create_quote(client, request, postal_code="00100")
+    assert service.place_order(client, saved.quote_id).delivery_address == "Saved kitchen, Testikatu 3, 00100"
+    # Without a draft postcode the address must still contain one.
+    bare = service.create_quote(client, request)
+    with pytest.raises(service.GatewayError):
+        service.place_order(client, bare.quote_id, delivery_address="Testikatu 1")

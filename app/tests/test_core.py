@@ -96,7 +96,11 @@ def test_policy_hotel_auto_and_limits():
     assert ok.decision.value == "auto"
     big = policy.evaluate(m, [_line(qty=1000)], {"464073": _offer()}, total_net=1640, today=date(2026, 11, 14))
     assert big.decision.value == "needs_approval" and big.fired_rules[0].rule_id == "per_order_limit"
-    week = policy.evaluate(m, [_line(qty=100)], {"464073": _offer()}, total_net=164, weekly_spent=4900, today=date(2026, 11, 14))
+    within_week = policy.evaluate(m, [_line(qty=100)], {"464073": _offer()},
+                                  total_net=164, weekly_spent=7836, today=date(2026, 11, 14))
+    assert within_week.decision.value == "auto"
+    week = policy.evaluate(m, [_line(qty=100)], {"464073": _offer()},
+                           total_net=164, weekly_spent=7837, today=date(2026, 11, 14))
     assert [r.rule_id for r in week.fired_rules] == ["weekly_limit"]
     cap = policy.evaluate(m, [_line(qty=5000)], {"464073": _offer()}, total_net=8200, today=date(2026, 11, 14))
     assert cap.decision.value == "reject" and "hard_cap" in {r.rule_id for r in cap.fired_rules}

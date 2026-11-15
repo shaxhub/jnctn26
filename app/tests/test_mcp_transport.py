@@ -90,6 +90,12 @@ def test_mcp_initialize_and_tool_validation(gateway):
             quote = await call("create_quote", quote_args)
             order_args = {"quote_id": quote["quote_id"], "agent_rationale": "Requested by the buyer."}
             for invalid_address in (
+                {"delivery_address": "Testikuja 15 B 089"},
+                {"delivery_address": "00580 Helsinki"},
+                {"delivery_address": "Testikuja, 00580 Helsinki"},
+                {"delivery_address": "Testikuja 15 B 089, REF00580"},
+                {"postal_code": "00580", "delivery_address": "Helsinki"},
+                {"delivery_address": ""},
                 {"postal_code": "580", "delivery_address": "Testikuja 15 B 089"},
                 {"postal_code": "00580", "delivery_address": "   "},
                 {"postal_code": "00580", "delivery_address": "Testikatu 1, 00100 Helsinki"},
@@ -114,6 +120,14 @@ def test_mcp_initialize_and_tool_validation(gateway):
                 quote = await call("create_quote", quote_args)
                 order = await call("place_order", order_args | {"quote_id": quote["quote_id"]} | overrides)
                 assert order["delivery_address"] == expected
+
+            quote = await call("create_quote", quote_args)
+            save_settings(Preferences(address="Testikuja 15 B 089"), principal_for_key("demo-hotel-client-key"))
+            error = await rpc("tools/call", {"name": "place_order", "arguments": order_args | {
+                "quote_id": quote["quote_id"],
+            }})
+            assert error["isError"]
+            assert "street address" in error["content"][0]["text"]
 
     asyncio.run(check())
 

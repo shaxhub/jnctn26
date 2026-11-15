@@ -4,22 +4,22 @@ Agent Dairy turns a kitchen’s product request or recipe into a quote the buyer
 
 ## Client workspace
 
-Open [the client app](http://127.0.0.1:8000/) and choose **Hotel kitchen** or **Hospital kitchen** in the Workspace selector. Each demo buyer has a separate mandate, drafts, orders, settings, and request conversations.
+Open [the client app](http://127.0.0.1:8000/). In the local demo, choose **Hotel kitchen** or **Hospital kitchen** in the workspace selector. A password account opens its assigned workspace. Each buyer has its own mandate, drafts, orders, settings, and conversations.
 
 | Page | What you can do |
 | --- | --- |
-| **Dashboard** | See draft and submitted-request counts and how requests are distributed across fulfillment stages. |
+| **Dashboard** | See draft and submitted-request counts. Open a ticket from the active delivery board to jump to its highlighted entry in Submitted Requests. |
 | **Product Search** | Ask for a product, paste a recipe, compare live offers, or browse seasonal Finnish produce for a delivery date. |
-| **Draft Tickets** | Reopen saved quotes, adjust quantities or delivery dates, and review a draft before submitting. |
+| **Draft Tickets** | Pick a saved draft from the sidebar. Rename or delete it, edit the basket in Product Search, or adjust quantities and dates alongside Ticket review. |
 | **Submitted Requests** | Track an order, inspect its policy and audit history, and exchange messages with Aimo. |
 | **Analytics** | View orders and net spend by delivery year, observed availability by month and SKU, frequently ordered items, and average fulfillment times. |
-| **Settings** | Set theme and default language, record client and invoice details, control agent ordering, and configure next-day order reminders. |
+| **Settings and Tools** | Set theme and language, save your address and postcode, add invoice details, manage agent keys, and configure next-day reminders. |
 
 The sidebar includes **EN** and **FI**, help and FAQs, and demo sign-out. Finnish covers navigation, key headings, and fulfillment stages. Some secondary text remains in English.
 
 ### Find a product or paste a recipe
 
-1. Open **Product Search** and use the **Ask Agent Dairy** box. Try `I need 200 litres of lactose-free milk by Monday`. You can also enter a delivery date explicitly to override the interpreted date.
+1. Open **Product Search** and use **Ask Agent Dairy**. Try `I need 20 litres of lactose-free milk`, then choose a delivery date and enter a five-digit postcode such as `00580`. You can supply the date and postcode in the request instead. Choose **Build shopping list**.
 2. To source a recipe, paste a name with its yield followed by measured ingredients. Select a delivery date for stock and price results. Without a date, the recipe flow compiles quantities.
 
    ```text
@@ -31,8 +31,8 @@ The sidebar includes **EN** and **FI**, help and FAQs, and demo sign-out. Finnis
 
    The guided parser accepts `g`, `kg`, `ml`, `dl`, `l`, and `pcs`. Put a blank line between recipes. Gemini 4 Hydrogen can interpret less structured input when configured. Review the interpreted quantities and units.
 
-3. Choose **Check offers**. Check net prices, sales units, stock, earliest dates, and alternatives. Where available, the offers include origin, delivery reliability, and a carbon intensity estimate. Enter a Finnish postcode to include an estimated travel time from Rautatientori.
-4. Choose **Create ticket draft**, or **Draft this plan** on a ranked product plan. A recipe draft needs all ingredients sourced for the selected date. Review proposed culinary substitutions before using them in the recipe.
+3. Review net prices, sales units, stock, earliest delivery dates, and ranked alternatives. Offers can also show origin, delivery reliability, carbon estimates, and approximate postcode travel time. Use **Seasonal picks** for in-season Finnish produce.
+4. Choose **Draft this plan** on a ranked plan or use **Add** on individual offers and **Save draft** from the basket. A recipe or school lunch draft needs all ingredients sourced for the selected date. Review dietary constraints, proposed culinary substitutions, and any budget flags before submitting.
 
 ### How the travel estimate works
 
@@ -46,14 +46,14 @@ The bundled [postcode coordinates](../app/gateway/finnish_postcode_areas.csv) ar
 
 1. Open **Draft Tickets** and pick a saved draft, or use **Ticket review** directly after creating it.
 2. Check the line quantities, net total, delivery date, policy preview, and quote expiry. **AI Helper** can propose changes to existing items and their quantities. The local guided helper accepts a correction such as `Set 464306 to 12`. Review the proposed values and choose **Save revised draft** to refresh prices and stock.
-3. Choose **Review and submit** and check the **Delivery address** and five-digit **Postcode** fields. The draft uses the postcode entered in Product Search when available, otherwise it uses the postcode saved under **Settings and Tools**. You can edit both fields before submitting. The address appears in the order details in both portals. An expired draft needs a fresh quote. Repeating the submit request for the same quote returns the existing ticket.
+3. Check the separate **Delivery address** and five-digit **Postcode** fields, then choose **Submit ticket to Aimo**. The draft uses the postcode entered in Product Search when available and falls back to **Settings and Tools**. Both fields are editable. The recorded address appears in both portals. An expired draft needs a fresh quote. Repeating the submit request for the same quote returns the existing ticket.
 4. Check **Submitted Requests**. Routine orders register automatically. Exceptions remain pending until Aimo reviews them. Registered orders progress through **Retrieving goods**, **On delivery**, **Almost there**, and **Arrived**. Rejected and expired requests have separate outcomes.
-5. Open a request to see its timeline and conversation. Use **Refresh conversation** to load updates. A buyer’s authenticated MCP agent can read or post to the same thread. The request also displays its policy decision and audit trail.
+5. Open a request to rename it, inspect its timeline, policy and audit trail, or message Aimo. Use **Refresh conversation** to load updates. An MCP agent can read its buyer's thread and can post when its key has write permission.
 6. To reorder, open a confirmed ticket and use **Create repeat draft** with the new delivery date. Check the recurring comparison before submitting. This obtains a fresh quote for the existing lines.
 
 ### Control agent access and plan recurring orders
 
-Under **Settings**, clear **Allow agents to place orders** to block ordering by that buyer’s external agents. Product and status lookups remain available. The browser still gives the buyer a separate draft review and submission step.
+Open **Settings and Tools → Agent integration** to create or revoke a buyer-scoped MCP Bearer key. Clear **Allow agents to place orders** to block external writes for that buyer. Product and status lookups remain available. Browser draft review and submission still use the buyer's own permissions. [Connect an AI client](mcp-connection.md)
 
 A daily reminder appears in the signed-in workspace from the chosen Helsinki time onward and refers to the next day. It creates no ticket on its own. Billing settings store a payment method, billing email, and invoice reference for the demo. Orders are simulated locally.
 
@@ -63,9 +63,9 @@ Analytics use available observations. Monthly product availability is based on r
 
 Sign in at [the workspace](http://127.0.0.1:8000/) with an admin account, then choose **Admin panel** in the sidebar. The panel shares your login; buyer accounts do not see this button and cannot access operations. Admin accounts also have the complete buyer workspace, with a Workspace selector for hotel and hospital kitchens. Returning from operations keeps the selected kitchen. For local API-key demos, open `/admin/` and enter `AIMO_ADMIN_API_KEY`.
 
-1. In **Review queue**, filter by client, status, product, or ticket. Open a request to inspect policy reasons, order details, and the audit trail.
+1. In **Review queue**, search by product, ticket, or keyword. Use the sidebar to filter by client, status, delivery date range, and net total range. Open a request to inspect policy reasons, its delivery address, and the audit trail. The **Close** button stays visible as the details scroll.
 2. Approve or reject a pending exception. Approval checks expiry and rechecks current orderability. A request can expire or fail that recheck before registration.
 3. Advance a registered request one fulfillment stage at a time. Use its conversation to tell the buyer or their agent about changes.
-4. Use **Activity log** to search across clients and **Analytics** to compare order volumes, spend, estimated product emissions, and the most active sectors, buyers, and products over a selected period.
+4. Use **Activity log** to search inquiries and decisions across clients. Use **Analytics** to compare order volume, spend, estimated product emissions, and the most active sectors, buyers, and products over a selected period. **Sign out** is at the bottom of the sidebar.
 
 See the [architecture and decisions](architecture.md) for the rules behind approvals, quote signing, and audit evidence.

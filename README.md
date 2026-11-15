@@ -1,104 +1,129 @@
 # Agent Dairy
 
-Agent Dairy is a Junction 2026 prototype for the Valio Aimo Trusted Trade Agents challenge. Kitchen staff use a client workspace to find products, turn recipes into ingredient lists, and review order drafts. External agents use MCP or REST. Aimo staff use an integrated admin panel to review exceptions, track fulfillment, and respond to clients.
+Agent Dairy is a Junction 2026 prototype for the Valio Aimo Trusted Trade Agents challenge. It gives kitchens a purchasing workspace, lets external AI agents connect over MCP, and gives Aimo staff an admin panel for reviewing and tracking orders. Orders are recorded in the local gateway. The Valio challenge API provides prices and availability.
 
 ## Run locally
 
-1. Install [uv](https://docs.astral.sh/uv/). The workspace selects Python 3.12.
-2. Put the three organizer-provided files under `external/valio-aimo/` at the repository root.
-
-   - `valio_aimo_junction26_product_data.json`
-   - `valio_aimo_junction26_delivery_reliability.csv`
-   - `valio_aimo_junction26_carbon_footprint.csv`
-
-3. Copy [app/.env.example](app/.env.example) to `app/.env`. Set `VALIO_API_KEY` for live offers and a private `AIMO_ADMIN_API_KEY` for operations API access (optional when using password accounts). To generate an operations key, run `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Add `GEMINI_API_KEY` to enable Gemini 4 Hydrogen with Medium thinking for the assistant and Gemini Decision 1 for the Aimo order review. Without a key, the assistant uses guided search and Aimo applies the mandate rules, and the warehouse rules where `AIMO_FULFILLMENT_CHECKS` enables them, locally.
-4. From the repository root, install dependencies and build the catalog.
-
-   ```sh
-   cd app
-   uv sync --locked
-   uv run --locked python -m gateway.load_catalog
-   ```
-
-## Start and stop
-
-Run the shared server from the repository root in PowerShell or a terminal:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run these commands from the repository root. uv can install the project's pinned Python 3.12 automatically.
 
 ```sh
-uv run --locked --project app python app/scripts/run_local.py
+cd app
+uv sync --locked
+cp .env.example .env
 ```
 
-Open [http://127.0.0.1:8000/](http://127.0.0.1:8000/). Press **Ctrl+C** to stop it. To choose another port, add `--port 8010`.
+On Windows PowerShell, you can use `Copy-Item .env.example .env`. Edit `app/.env` in your editor. Keep that file, the challenge dataset, local databases, and signing keys private and out of Git.
 
-Buyer and admin accounts sign in on the same page. Only admins see the **Admin panel** sidebar button, which opens `/admin/` without another login. Buyer accounts cannot access the panel or operations APIs. Admin accounts can also use every buyer workspace feature and switch between hotel and hospital kitchens. Buyer accounts remain restricted to their assigned kitchen.
+### Offline demo
 
-For password login, set `REQUIRE_PORTAL_LOGIN=1` in `app/.env` and create accounts from `app/`:
+Use this option to try the app without provider credentials or challenge files. Set these values in `app/.env`.
+
+```dotenv
+OFFLINE_DEMO=1
+CATALOG_DB_PATH=data/synthetic.db
+DB_PATH=data/demo-gateway.db
+SIGNING_KEY_PATH=data/demo-signing.pem
+REQUIRE_PORTAL_LOGIN=0
+DEMO_NOW=2026-11-14T10:00:00+02:00
+```
+
+Leave the Valio, Gemini, and Anthropic keys empty for a fully local demo. The fixed Helsinki clock makes the sample dates reproducible and keeps them inside the included buyer mandates' validity windows. From `app/`, build the synthetic catalog once.
 
 ```sh
-uv run --locked python -m gateway.manage_accounts kitchen client --buyer hotel
+uv run --locked python -m gateway.demo_catalog
+```
+
+For a populated workspace, optionally run `uv run --locked python -m gateway.seed_demo`. It adds labeled sample drafts, orders, deliveries, messages, and approval cases to the configured demo database. See the [developer guide](app/README.md#seed-a-populated-demo).
+
+### Valio challenge data and mock API
+
+Get the dataset and `VALIO_API_KEY` from the challenge organizers. Under the repository root, put these files in `external/valio-aimo/`.
+
+- `valio_aimo_junction26_product_data.json`
+- `valio_aimo_junction26_delivery_reliability.csv`
+- `valio_aimo_junction26_carbon_footprint.csv`
+
+Set `OFFLINE_DEMO=0` and `VALIO_API_KEY` in `app/.env`. Use the default `CATALOG_DB_PATH=data/catalog.db` and `DB_PATH=data/gateway.db` for challenge data. Leave `DEMO_NOW` blank to use the current clock. The sample mandates in `app/mandates/` have fixed validity dates. For a new local test period, update the dates in those files.
+
+```sh
+uv run --locked python -m gateway.load_catalog
+```
+
+### Start and stop
+
+Run the shared server from `app/`.
+
+```sh
+uv run --locked python scripts/run_local.py
+```
+
+Use **Ctrl+C** to stop the server. To run on a different local port, add `--port 8010` and use the same port in the browser and MCP URL.
+
+| Surface | Local address |
+| --- | --- |
+| Buyer workspace | [http://127.0.0.1:8000/](http://127.0.0.1:8000/) |
+| Aimo admin panel | [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) |
+| REST API and interactive OpenAPI | [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) |
+| Streamable HTTP MCP | `http://127.0.0.1:8000/mcp` |
+| Health and quote verification keys | [/health](http://127.0.0.1:8000/health), [/.well-known/jwks.json](http://127.0.0.1:8000/.well-known/jwks.json) |
+
+## Local accounts and keys
+
+With `REQUIRE_PORTAL_LOGIN=0`, the buyer workspace opens with the **Hotel kitchen** and **Hospital kitchen** demo identities. The local API fixtures in [buyers.json](app/buyers.json) include `demo-hotel-lookup-key` for read-only MCP and `demo-hotel-key` for Hotel kitchen purchasing. Open `/admin/` and enter `AIMO_ADMIN_API_KEY` to try operations in this mode.
+
+For separate password accounts, set `REQUIRE_PORTAL_LOGIN=1`. From `app/`, provision the accounts using the same `DB_PATH` as the server.
+
+```sh
+uv run --locked python -m gateway.manage_accounts hotel-kitchen client --buyer hotel
+uv run --locked python -m gateway.manage_accounts hospital-kitchen client --buyer hospital
 uv run --locked python -m gateway.manage_accounts aimo admin
 ```
 
-Without required login, the buyer demo still opens directly; choose **Sign out** to reach the account login. Local operations API keys remain supported at `/admin/`.
+Each command prompts for a password of 12–128 characters. Use `--generate` to print a generated password once. Rerun the same command to reset the password for that account. With password login required, sign in at `/`. Admins can switch buyer workspaces and open **Admin panel** in the same session. Buyer accounts stay in their assigned workspace, and the built-in demo keys are disabled.
 
-If you use a browser-based MCP client, add its origin to `MCP_ALLOWED_ORIGINS` in `app/.env` when it differs from the defaults.
+| Credential | How to get it | What it does |
+| --- | --- | --- |
+| `AIMO_ADMIN_API_KEY` | Generate it locally with the command below and save the result in `app/.env`. | Opens the operations page and authenticates the operations API when password login is optional. |
+| Agent Dairy MCP Bearer key | In a buyer workspace, open **Settings and Tools → Agent integration → Create agent key**. | Connects an AI client to that buyer. Ordering requires permission on the key and in the workspace. |
+| `VALIO_API_KEY` | Request it from the Valio Aimo challenge organizers. | Retrieves prices and availability from the challenge mock API. |
+| `GEMINI_API_KEY` | Create a key in Google AI Studio with access to the models used by Agent Dairy. See [Google's API key guide](https://ai.google.dev/gemini-api/docs/api-key). | Optional. Enables the AI-assisted buyer features and eligible order reviews. Guided parsing and local rules work with the key blank. |
+| `ANTHROPIC_API_KEY` | Create a key in the Claude Console. See [Anthropic's API key guide](https://platform.claude.com/docs/en/get-api-key). | Optional. Enables LLM mode for the separate reference buyer agent. Scripted mode works with the key blank. |
 
-### Connect an external AI
+Generate the local operations key from `app/`.
 
-In the client portal, open **Settings → Agent integration** and copy the MCP server URL. For a client that supports custom headers, choose **Streamable HTTP**, create a key, and paste it into the client's bearer token field. If the client asks for a custom header, set the header name to `Authorization` and its value to `Bearer <your-key>`. Copy the key when it is created. Each key can be revoked from Settings, and ordering requires permission on both the key and the buyer workspace.
+```sh
+uv run --locked python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
-For ChatGPT, use the same URL and select **OAuth** with **Client ID Metadata Document** registration. Sign in to Agent Dairy when prompted and confirm the connection. ChatGPT can read catalog and request data for the linked buyer. Disconnect it from Agent Dairy Settings at any time. See [hosting and OAuth setup](docs/mcp-connection.md).
+See the [environment template](app/.env.example) and [configuration reference](app/README.md#configuration-and-contracts) for paths, cache settings, signing, the demo clock, and warehouse checks.
 
-Keep challenge data, local databases, signing keys, and `app/.env` out of Git. The default paths are ignored.
+## Connect your AI to Agent Dairy
 
-| Surface | Local entry point |
+1. In the buyer portal, open **Settings and Tools → Agent integration**. Copy the MCP URL and create a read-only agent key for your first lookup.
+2. In your AI client, add a **Streamable HTTP** MCP server at `http://127.0.0.1:8000/mcp`. Use Bearer authentication and store the key in the client's credential settings or a local environment variable.
+3. Ask the AI to run `get_my_mandate` and confirm the kitchen it is connected to.
+
+The [MCP setup guide](docs/mcp-connection.md) covers **ChatGPT Desktop App**, **Antigravity**, and **OpenCode**, with configuration examples and a copyable setup prompt.
+
+## What you can do
+
+| Surface | Features |
 | --- | --- |
-| Client workspace | [http://127.0.0.1:8000/](http://127.0.0.1:8000/) |
-| Admin panel | [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) |
-| Client and gateway REST | [OpenAPI on port 8000](http://127.0.0.1:8000/docs) |
-| Operations REST | [Shared OpenAPI](http://127.0.0.1:8000/docs) |
-| Streamable HTTP MCP | `http://127.0.0.1:8000/mcp` |
-| Quote verification keys | [Gateway JWKS](http://127.0.0.1:8000/.well-known/jwks.json) |
+| Buyer workspace | Search by product or SKU, build a shopping list or recipe basket, browse seasonal produce, and compare date-specific offers and substitutes. Check pack sizes, allergens, claims, stock, price, reliability, carbon estimates, and approximate postcode travel time where available. |
+| Draft Tickets | Save, edit, rename, and review signed drafts. Use AI Helper to propose changes, then check the separate delivery address and postcode before submission. |
+| Dashboard and Submitted Requests | Follow active deliveries on the dashboard, inspect order decisions and audit history, message Aimo, and create repeat drafts with recurring-order comparisons. |
+| Analytics and Settings | Review purchase, stock, and fulfillment metrics. Manage theme, language, delivery defaults, invoice preferences, reminders, and agent keys. |
+| Aimo operations | Filter the review queue by client, status, delivery dates, and net total. Inspect the order, review exceptions, update fulfillment, message buyers, and browse activity and analytics across kitchens. |
+| External integrations | Use MCP for catalog, sourcing, offers, quotes, orders, tracking, and audit tools. Use the REST API for scripted integrations. The gateway applies buyer mandates and sends eligible exceptions to Aimo review. |
 
-## Documentation
+See the [buyer and admin user guide](docs/user-guide.md) for complete workflows and example inputs.
 
-- [Client and Aimo user guide](docs/user-guide.md)
-- [Technology, architecture, and design decisions](docs/architecture.md)
-- [Developer commands and MCP tools](app/README.md)
-- [Challenge brief](PROBLEM-STATEMENT.md)
-- [Valio mock API and data assumptions](app/ASSUMPTIONS.md)
-- [Enterprise plan](docs/enterprise-plan.md) and [production roadmap](docs/roadmap.md)
-- [Architecture Decision Records](docs/adr/)
-- [Aimo approval backend and frontend handoff](docs/aimo-approval.md)
+## How the stack fits together
 
-## Private Linux demo without API keys
+FastAPI serves the buyer workspace, admin panel, REST API, and MCP endpoint from one Uvicorn process. The frontend uses HTML, CSS, and native JavaScript modules. SQLite stores the rebuildable search catalog separately from quotes, orders, approvals, preferences, and audit events. Gateway rules enforce buyer scope, quote validity, dietary constraints, and spend limits on every order. The gateway signs quotes with Ed25519 and records decisions in a hash-chained audit log.
 
-Use the [private deployment script](app/scripts/deploy_private.sh) on a Linux host with uv and persistent systemd user services. From `app/`, run:
-
-```sh
-bash scripts/deploy_private.sh PRIVATE_BIND_IP
-```
-
-The script runs the shared portal on port 8000 at that address. It uses a synthetic catalog and a separate local database, requires login, and uses no Valio or Gemini credentials. Use a private network address where traffic is encrypted, or terminate HTTPS before broader access.
-
-Create accounts on the host from `app/`:
-
-```sh
-DB_PATH=data/hosted-gateway.db .venv/bin/python -m gateway.manage_accounts kitchen client --buyer hotel
-DB_PATH=data/hosted-gateway.db .venv/bin/python -m gateway.manage_accounts aimo admin
-```
-
-These commands prompt for passwords. Running the command again with the same account role and buyer changes its password and revokes existing sessions. Check status with `systemctl --user status agent-dairy-client` and stop it with `systemctl --user stop agent-dairy-client`. When upgrading an existing deployment, disable the old separate services with `systemctl --user disable --now agent-dairy-admin agent-dairy-admin-funnel` if installed.
-
-In Ask Agent Dairy, try `I need 20 litres of lactose-free milk` and choose a future delivery date. Create and submit a draft from the result. Repeat with 1,000 litres to exercise the Aimo approval queue. You can also paste a recipe with a quantity and ingredient on each line, such as `2 kg tomato` and `1 kg red onion`.
-
-### Public HTTPS demo with Tailscale Funnel
-
-To add the demo to a host with Funnel enabled on port 443, start the loopback service and add a path route. Check that the path is free. Path routes share a browser origin with other apps, so use an origin where you trust the other apps.
-
-```sh
-FUNNEL_PORTALS=1 bash scripts/deploy_private.sh PRIVATE_BIND_IP
-tailscale funnel --bg --https=443 --set-path=/agent-dairy http://127.0.0.1:18200
-```
-
-Open `/agent-dairy/` for the shared workspace. Admin accounts open `/agent-dairy/admin/` through the sidebar. Remove the route by running the same Funnel command with `off` at the end.
+- [Architecture and data boundaries](docs/architecture.md)
+- [Developer commands, environment reference, and MCP tool index](app/README.md)
+- [Backend workflow diagrams](docs/backend-pipeline/README.md) and [Aimo approval logic](docs/aimo-approval.md)
+- [Challenge brief](PROBLEM-STATEMENT.md), [Valio data assumptions](app/ASSUMPTIONS.md), and [production roadmap](docs/roadmap.md)
+- [Architecture decision records](docs/adr/) and [dependency installation alternatives](requirements/README.md)

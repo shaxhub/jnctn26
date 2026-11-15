@@ -4,7 +4,7 @@
 flowchart TD
     A["Buyer presses Submit ticket to Aimo<br/>POST /client/tickets/submit"] --> C
     B["External agent calls MCP place_order<br/>Bearer key identifies workspace and agent"] --> C
-    C["Validate permissions, quote ownership,<br/>channel, signature and expiry"]
+    C["Validate permissions, quote ownership,<br/>channel, signature, expiry and delivery address"]
     C -->|Invalid| D["Return error"]
     C -->|Valid| E["Recheck current Aimo availability<br/>and signed dietary requirements"]
     E --> F["Apply buyer mandate and warehouse checks when enabled"]

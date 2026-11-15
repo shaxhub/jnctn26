@@ -1,43 +1,78 @@
-# Agent Dairy MCP connection
+# Connect your AI to Agent Dairy
 
-## Hosted setup
+Start the [local server](../README.md#run-locally) before configuring your client. Agent Dairy uses **Streamable HTTP** MCP with Bearer authentication. The team has connected it from the ChatGPT Desktop App, Google Antigravity, and OpenCode.
 
-1. Deploy [the Cloudflare Worker](mcp-custom-domain-worker.js) with the custom domain `agent-dairy-mcp.kienlebox.stream`. It forwards the MCP, discovery, and OAuth endpoints to the existing client Funnel. Keep the Worker upstream aligned with the client's Funnel path.
-2. Set the client gateway environment as shown below and restart it. Set these values for both the portal and Funnel processes when they run separately. Both processes need to use the same gateway database.
+## Get your URL and key
 
-   ```dotenv
-   REQUIRE_PORTAL_LOGIN=1
-   MCP_PUBLIC_URL=https://agent-dairy-mcp.kienlebox.stream/mcp
-   MCP_OAUTH_ENABLED=1
-   MCP_ALLOWED_ORIGINS=https://chatgpt.com
-   ```
+1. Open the buyer workspace and select **Settings and Tools → Agent integration**.
+2. Select **Copy MCP URL**. The default local URL is `http://127.0.0.1:8000/mcp`. Use the port shown by your local server.
+3. Enter an agent name and select **Create agent key**. Leave **Allow this key to submit orders** clear for your first lookup. Select **Copy key** while the key is displayed.
 
-   Browser-based MCP clients (such as ChatGPT and `MCP_PUBLIC_URL`'s origin) are allowed automatically. To permit additional browser origins (for example, MCP Inspector), set `MCP_ALLOWED_ORIGINS` as a comma-separated list of origins (defaults to `http://localhost:8000,http://127.0.0.1:8000`).
+Put the key in the client's credential settings or a local environment variable. A **Bearer token** field takes the raw key. A custom header takes the name `Authorization` and the value `Bearer <your-key>`. A **Bearer token env var** field takes the name of your environment variable, such as `AGENT_DAIRY_MCP_TOKEN`.
 
-3. Verify that the public MCP endpoint returns HTTP 401 without credentials and includes a `WWW-Authenticate` challenge with the public metadata URL. Both discovery URLs should return 200. The protected resource must match the public MCP URL exactly.
+Each key belongs to its buyer workspace and can be revoked in **Agent integration**. To enable ordering, use an order-enabled key and turn on **Allow agents to place orders** for the workspace.
 
-   ```sh
-   curl -i https://agent-dairy-mcp.kienlebox.stream/mcp
-   curl -fsS https://agent-dairy-mcp.kienlebox.stream/.well-known/oauth-protected-resource/mcp
-   curl -fsS https://agent-dairy-mcp.kienlebox.stream/.well-known/oauth-protected-resource
-   curl -fsS https://agent-dairy-mcp.kienlebox.stream/.well-known/oauth-authorization-server
-   ```
+## ChatGPT Desktop App
 
-4. Create the custom MCP app in ChatGPT using that server URL. Choose OAuth and Client ID Metadata Document registration. Agent Dairy recognizes the stable ChatGPT client ID and callback documented by OpenAI. Connect a buyer account and test a product lookup across two separate buyer accounts before sharing it. [OpenAI MCP authentication guide](https://developers.openai.com/plugins/build/auth)
+1. Store your raw agent key in a local environment variable named `AGENT_DAIRY_MCP_TOKEN`. On Windows, open **Edit environment variables for your account** and add it under **User variables**. On macOS or Linux, make the variable available to the process that launches the app.
+2. Open **Settings → MCP servers → Add server**. Name it `agent-dairy`, choose **Streamable HTTP**, and paste your MCP URL.
+3. Enter `AGENT_DAIRY_MCP_TOKEN` in **Bearer token env var**, save, and restart the app so it picks up the variable. Use `/mcp` in the composer to check the connection.
 
-If ChatGPT only offers manual client registration, select **Use your own OAuth client credentials** if the form accepts a public client. Use client ID `https://chatgpt.com/oauth/client.json`, authentication method `None`, and an empty secret. The callback must be `https://chatgpt.com/connector_platform_oauth_redirect`. If the form requires a secret or shows a different callback, this public client registration is incompatible with that form.
-
-The existing Tailscale Funnel can also host OAuth directly. Set `MCP_PUBLIC_URL=https://kienlebox.tail80aa1e.ts.net/agent-dairy/mcp`. The existing `/agent-dairy` mount serves MCP, login and token exchange. A Tailscale operator must add the two exact discovery routes below. Then set `MCP_OAUTH_ENABLED=1` on both client services and restart them.
+If you use the Codex CLI with the same local host, you can also register the server from a terminal. Replace the URL if you use a different deployment.
 
 ```sh
-sudo tailscale funnel --bg --set-path /.well-known/oauth-protected-resource/agent-dairy/mcp http://127.0.0.1:18200/oauth-protected-resource/agent-dairy/mcp
-sudo tailscale funnel --bg --set-path /.well-known/oauth-authorization-server/agent-dairy http://127.0.0.1:18200/oauth-authorization-server/agent-dairy
-curl -fsS https://kienlebox.tail80aa1e.ts.net/.well-known/oauth-protected-resource/agent-dairy/mcp
-curl -fsS https://kienlebox.tail80aa1e.ts.net/.well-known/oauth-authorization-server/agent-dairy
+codex mcp add agent-dairy --url http://127.0.0.1:8000/mcp --bearer-token-env-var AGENT_DAIRY_MCP_TOKEN
 ```
 
-## Credentials
+[ChatGPT Desktop MCP settings](https://learn.chatgpt.com/docs/extend/mcp?surface=desktop#configure-in-the-chatgpt-desktop-app)
 
-- **Bearer keys** are issued in Settings. The MCP gateway resolves the buyer and applies the key and workspace permissions on each request.
-- **ChatGPT OAuth** uses the existing Agent Dairy client login, S256 PKCE, and single-use authorization codes. Tokens are restricted to the configured MCP resource and the signed-in buyer's read-only tools. Access tokens expire after one hour. Refresh tokens rotate and expire after 30 days of inactivity. Disconnecting the grant in Settings or changing the account password invalidates its credentials.
-- Audit entries record the connection ID and buyer. SQLite stores hashes of agent keys, OAuth codes and tokens. The admin portal does not serve MCP or the OAuth routes.
+## Google Antigravity
+
+In the Antigravity App, go to **Customizations → Installed → MCP Servers** and select **Copy Config File Path**. In Antigravity IDE, open the agent panel menu and choose **MCP Servers → Manage MCP Servers → View raw config**.
+
+Add `agent-dairy` to the existing `mcpServers` map. Replace the URL if needed and replace `<your-key>` privately in your local config. If the file is new, you can use the whole example.
+
+```json
+{
+  "mcpServers": {
+    "agent-dairy": {
+      "serverUrl": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-key>"
+      }
+    }
+  }
+}
+```
+
+Save the file and reload the connection. Keep a config containing a raw key outside version control. [Antigravity MCP configuration](https://antigravity.google/docs/mcp?hl=en#mcp-configuration-structure)
+
+## OpenCode
+
+Set `AGENT_DAIRY_MCP_TOKEN` to the raw key in the environment that launches OpenCode. For OpenCode **v1**, add the server under `mcp` in your project's `opencode.json`, or in `~/.config/opencode/opencode.json` to use it across projects. Merge the entry with any existing servers.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "agent-dairy": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8000/mcp",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:AGENT_DAIRY_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+For OpenCode **v2**, put the same `agent-dairy` entry under `mcp.servers`. Run `opencode --version` if you're unsure which layout to use. Restart OpenCode and run `opencode mcp list` to check the connection. [OpenCode v1 MCP setup](https://opencode.ai/v1/docs/mcp-servers/) · [OpenCode v2 MCP setup](https://opencode.ai/docs/mcp-servers)
+
+## Ask your AI to help with setup
+
+Paste this prompt into your AI's chat, replacing the client name and URL. Enter the key separately where your client reads credentials.
+
+> Configure `[client name]` to connect to Agent Dairy at `[MCP URL]` using Streamable HTTP. Use bearer authentication and reference the local `AGENT_DAIRY_MCP_TOKEN` environment variable if the client supports it. Otherwise, show me where to enter the bearer key in the client's settings or private local configuration. After setup, run Agent Dairy's `get_my_mandate` tool and tell me which buyer workspace it returns.
+
+Once it connects, try: “Use Agent Dairy to find lactose-free milk and check availability for my requested delivery date.” If the client reports HTTP 401, check the URL, that the key is active, and that the app can read the configured credential. If a tool is missing, refresh the MCP connection and check the key's permissions.

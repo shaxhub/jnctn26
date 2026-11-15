@@ -6,6 +6,8 @@ import pytest
 from gateway import service, store
 from gateway.auth import admin_for_key, principal_for_key
 from gateway.models import Offer, OffersRequest, OrderableReason, QuoteRequest
+from gateway.preferences import Preferences
+from gateway.workspace import save_settings
 
 
 @pytest.fixture
@@ -14,6 +16,9 @@ def gateway(monkeypatch, tmp_path):
     monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.setattr(store, "settings", replace(store.settings, db_path=tmp_path / "orders.db"))
     monkeypatch.setenv("AIMO_ADMIN_API_KEY", "test-admin-credential")
+    for buyer in ("hotel", "hospital"):
+        save_settings(Preferences(address="Testikatu 1, 00100 Helsinki"),
+                      principal_for_key(f"demo-{buyer}-client-key"))
     store.set_demo_now(datetime.fromisoformat("2026-11-14T10:00:00+02:00"))
     offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, available_qty=2000,
                   category="10400", orderable=True, reason=OrderableReason.ok)
@@ -128,6 +133,12 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             assert "quantity and unit" in incomplete.json()["message"]
             unrelated = await http.post("/client/chat", headers=buyer, json={"text": "Unrelated milk lookup"})
             assert unrelated.status_code == 200
+            for address in ("Testikatu 1", "00100 Helsinki", "Testikatu, 00100 Helsinki"):
+                incomplete_address = await http.post("/client/tickets/submit", headers=buyer, json={
+                    "quote_id": draft["quote_id"], "delivery_address": address})
+                assert incomplete_address.status_code == 422, incomplete_address.text
+                assert "street address" in incomplete_address.json()["detail"]
+            assert (await http.get("/orders", headers=buyer)).json() == []
             result = await http.post("/client/tickets/submit", headers=buyer, json={
                 "quote_id": draft["quote_id"], "delivery_address": "Hotel kitchen, Testikatu 1, 00100 Helsinki"})
             assert result.status_code == 200 and result.json()["status"] == "confirmed", result.text
@@ -473,13 +484,14 @@ def test_live_mode_stock_reservation_prevents_double_spend(gateway, monkeypatch)
 
 def test_order_records_delivery_address_snapshot(gateway):
     import sqlite3
-    from gateway.preferences import Preferences
-    from gateway.workspace import save_settings
 
     client = principal_for_key("demo-hotel-client-key")
     place = lambda day, **options: service.place_order(client, service.create_quote(client, QuoteRequest(
         delivery_date=date(2026, 11, day), lines=[{"product_id": "milk", "quantity": 5}])).quote_id, **options)
-    assert place(16).delivery_address == ""
+    save_settings(Preferences(), client)
+    with pytest.raises(service.GatewayError, match="street address"):
+        place(16)
+    assert service.list_orders(client) == []
     save_settings(Preferences(address="Saved kitchen, Testikatu 1,  00100 Helsinki"), client)
     saved = place(17)
     assert saved.delivery_address == "Saved kitchen, Testikatu 1, 00100 Helsinki"

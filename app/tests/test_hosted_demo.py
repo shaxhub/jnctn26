@@ -65,7 +65,8 @@ def test_hosted_accounts_and_synthetic_purchase(gateway, monkeypatch, tmp_path):
             draft = await kitchen.post("/client/chat", json=chat, headers={"Origin": buyer_origin})
             assert draft.status_code == 200, draft.text
             submitted = await kitchen.post("/client/tickets/submit", headers={"Origin": buyer_origin},
-                                           json={"quote_id": draft.json()["draft"]["quote_id"]})
+                                           json={"quote_id": draft.json()["draft"]["quote_id"],
+                                                 "delivery_address": "Testikatu 1, 00100 Helsinki"})
             assert submitted.status_code == 200, submitted.text
             assert submitted.json()["status"] == "pending_approval"
             approval_id = submitted.json()["approval_id"]

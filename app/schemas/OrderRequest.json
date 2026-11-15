@@ -21,7 +21,7 @@
         }
       ],
       "default": null,
-      "description": "Where to deliver this order. Defaults to the delivery address saved in the buyer's workspace settings.",
+      "description": "Street address with a house number and a five-digit Finnish postcode. If omitted, the buyer's saved delivery address must contain both.",
       "title": "Delivery Address"
     }
   },

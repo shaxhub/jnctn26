@@ -8,7 +8,7 @@ const views = {
   drafts: ["Draft Tickets", "Luonnokset", "Review signed drafts before sending them to Aimo."],
   requests: ["Submitted Requests", "Lähetetyt pyynnöt", "Track fulfillment and talk to Aimo on each request."],
   analytics: ["Analytics", "Analytiikka", "Understand spend, stock availability, and fulfillment times."],
-  settings: ["Settings", "Asetukset", "Manage your workspace, billing preferences, and agent permissions."]
+  settings: ["Settings and Tools", "Asetukset ja työkalut", "Manage your workspace, billing preferences, and agent permissions."]
 };
 const root = $("workspace-view");
 const buyer = $("buyer");
@@ -19,7 +19,12 @@ const translations = {
   "Track fulfillment and talk to Aimo on each request.":"Seuraa toimitusta ja keskustele Aimon kanssa.",
   "Understand spend, stock availability, and fulfillment times.":"Tarkastele kuluja, saatavuutta ja toimitusaikoja.",
   "Manage your workspace, billing preferences, and agent permissions.":"Hallitse työtilaa, laskutusta ja agentin oikeuksia.",
-  "Saved drafts":"Tallennetut luonnokset", "AI Helper":"Tekoälyavustaja", "Ticket review":"Tilauksen tarkistus",
+  "AI Helper":"Tekoälyavustaja", "Ticket review":"Tilauksen tarkistus",
+  "Delivery schedule":"Toimitusaikataulu", "No requests in this stage.":"Ei pyyntöjä tässä vaiheessa.",
+  "Create a draft from Product Search to see it here.":"Luo luonnos tuotehaussa nähdäksesi sen täällä.",
+  "Choose a draft to edit its quantities and delivery date.":"Valitse luonnos muokataksesi määriä ja toimituspäivää.",
+  "Order not found in this workspace.":"Tilausta ei löytynyt tästä työtilasta.",
+  "Needs fresh quote":"Tarvitsee uuden tarjouksen",
   "Request history":"Pyyntöhistoria", "Kitchen purchasing":"Keittiön hankinnat", "Workspace preferences":"Työtilan asetukset",
   "Monthly net spend":"Kuukausittaiset nettokulut", "Observed stock availability":"Havaittu saatavuus",
   "Average hours between stages":"Keskimääräiset tunnit vaiheiden välillä", "Most ordered products":"Tilatuimmat tuotteet",
@@ -51,49 +56,16 @@ const translations = {
 };
 const t = text => language() === "fi" ? translations[text] || text : text;
 let draftSelection;
+let draftQuotes = [];
 
-async function loadDraftFlyout() {
-  const flyout = $("draft-flyout");
-  if (flyout.hidden) return;
-  flyout.replaceChildren(node("h2", t("Saved drafts")));
-  try {
-    const drafts = await request("/client/drafts", buyerKey());
-    if (flyout.hidden) return;
-    if (!drafts.length) flyout.append(node("p", language() === "fi" ? "Ei luonnoksia." : "No saved drafts."));
-    for (const quote of drafts) {
-      const button = node("button", quote.name || quote.quote_id);
-      button.type = "button";
-      button.addEventListener("click", () => {
-        draftSelection = quote.quote_id;
-        $("draft-flyout-toggle").click();
-        if (viewName() === "drafts") showDrafts(draftSelection);
-        else location.hash = "drafts";
-      });
-      flyout.append(button);
-    }
-  } catch (error) { flyout.append(node("p", error.message, "feedback error")); }
-}
-
-const draftsNav = document.querySelector('[data-view="drafts"]');
-const flyoutToggle = node("button", "›", "draft-flyout-toggle");
-flyoutToggle.id = "draft-flyout-toggle";
-flyoutToggle.type = "button";
-flyoutToggle.setAttribute("aria-label", "Saved drafts / Tallennetut luonnokset");
-flyoutToggle.setAttribute("aria-controls", "draft-flyout");
-flyoutToggle.setAttribute("aria-expanded", "false");
-const draftNavRow = node("div", "", "draft-nav-row");
-draftsNav.replaceWith(draftNavRow);
-draftNavRow.append(draftsNav, flyoutToggle);
-flyoutToggle.addEventListener("click", () => {
-  const flyout = $("draft-flyout");
-  flyout.hidden = !flyout.hidden;
-  $("draft-flyout-toggle").setAttribute("aria-expanded", String(!flyout.hidden));
-  loadDraftFlyout();
-});
-window.addEventListener("draft-changed", loadDraftFlyout);
 window.addEventListener("ticket-renamed", event => {
-  loadDraftFlyout();
-  if (viewName() === "drafts") showDrafts(event.detail.url.split("/").at(-1));
+  if (viewName() === "drafts") {
+    const quote = draftQuotes.find(item => event.detail.url === "/client/drafts/" + encodeURIComponent(item.quote_id));
+    if (!quote) return;
+    quote.name = event.detail.name;
+    const item = Array.from($("draft-list").querySelectorAll("button")).find(button => button.dataset.quote === quote.quote_id);
+    if (item) item.querySelector("strong").textContent = quote.name;
+  }
   if (viewName() === "requests") showRequests();
 });
 let settings = {};
@@ -103,7 +75,7 @@ let yearSelected = false;
 let preferenceWrites = Promise.resolve();
 
 function viewName() {
-  const name = location.hash.slice(1);
+  const name = location.hash.slice(1).split("?")[0];
   return Object.hasOwn(views, name) ? name : "products";
 }
 
@@ -139,13 +111,36 @@ function dashboard(data) {
   const totals = node("dl", "", "metrics workspace-metrics");
   totals.append(metric(language() === "fi" ? "Luonnokset" : "Drafts to review", data.drafts),
     metric(language() === "fi" ? "Lähetetyt pyynnöt" : "Submitted requests", data.submitted));
-  const pipeline = node("ol", "", "delivery-pipeline");
-  for (const stage of stages) {
-    const step = node("li");
-    step.append(node("strong", String(data.stages[stage] ?? 0)), node("span", stageName(stage, language())));
-    pipeline.append(step);
+  const heading = node("h3", t("Delivery schedule"), "delivery-heading");
+  const pipeline = node("div", "", "delivery-board");
+  for (const stage of stages.slice(0, 4)) {
+    const orders = data.active_orders[stage];
+    const column = node("section", "", "delivery-column");
+    column.dataset.stage = stage;
+    const header = node("h4", stageName(stage, language()));
+    header.append(node("span", String(orders.length)));
+    const list = node("ul");
+    for (const order of orders) {
+      const link = node("a", "", "delivery-ticket");
+      link.href = "#requests?" + new URLSearchParams({order:order.order_id});
+      link.append(node("strong", order.name || order.order_id), node("time", date(order.delivery_date)));
+      link.querySelector("time").dateTime = order.delivery_date;
+      const item = node("li");
+      item.append(link);
+      list.append(item);
+    }
+    column.append(header, orders.length ? list : node("p", t("No requests in this stage."), "delivery-empty"));
+    pipeline.append(column);
   }
-  section.append(totals, pipeline);
+  section.append(totals, heading, pipeline);
+  const laterStages = stages.slice(4).filter(stage => data.stages[stage]);
+  if (laterStages.length) {
+    const summary = node("p", "", "delivery-summary");
+    for (const stage of laterStages) {
+      summary.append(node("span", stageName(stage, language()) + " " + data.stages[stage], "tag stage-tag " + stage));
+    }
+    section.append(summary);
+  }
   const closed = (data.stages.rejected || 0) + (data.stages.expired || 0);
   if (closed) section.append(node("p", closed + (language() === "fi" ?
     (closed === 1 ? " hylätty tai vanhentunut pyyntö" : " hylättyä tai vanhentunutta pyyntöä") :
@@ -166,7 +161,7 @@ function dashboard(data) {
   root.replaceChildren(section);
 }
 
-function draftEditor(quote, selected, state) {
+function draftEditor(quote, state) {
   const section = panel("AI Helper");
   section.append(node("p", "Suggest changes to quantities or delivery date, then save a fresh quote.", "muted"));
   const form = node("form", "", "workspace-form");
@@ -205,12 +200,12 @@ function draftEditor(quote, selected, state) {
   const propose = node("button", "Suggest edit");
   propose.type = "button";
   const save = node("button", "Save revised draft", "primary");
-  const open = node("button", "Review and submit");
-  open.type = "button";
   const notice = node("p", "", "feedback");
   notice.setAttribute("role", "status");
   notice.hidden = true;
-  form.append(promptLabel, propose, save, open, notice);
+  const actions = node("div", "", "draft-helper-actions");
+  actions.append(propose, save);
+  form.append(promptLabel, actions, notice);
   const key = buyerKey();
   const base = "/client/drafts/" + encodeURIComponent(quote.quote_id);
   propose.addEventListener("click", async () => {
@@ -224,7 +219,6 @@ function draftEditor(quote, selected, state) {
     } catch (error) { feedback(notice, error.message, true); }
     finally { propose.disabled = false; }
   });
-  open.addEventListener("click", () => showDraft(quote, undefined, selected));
   form.addEventListener("submit", async event => {
     event.preventDefault();
     save.disabled = true;
@@ -245,8 +239,11 @@ function draftEditor(quote, selected, state) {
       }
       const quantities = Object.fromEntries(entries);
       const fresh = await request(base + "/edit", key, {delivery_date:delivery, quantities});
-      if (state === version) showDrafts(fresh.quote_id);
-      window.dispatchEvent(new Event("draft-changed"));
+      if (state === version) {
+        draftQuotes = [fresh, ...draftQuotes.filter(item => item.quote_id !== quote.quote_id)];
+        if (quote.quote_id === draftSelection) displayDrafts(fresh.quote_id);
+        else paintDraftList();
+      }
     } catch (error) { feedback(notice, error.message, true); }
     finally { save.disabled = false; }
   });
@@ -258,27 +255,46 @@ async function showDrafts(select) {
   const state = version;
   const data = await request("/client/drafts", buyerKey());
   if (state !== version) return;
-  const grid = node("div", "", "workspace");
-  const list = panel("Saved drafts");
+  draftQuotes = data;
+  displayDrafts(select);
+}
+
+function paintDraftList(focus = false) {
+  const list = $("draft-list");
+  list.replaceChildren();
+  if (!draftQuotes.length) list.append(node("p", t("Create a draft from Product Search to see it here."), "draft-list-empty"));
+  for (const item of draftQuotes) {
+    const button = node("button", "", "draft-choice");
+    button.type = "button";
+    button.dataset.quote = item.quote_id;
+    if (item.quote_id === draftSelection) button.setAttribute("aria-current", "true");
+    button.append(node("strong", item.name || item.quote_id), node("small", date(item.delivery_date) + " · " + money.format(item.total_net)));
+    if (new Date(item.expires_at) <= gatewayNow()) button.append(node("small", t("Needs fresh quote"), "draft-expired"));
+    button.addEventListener("click", () => {
+      if (draftSelection !== item.quote_id) displayDrafts(item.quote_id, true);
+    });
+    list.append(button);
+  }
+  if (focus) list.querySelector('[aria-current="true"]')?.focus();
+}
+
+function displayDrafts(select, focus = false) {
+  const state = version;
+  const quote = draftQuotes.find(item => item.quote_id === select) ?? draftQuotes[0];
+  draftSelection = quote?.quote_id;
+  paintDraftList(focus);
+
+  const grid = node("div", "", "draft-workspace");
   const review = node("div", "", "draft-inline");
   const detail = panel("Ticket review");
-  detail.append(review);
-  if (!data.length) list.append(node("p", "Create a draft from Product Search to see it here.", "empty"));
-  const rows = data.map(quote => {
-    const button = node("button", quote.name || quote.quote_id);
-    button.addEventListener("click", () => showDrafts(quote.quote_id));
-    const expired = new Date(quote.expires_at) <= gatewayNow();
-    return [button, date(quote.delivery_date), money.format(quote.total_net), expired ? "Needs fresh quote" : "Ready to review"];
-  });
-  if (rows.length) list.append(table(["Draft", "Delivery", "Net total", "Status"], rows));
-  const sidebar = node("aside", "", "side");
-  grid.append(list, sidebar);
-  const quote = data.find(item => item.quote_id === select) || data[0];
+  grid.append(detail);
   if (quote) {
     const base = "/client/drafts/" + encodeURIComponent(quote.quote_id);
-    const edit = node("button", language() === "fi" ? "Muokkaa tuotehaussa" : "Edit in Product Search");
+    const name = ticketNameForm(quote.name, base, buyerKey());
+    name.classList.add("draft-name-form");
+    const edit = node("button", language() === "fi" ? "Muokkaa tuotehaussa" : "Edit in Product Search", "secondary");
     edit.addEventListener("click", () => editBasket(quote));
-    const remove = node("button", language() === "fi" ? "Poista luonnos" : "Delete draft");
+    const remove = node("button", language() === "fi" ? "Poista luonnos" : "Delete draft", "delete-draft");
     const notice = node("p", "", "feedback");
     notice.hidden = true;
     remove.addEventListener("click", async () => {
@@ -286,32 +302,54 @@ async function showDrafts(select) {
       remove.disabled = true;
       try {
         await request(base + "/delete", buyerKey(), {});
-        window.dispatchEvent(new Event("draft-changed"));
-        if (state === version) showDrafts();
+        if (state === version) {
+          draftQuotes = draftQuotes.filter(item => item.quote_id !== quote.quote_id);
+          if (quote.quote_id === draftSelection) displayDrafts(undefined, true);
+          else paintDraftList();
+        }
       } catch (error) { feedback(notice, error.message, true); }
       finally { remove.disabled = false; }
     });
-    detail.prepend(ticketNameForm(quote.name, base, buyerKey()), edit, remove, notice);
+    const actions = node("div", "", "draft-review-actions");
+    actions.append(edit, remove);
+    detail.append(name, review, actions, notice);
     showDraft(quote, undefined, review);
-    sidebar.append(detail, draftEditor(quote, review, state));
+    review.querySelector("h3").remove();
+    grid.append(draftEditor(quote, state));
+  } else {
+    showDraft(null, undefined, review);
+    detail.append(review);
+    const helper = panel("AI Helper");
+    helper.append(node("p", t("Choose a draft to edit its quantities and delivery date."), "empty"));
+    grid.append(helper);
   }
   root.replaceChildren(grid);
 }
 
-async function showRequests(offset = 0) {
+async function showRequests(offset = 0, focus = null) {
   const state = version;
-  const data = await request("/client/requests?offset=" + offset, buyerKey());
+  const params = new URLSearchParams({offset});
+  if (focus) params.set("focus", focus);
+  const data = await request("/client/requests?" + params, buyerKey());
   if (state !== version) return;
   const section = panel("Request history");
   if (!data.requests.length) section.append(node("p", "Submitted tickets will appear here.", "empty"));
   const rows = data.requests.map(({order, stage}) => {
     const button = node("button", order.name || order.order_id);
     button.addEventListener("click", () => inspectTicket(order.order_id));
-    return [button, node("span", stageName(stage, language()), "tag"), date(order.delivery_date), money.format(order.total_net)];
+    return [button, node("span", stageName(stage, language()), "tag stage-tag " + stage),
+      date(order.delivery_date), money.format(order.total_net)];
   });
-  if (rows.length) section.append(table(["Request", "Stage", "Delivery", "Net total"], rows));
+  const selected = data.requests.findIndex(({order}) => order.order_id === focus);
+  if (focus && selected === -1) section.append(node("p", t("Order not found in this workspace."), "feedback"));
+  let highlighted;
+  if (rows.length) {
+    const grid = table(["Request", "Stage", "Delivery", "Net total"], rows);
+    if (selected >= 0) highlighted = grid.querySelector("tbody").rows[selected];
+    section.append(grid);
+  }
   const actions = node("div", "", "actions");
-  for (const [label, page] of [["Previous", offset ? offset - 30 : null], ["Next", data.next_offset]]) {
+  for (const [label, page] of [["Previous", data.offset ? data.offset - 30 : null], ["Next", data.next_offset]]) {
     if (page == null) continue;
     const button = node("button", label);
     button.addEventListener("click", () => showRequests(page));
@@ -319,6 +357,12 @@ async function showRequests(offset = 0) {
   }
   section.append(actions);
   root.replaceChildren(section);
+  if (highlighted) {
+    highlighted.classList.add("request-highlight");
+    highlighted.querySelector("button").focus({preventScroll:true});
+    highlighted.scrollIntoView({block:"center", inline:"nearest"});
+    window.setTimeout(() => highlighted.classList.remove("request-highlight"), 5500);
+  }
 }
 
 function chart(title, values, format, ceiling) {
@@ -348,7 +392,7 @@ async function analytics() {
   const toolbar = panel("Kitchen purchasing");
   const input = node("input");
   Object.assign(input, {type:"number", min:"2000", max:"9998", value:year, required:true});
-  const form = node("form", "", "actions");
+  const form = node("form", "", "analytics-year");
   const label = node("label", t("Delivery year"));
   label.append(input);
   form.append(label, node("button", t("Update")));
@@ -658,12 +702,14 @@ async function render() {
   const view = viewName();
   updateHeading();
   $("product-view").hidden = view !== "products";
+  $("draft-sidebar").hidden = view !== "drafts";
+  if (view === "drafts") $("draft-list").replaceChildren();
   root.hidden = view === "products";
   if (root.hidden) return;
   root.replaceChildren(node("p", "Loading workspace…", "empty"));
   try {
     if (view === "drafts") await showDrafts(draftSelection);
-    else if (view === "requests") await showRequests();
+    else if (view === "requests") await showRequests(0, new URLSearchParams(location.hash.split("?")[1]).get("order"));
     else if (view === "analytics") await analytics();
     else if (view === "settings") settingsView();
     else {
@@ -718,7 +764,7 @@ buyer.addEventListener("change", () => {
   } else connect();
 });
 for (const code of ["en", "fi"]) $("lang-" + code).addEventListener("click", async () => {
-  try { await save({...settings, language:code}); render(); loadTrust(); loadDraftFlyout(); }
+  try { await save({...settings, language:code}); render(); loadTrust(); }
   catch (error) { feedback($("reminder"), error.message, true); }
 });
 $("help-open").addEventListener("click", () => $("client-help").showModal());
@@ -727,6 +773,7 @@ function loginScreen(show) {
   $("main").querySelector(".top").hidden = show;
   $("main").querySelector(".content").hidden = show;
   document.querySelector(".rail").hidden = show;
+  if (show) $("draft-sidebar").hidden = true;
 }
 
 $("client-login-form").addEventListener("submit", async event => {

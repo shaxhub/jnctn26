@@ -77,7 +77,6 @@ function renderBasket() {
       basket = null;
       renderBasket();
       showDraft(quote);
-      window.dispatchEvent(new Event("draft-changed"));
     } catch (error) {
       feedback(notice, error.message, true);
     } finally {
@@ -98,6 +97,7 @@ export function ticketNameForm(name, url, key) {
   input.maxLength = 100;
   const button = node("button", tr("Save name", "Tallenna nimi"));
   const notice = node("p", "", "feedback");
+  notice.hidden = true;
   notice.setAttribute("role", "status");
   label.append(input);
   form.append(label, button, notice);
@@ -333,7 +333,7 @@ export async function inspectTicket(id) {
     const order = detail.order;
     if (current !== scope || !dialog.open) return;
     const name = ticketNameForm(order.name, url, key);
-    target.replaceChildren(name, node("span", stageName(detail.stage, document.documentElement.lang), "tag"), node("p", order.order_id + tr(" · Delivery ", " · Toimitus ") + date(order.delivery_date),
+    target.replaceChildren(name, node("span", stageName(detail.stage, document.documentElement.lang), "tag stage-tag " + detail.stage), node("p", order.order_id + tr(" · Delivery ", " · Toimitus ") + date(order.delivery_date),
       "cell-note"), deliveryAddress(order), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
       node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
     target.append(orderThread(detail, {url, key, language:document.documentElement.lang}));

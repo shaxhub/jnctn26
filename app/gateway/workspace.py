@@ -150,13 +150,21 @@ def send_message(actor: Principal | Admin, order_id: str, message: Message) -> d
 
 
 @router.get("/requests")
-def requests(p: Principal = Depends(require_client), offset: int = Query(0, ge=0)):
+def requests(p: Principal = Depends(require_client), offset: int = Query(0, ge=0),
+             focus: str | None = Query(None, max_length=100)):
     service.expire_pending(buyer_id=p.buyer_id)
+    if focus:
+        preceding = store.fetchone(
+            "SELECT count(*) AS total FROM orders WHERE buyer_id=? AND status!='received' "
+            "AND (created_at, order_id) > (SELECT created_at, order_id FROM orders "
+            "WHERE order_id=? AND buyer_id=? AND status!='received')", (p.buyer_id, focus, p.buyer_id),
+        )
+        offset = (preceding["total"] // 30) * 30
     rows = store.fetchall("SELECT * FROM orders WHERE buyer_id=? AND status!='received' "
                          "ORDER BY created_at DESC, order_id DESC LIMIT 31 OFFSET ?", (p.buyer_id, offset))
     orders = [service._order_from_row(row) for row in rows[:30]]
     return {"requests": [{"order": order, "stage": ticket_activity(order, with_messages=False)["stage"]} for order in orders],
-            "next_offset": offset + 30 if len(rows) > 30 else None}
+            "offset": offset, "next_offset": offset + 30 if len(rows) > 30 else None}
 
 
 @router.get("/requests/{order_id}")
@@ -283,11 +291,20 @@ def _save_basket(body: DraftEdit, p: Principal, *, quote_id: str | None = None,
 @router.get("/dashboard")
 def dashboard(p: Principal = Depends(require_client)):
     service.expire_pending(buyer_id=p.buyer_id)
-    rows = store.fetchall("SELECT * FROM orders WHERE buyer_id=? AND status!='received'", (p.buyer_id,))
-    stages = Counter(ticket_activity(service._order_from_row(row), with_messages=False)["stage"] for row in rows)
+    rows = store.fetchall("SELECT * FROM orders WHERE buyer_id=? AND status!='received' "
+                         "ORDER BY delivery_date, created_at DESC, order_id DESC", (p.buyer_id,))
+    stages = Counter()
+    active_orders = {stage: [] for stage in ("pending", "registered", "retrieving", "on_delivery")}
+    for row in rows:
+        order = service._order_from_row(row)
+        stage = ticket_activity(order, with_messages=False)["stage"]
+        stages[stage] += 1
+        if stage in active_orders:
+            active_orders[stage].append({"order_id": order.order_id, "name": order.name,
+                                        "delivery_date": order.delivery_date})
     saved = store.fetchone("SELECT count(*) total FROM quotes WHERE buyer_id=? AND status='open' "
                            "AND json_extract(payload_json,'$.order_channel')='client'", (p.buyer_id,))
-    return {"drafts": saved["total"], "submitted": len(rows), "stages": stages}
+    return {"drafts": saved["total"], "submitted": len(rows), "stages": stages, "active_orders": active_orders}
 
 
 @router.get("/analytics")

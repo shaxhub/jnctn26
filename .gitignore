@@ -19,3 +19,6 @@ __pycache__/
 
 # Pitch prep and submission drafts (kept local, not public)
 deliverables/
+
+# macOS Finder metadata
+.DS_Store

@@ -133,16 +133,16 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             assert "quantity and unit" in incomplete.json()["message"]
             unrelated = await http.post("/client/chat", headers=buyer, json={"text": "Unrelated milk lookup"})
             assert unrelated.status_code == 200
-            for address in ("Testikatu 1", "00100 Helsinki", "Testikatu, 00100 Helsinki"):
+            for address in ("Testikatu 1", "00100", "FI-00100"):
                 incomplete_address = await http.post("/client/tickets/submit", headers=buyer, json={
                     "quote_id": draft["quote_id"], "delivery_address": address})
                 assert incomplete_address.status_code == 422, incomplete_address.text
                 assert "street address" in incomplete_address.json()["detail"]
             assert (await http.get("/orders", headers=buyer)).json() == []
             result = await http.post("/client/tickets/submit", headers=buyer, json={
-                "quote_id": draft["quote_id"], "delivery_address": "Hotel kitchen, Testikatu 1, 00100 Helsinki"})
+                "quote_id": draft["quote_id"], "delivery_address": "Hotel kitchen, Testikatu, 00100 Helsinki"})
             assert result.status_code == 200 and result.json()["status"] == "confirmed", result.text
-            assert result.json()["delivery_address"] == "Hotel kitchen, Testikatu 1, 00100 Helsinki"
+            assert result.json()["delivery_address"] == "Hotel kitchen, Testikatu, 00100 Helsinki"
             listed = (await ops.get("/operations/orders?q=testikatu", headers=admin)).json()["orders"]
             assert [order["delivery_address"] for order in listed] == [result.json()["delivery_address"]]
             replay = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})

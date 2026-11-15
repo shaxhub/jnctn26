@@ -310,7 +310,7 @@ class OrderRequest(BaseModel):
     agent_rationale: str = Field("", description="Why the agent chose this quote; stored in the audit log.")
     delivery_address: str | None = Field(
         None, max_length=240,
-        description="Street address with a house number and a five-digit Finnish postcode. "
+        description="Street address and a five-digit Finnish postcode. "
         "If omitted, the buyer's saved delivery address must contain both.",
     )
 

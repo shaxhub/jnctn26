@@ -289,7 +289,7 @@ async def place_order(quote_id: str, agent_rationale: str, ctx: Context = None,
     """Place an order from an unexpired quote. agent_rationale: one or two sentences on why this option was
     chosen; it is stored in the audit log for the human reviewer.
 
-    Orders require a street address with a house number and a five-digit Finnish postcode (for example "00580").
+    Orders require a street address and a five-digit Finnish postcode (for example "00580").
     Pass them as delivery_address and postal_code, or put the complete address in delivery_address.
     Omitting both uses the buyer's saved delivery address, which must also be complete. Maximum 240 characters.
 

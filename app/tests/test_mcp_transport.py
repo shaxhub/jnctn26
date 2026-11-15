@@ -91,10 +91,8 @@ def test_mcp_initialize_and_tool_validation(gateway):
             order_args = {"quote_id": quote["quote_id"], "agent_rationale": "Requested by the buyer."}
             for invalid_address in (
                 {"delivery_address": "Testikuja 15 B 089"},
-                {"delivery_address": "00580 Helsinki"},
-                {"delivery_address": "Testikuja, 00580 Helsinki"},
+                {"delivery_address": "00580"},
                 {"delivery_address": "Testikuja 15 B 089, REF00580"},
-                {"postal_code": "00580", "delivery_address": "Helsinki"},
                 {"delivery_address": ""},
                 {"postal_code": "580", "delivery_address": "Testikuja 15 B 089"},
                 {"postal_code": "00580", "delivery_address": "   "},
@@ -105,9 +103,9 @@ def test_mcp_initialize_and_tool_validation(gateway):
                 assert error["isError"], error
 
             order = await call("place_order", order_args | {
-                "delivery_address": "Testikuja 15 B 089", "postal_code": "00580",
+                "delivery_address": "Testikuja", "postal_code": "00580",
             })
-            assert order["delivery_address"] == "Testikuja 15 B 089, 00580"
+            assert order["delivery_address"] == "Testikuja, 00580"
             status = await call("get_order_status", {"order_id": order["order_id"]})
             assert status["delivery_address"] == order["delivery_address"]
 

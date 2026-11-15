@@ -11,21 +11,18 @@ with Path(__file__).with_name("finnish_postcode_areas.csv").open(encoding="utf-8
         for row in csv.DictReader(source)
     }
 _ORIGIN = (60.1717, 24.9416)
-_POSTAL_CODE = re.compile(r"\b[0-9]{5}\b")
-_STREET_AND_NUMBER = re.compile(r"[^\W\d_][^,;]*\s[0-9]+[^\W\d_]?(?=$|[\s,.;/–-])")
+_POSTAL_CODE = re.compile(r"\b(?:FI-)?([0-9]{5})\b", re.IGNORECASE)
 
 
 def postal_code_from_address(address: str) -> str | None:
     match = _POSTAL_CODE.search(address)
-    return match.group() if match else None
+    return match.group(1) if match else None
 
 
 def has_street_address_and_postcode(address: str) -> bool:
-    """Require a street name and number separate from the five-digit postcode."""
-    postcode = _POSTAL_CODE.search(address)
-    if postcode is None:
-        return False
-    return any(_STREET_AND_NUMBER.search(part) for part in (address[:postcode.start()], address[postcode.end():]))
+    """Require a five-digit postcode and some address text."""
+    address_text, postcodes = _POSTAL_CODE.subn("", address)
+    return postcodes > 0 and any(char.isalnum() for char in address_text)
 
 
 def estimate(postal_code: str) -> dict:

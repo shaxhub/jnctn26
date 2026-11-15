@@ -448,7 +448,7 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
     if len(address) > 240:
         raise GatewayError(422, "Delivery address must be at most 240 characters")
     if not has_street_address_and_postcode(address):
-        raise GatewayError(422, "Provide a street address with a house number and a five-digit Finnish postcode.")
+        raise GatewayError(422, "Provide a street address and a five-digit Finnish postcode.")
 
     lines = [QuoteLine(**line) for line in payload["lines"]]
     need = Need(**payload["need"]) if payload.get("need") else None

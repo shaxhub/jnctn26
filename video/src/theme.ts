@@ -52,5 +52,7 @@ export const TRANSITION = 12;
 /** Hard ceiling: the submission limit is 2:00, we keep a 2 s buffer. */
 export const MAX_FRAMES = 118 * FPS;
 
-export const CLIENT_URL = "agentdairy.ai";
-export const OPS_URL = "agentdairy.ai/operations";
+// The live demo (Junction 2026).
+export const CLIENT_URL = "agent-dairy.kienlebox.stream";
+// Operations is the admin panel at /admin/ on the shared portal (docs/adr/0007-unified-portal.md).
+export const OPS_URL = "agent-dairy.kienlebox.stream/admin";

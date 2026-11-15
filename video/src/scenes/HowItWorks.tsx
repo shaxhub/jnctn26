@@ -8,7 +8,7 @@ type Box = { x: number; y: number; w: number; h: number; title: string; sub: Rea
 
 const LEFT: Box[] = [
   { x: 100, y: 330, w: 470, h: 150, title: "Kitchen workspace", sub: <>Plain requests, read by <GeminiText style={{ fontWeight: 700 }}>Gemini</GeminiText></> },
-  { x: 100, y: 520, w: 470, h: 150, title: "Any AI agent", sub: "Open standards: MCP or REST" },
+  { x: 100, y: 520, w: 470, h: 150, title: "Any AI agent", sub: "MCP or REST, with an agent key" },
   { x: 100, y: 710, w: 470, h: 150, title: "Aimo operations", sub: "People review the exceptions" },
 ];
 const CORE = { x: 720, y: 300, w: 520, h: 590 };

@@ -49,3 +49,6 @@ export const INJECTED_ORDER_REVIEW: { key: string; label: string; plain: string;
 export const WAREHOUSE_FACTS = "Pick and load: 68 min · Transit: 35 min · Meets the delivery deadline";
 
 export const FULFILMENT = ["Aimo registered", "Retrieving goods", "On delivery", "Almost there", "Arrived"];
+
+// app/gateway/seed_demo.py DEMO_ADDRESSES["hotel"], without the "[Demo]" marker. Shown as in admin.js deliveryAddress().
+export const DELIVERY_ADDRESS = "Hotel kitchen, loading entrance, Esimerkkikatu 1, 00100 Helsinki";

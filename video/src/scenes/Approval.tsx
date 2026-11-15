@@ -2,7 +2,7 @@ import React from "react";
 import { interpolate, useCurrentFrame } from "remotion";
 import { AdminShell, Browser, Card, GhostButton, Pointer, YellowButton } from "../components/AppChrome";
 import { Caption, Check, FadeUp, PageBackdrop, Tag, useEnter, useKeyframes } from "../components/ui";
-import { FULFILMENT, LIMIT_MESSAGE, QUOTE_TOTAL, WAREHOUSE_FACTS } from "../data";
+import { DELIVERY_ADDRESS, FULFILMENT, LIMIT_MESSAGE, QUOTE_TOTAL, WAREHOUSE_FACTS } from "../data";
 import { C, OPS_URL } from "../theme";
 
 const W = 1780;
@@ -24,7 +24,7 @@ export const Approval: React.FC = () => {
 
   // Pointer path in screen px (relative to the browser frame).
   const px = useKeyframes([20, openAt - 4, openAt + 30, approveAt - 6], [1300, 440, 900, 262]);
-  const py = useKeyframes([20, openAt - 4, openAt + 30, approveAt - 6], [820, 392, 720, 596]);
+  const py = useKeyframes([20, openAt - 4, openAt + 30, approveAt - 6], [820, 392, 720, 639]);
   const camS = useKeyframes([openAt + 6, openAt + 34], [1, 1.38]);
   const camX = useKeyframes([openAt + 6, openAt + 34], [0, 262]);
   const down = (frame >= openAt - 2 && frame < openAt + 4) || (frame >= approveAt && frame < approveAt + 6);
@@ -86,7 +86,10 @@ export const Approval: React.FC = () => {
                   {confirmed ? <Tag tone="green" size={13}>Confirmed</Tag> : <Tag tone="amber" size={13}>Needs review</Tag>}
                   <span style={{ fontSize: 13, color: C.muted }}>hotel · Delivery 16.11.2026 · {QUOTE_TOTAL}</span>
                 </div>
-                <div style={{ fontSize: 15, marginTop: 10 }}>• Valio Arki® Eila® kevytmaitojuoma 1 l laktoositon · 1,000 ST · {QUOTE_TOTAL}</div>
+                <div style={{ fontSize: 15, marginTop: 10 }}>
+                  <b>Delivery address</b> {DELIVERY_ADDRESS}
+                </div>
+                <div style={{ fontSize: 15, marginTop: 6 }}>• Valio Arki® Eila® kevytmaitojuoma 1 l laktoositon · 1,000 ST · {QUOTE_TOTAL}</div>
                 <div style={{ fontSize: 15, fontWeight: 700, marginTop: 14 }}>Policy decision</div>
                 <div style={{ fontSize: 15 }}>{LIMIT_MESSAGE}</div>
                 <div style={{ marginTop: 12, borderLeft: `4px solid ${C.yellow}`, background: C.sky, borderRadius: 10, padding: "10px 14px" }}>

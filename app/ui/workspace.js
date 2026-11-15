@@ -1,5 +1,5 @@
 import {$, configurePostcodeInput, date, deliveryAddressParts, feedback, gatewayNow, inputDate,
-  money, node, number, parseInputDate, portalUrl, request, table} from "./common.js";
+  money, node, number, parseInputDate, portalUrl, request, table, translate} from "./common.js";
 import {buyerKey, editBasket, inspectTicket, showDraft, ticketNameForm} from "./client.js";
 import {stageName, stages} from "./order_thread.js";
 
@@ -22,12 +22,12 @@ const translations = {
   "Manage your workspace, billing preferences, and agent permissions.":"Hallitse työtilaa, laskutusta ja agentin oikeuksia.",
   "AI Helper":"Tekoälyavustaja", "Ticket review":"Tilauksen tarkistus",
   "Delivery schedule":"Toimitusaikataulu", "No requests in this stage.":"Ei pyyntöjä tässä vaiheessa.",
-  "Create a draft from Product Search to see it here.":"Luo luonnos tuotehaussa nähdäksesi sen täällä.",
+  "Create a draft from Product Search to see it here.":"Luo luonnos tuotehaussa, niin näet sen täällä.",
   "Choose a draft to edit its quantities and delivery date.":"Valitse luonnos muokataksesi määriä ja toimituspäivää.",
   "Order not found in this workspace.":"Tilausta ei löytynyt tästä työtilasta.",
   "Needs fresh quote":"Tarvitsee uuden tarjouksen",
   "Request history":"Pyyntöhistoria", "Kitchen purchasing":"Keittiön hankinnat", "Workspace preferences":"Työtilan asetukset",
-  "Monthly net spend":"Kuukausittaiset nettokulut", "Observed stock availability":"Havaittu saatavuus",
+  "Monthly net spend":"Verottomat kulut kuukausittain", "Observed stock availability":"Havaittu saatavuus",
   "Average hours between stages":"Keskimääräiset tunnit vaiheiden välillä", "Most ordered products":"Tilatuimmat tuotteet",
   "Appearance":"Ulkoasu", "Default language":"Oletuskieli", "Client business":"Yritys", "Delivery address":"Toimitusosoite",
   "Postcode":"Postinumero",
@@ -41,7 +41,7 @@ const translations = {
   "No confirmed orders for this year.":"Ei vahvistettuja tilauksia tälle vuodelle.",
   "Display and language":"Näyttö ja kieli", "Business and delivery":"Yritys ja toimitus",
   "Billing":"Laskutus", "Agent permissions and reminders":"Agentin oikeudet ja muistutukset",
-  "Agent integration":"Agentin tiedot", "Light":"Vaalea", "Dark":"Tumma", "Invoice":"Lasku",
+  "Agent integration":"Agentti-integraatio", "Light":"Vaalea", "Dark":"Tumma", "Invoice":"Lasku",
   "Bank transfer":"Tilisiirto", "Purchase order":"Ostotilaus", "Settings saved.":"Asetukset tallennettu.",
   "Agent access is managed by the Aimo deployment. Ask Aimo operations for a workspace key.":
     "Agentin käyttöoikeuksia hallinnoi Aimo. Pyydä työtilan avain Aimon asiakaspalvelusta.",
@@ -52,9 +52,9 @@ const translations = {
   "over ":"yli ", "all substitutions":"kaikki korvaavat tuotteet",
   "substitutions outside category":"korvaavat tuotteet muista tuoteryhmistä",
   "partial stock":"osittainen saatavuus", "unverified stock":"vahvistamaton saatavuus", "trace allergens":"allergeenijäämät",
-  "None":"Ei mitään", "Any amount":"Ei rajaa", " net":" veroton", "Automatic orders":"Automaattiset tilaukset",
+  "None":"Ei ole", "Any amount":"Ei rajaa", " net":" veroton", "Automatic orders":"Automaattiset tilaukset",
   "Weekly limit":"Viikkoraja", "Used this week":"Käytetty tällä viikolla", "Needs approval":"Vaatii hyväksynnän",
-  "Blocked allergens":"Poissuljetut allergeenit", "Mandate ":"Hankintasäännöt ", " · issued by ":" · laatija ",
+  "Blocked allergens":"Poissuljetut allergeenit", "Mandate ":"Hankintasäännöt ", " · issued by ":" · myöntäjä ",
 };
 const t = text => language() === "fi" ? translations[text] || text : text;
 let draftSelection;
@@ -196,7 +196,7 @@ function draftEditor(quote, state) {
   }
   const prompt = node("input");
   prompt.maxLength = 500;
-  prompt.placeholder = "Set " + quote.lines[0].product_id + " to 12";
+  prompt.placeholder = language() === "fi" ? "Muuta tuotteen " + quote.lines[0].product_id + " määräksi 12" : "Set " + quote.lines[0].product_id + " to 12";
   const promptLabel = node("label", "Ask AI Helper");
   promptLabel.append(prompt);
   const propose = node("button", "Suggest edit");
@@ -644,7 +644,7 @@ async function loadTrust() {
   } catch (error) {
     if (key === buyerKey()) {
       target.classList.add("empty");
-      target.replaceChildren(node("p", "Limits unavailable. " + error.message, "cell-note"));
+      target.replaceChildren(node("p", translate("Limits unavailable. ") + error.message, "cell-note"));
     }
   }
 }
@@ -739,7 +739,7 @@ async function refreshReminder() {
   try {
     const data = await request("/client/reminders", key);
     if (key === buyerKey()) feedback($("reminder"), data.reminder ?
-      "Tomorrow’s order (" + date(data.reminder.delivery_date) + ") · " + data.reminder.text : "");
+      translate("Tomorrow’s order (") + date(data.reminder.delivery_date) + ") · " + data.reminder.text : "");
   } catch {
     if (key === buyerKey()) feedback($("reminder"), "");
   }

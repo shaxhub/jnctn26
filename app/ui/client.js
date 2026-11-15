@@ -135,8 +135,8 @@ export function showDraft(quote, outcome, target = $("draft")) {
     return;
   }
   target.append(node("h3", quote.name || tr("Order draft", "Tilausluonnos")), node("p", tr("Delivery ", "Toimitus ") + date(quote.delivery_date)),
-    node("p", "Quote expires " + dateTime(quote.expires_at), "cell-note"),
-    lineItems(quote.lines), node("p", money.format(quote.total_net) + " excl. VAT", "ticket-total"));
+    node("p", translate("Quote expires ") + dateTime(quote.expires_at), "cell-note"),
+    lineItems(quote.lines), node("p", money.format(quote.total_net) + translate(" excl. VAT"), "ticket-total"));
   const proof = node("details", "", "plan-option");
   const key = node("a", "Quote verification keys");
   key.href = portalUrl("/.well-known/jwks.json");
@@ -235,10 +235,10 @@ export function showDraft(quote, outcome, target = $("draft")) {
 function offerRows(offers, deliveryDate, need, postalCode) {
   return offers.map(item => {
     const product = node("span", item.name || item.product_id);
-    const provenance = item.substitution_source === "catalog_ingredient_match" ? " · Catalog suggestion" : "";
+    const provenance = item.substitution_source === "catalog_ingredient_match" ? translate(" · Catalog suggestion") : "";
     product.append(node("small", item.product_id + " · " + item.sales_unit + (item.country ? " · " + item.country : "") + provenance, "cell-note"));
     const availability = item.orderable
-      ? item.unlimited ? "Supplier stock unverified" : number.format(item.available_qty) + " " + item.sales_unit
+      ? item.unlimited ? translate("Supplier stock unverified") : number.format(item.available_qty) + " " + item.sales_unit
       : item.reason.replaceAll("_", " ");
     const row = [product, item.unit_price == null ? "—" : money.format(item.unit_price),
       availability, item.available_date ? date(item.available_date) : "—",
@@ -279,7 +279,7 @@ function showResults(result, requestData) {
   const eta = result.delivery_estimate;
   if (eta) {
     target.append(node("p", eta.status === "estimated"
-      ? "Estimated travel from Rautatientori · " + eta.travel_minutes_min + "–" + eta.travel_minutes_max + " min after dispatch"
+      ? translate("Estimated travel from Rautatientori · ") + eta.travel_minutes_min + "–" + eta.travel_minutes_max + translate(" min after dispatch")
       : "Travel estimate is unavailable for this postcode.", "feedback"));
   }
   const plans = result.plan?.plans ?? [];
@@ -288,7 +288,7 @@ function showResults(result, requestData) {
     const details = node("details", "", "plan-option");
     details.open = plan.label === "best";
     const summary = node("summary", plan.label[0].toUpperCase() + plan.label.slice(1) + " · " +
-      money.format(plan.total_net) + " excl. VAT · " + number.format(plan.coverage * 100) + "% coverage");
+      money.format(plan.total_net) + translate(" excl. VAT · ") + number.format(plan.coverage * 100) + translate("% coverage"));
     const draftButton = node("button", "Draft this plan");
     draftButton.addEventListener("click", () => sendChat({...requestData, action: "draft",
       plan_lines: plan.lines.map(line => [line.product_id, line.quantity])}));
@@ -306,7 +306,7 @@ function showResults(result, requestData) {
   }
   for (const [productId, alternatives] of Object.entries(result.alternatives ?? {})) {
     if (alternatives.length) {
-      target.append(node("h3", "Alternatives for " + productId, "results"),
+      target.append(node("h3", translate("Alternatives for ") + productId, "results"),
         table(basketHeadings, offerRows(alternatives, delivery, result.need, eta?.postal_code)));
     }
   }
@@ -358,7 +358,7 @@ export async function inspectTicket(id) {
     if (current !== scope || !dialog.open) return;
     const name = ticketNameForm(order.name, url, key);
     target.replaceChildren(name, node("span", stageName(detail.stage, document.documentElement.lang), "tag stage-tag " + detail.stage), node("p", order.order_id + tr(" · Delivery ", " · Toimitus ") + date(order.delivery_date),
-      "cell-note"), deliveryAddress(order), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
+      "cell-note"), deliveryAddress(order), lineItems(order.lines), node("p", money.format(order.total_net) + translate(" excl. VAT"), "ticket-total"),
       node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
     target.append(orderThread(detail, {url, key, language:document.documentElement.lang}));
     if (order.status === "confirmed") target.append(repeatForm(order, current, key, dialog));
@@ -374,16 +374,16 @@ function showRecipe(recipe, meal) {
   const target = $("results");
   target.replaceChildren(node("h3", "Recipe ingredients", "results"));
   if (meal) {
-    const heading = node("h4", "School lunch for " + number.format(meal.servings) + " · " + date(meal.delivery_date));
+    const heading = node("h4", translate("School lunch for ") + number.format(meal.servings) + " · " + date(meal.delivery_date));
     const methods = node("ul");
     for (const recipe of meal.recipes) methods.append(node("li", recipe.name + (recipe.method ? " — " + recipe.method : "")));
     const guidance = node("a", "Finnish Food Authority school meal guidance");
     guidance.href = meal.guidance_url;
     const cost = meal.matched_total_net;
     const budget = meal.budgets;
-    const summary = [meal.complete ? "Matched basket estimate" : "Matched items only", money.format(cost) + " excl. VAT"];
-    if (budget.soft != null) summary.push("Soft budget " + money.format(budget.soft));
-    if (budget.hard != null) summary.push("Hard budget " + money.format(budget.hard));
+    const summary = [meal.complete ? translate("Matched basket estimate") : translate("Matched items only"), money.format(cost) + translate(" excl. VAT")];
+    if (budget.soft != null) summary.push(translate("Soft budget ") + money.format(budget.soft));
+    if (budget.hard != null) summary.push(translate("Hard budget ") + money.format(budget.hard));
     target.append(heading, node("p", meal.dietary_note), methods, node("p", meal.serving_note),
       node("p", summary.join(" · "), "feedback"));
     if (meal.alternative) target.append(node("p", "This alternative menu was selected using stock for your delivery date.", "cell-note"));
@@ -394,14 +394,14 @@ function showRecipe(recipe, meal) {
   }
   const data = recipe.ingredients.map(row => [
     row.product_name || row.ingredient, number.format(row.quantity) + " " + row.unit, row.dishes.join(", "),
-    row.status ?? "Add a delivery date to check stock",
+    row.status ?? translate("Add a delivery date to check stock"),
     row.sourcing ? lineItems(row.sourcing.plan.lines) : "—"
   ]);
   if (data.length) target.append(table(["Ingredient", "Quantity", "Used in", "Stock", "Matched products"], data));
-  if (recipe.unresolved_dishes.length) target.append(node("p", "Unresolved: " + recipe.unresolved_dishes.join(", "), "feedback"));
+  if (recipe.unresolved_dishes.length) target.append(node("p", translate("Unresolved: ") + recipe.unresolved_dishes.join(", "), "feedback"));
   for (const row of recipe.ingredients) for (const option of row.alternatives ?? []) {
     const card = node("details", "", "plan-option");
-    card.append(node("summary", "Alternative for " + row.ingredient + ": " + option.ingredient),
+    card.append(node("summary", translate("Alternative for ") + row.ingredient + ": " + option.ingredient),
       node("p", option.compatible_dishes.join(", ") + " · " + option.culinary_note), lineItems(option.plan.lines));
     target.append(card);
   }
@@ -458,13 +458,13 @@ $("seasonal-pick").addEventListener("click", async () => {
     timeZone:"Europe/Helsinki", year:"numeric", month:"2-digit", day:"2-digit",
   }).format(gatewayNow());
   if (!delivery) {
-    target.textContent = "Enter a valid delivery date above.";
+    target.textContent = translate("Enter a valid delivery date above.");
     $("chat-delivery-date").focus();
     return;
   }
   const current = scope;
   button.disabled = true;
-  target.textContent = "Checking seasonal stock…";
+  target.textContent = translate("Checking seasonal stock…");
   try {
     const result = await request("/client/seasonal?delivery_date=" + encodeURIComponent(delivery), buyerKey());
     if (current !== scope) return;
@@ -489,7 +489,7 @@ buyer.addEventListener("change", () => {
   queryVersion += 1;
   $("seasonal-pick").disabled = false;
   $("seasonal-results").replaceChildren();
-  $("assistant-mode").textContent = "Describe your request or paste a recipe with quantities.";
+  $("assistant-mode").textContent = translate("Describe your request or paste a recipe with quantities.");
   $("chat").querySelectorAll("[type=submit]").forEach(button => { button.disabled = false; });
   showDraft(null);
   $("results").replaceChildren();

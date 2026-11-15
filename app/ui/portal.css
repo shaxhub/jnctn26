@@ -38,6 +38,10 @@ a:hover { text-decoration-thickness:2px }
 .rail nav a:hover, .rail nav [aria-current] { background:#26466d; color:#fff }
 .rail nav [aria-current] { box-shadow:inset 3px 0 var(--yellow) }
 .rail-foot { margin-top:auto; padding:.5rem .25rem; color:#acc5e4; font-size:.76rem }
+.admin-rail-footer { margin-top:auto }
+.admin-rail-footer .rail-foot { display:block; margin-top:0 }
+.admin-rail-footer button { color:#d4e4f7; background:transparent; border-color:#58769b }
+.admin-rail-footer button:hover { color:#fff; background:#26466d }
 main { min-width:0 }
 .top { min-height:4rem; background:var(--white); border-bottom:1px solid var(--line); padding:.75rem clamp(1rem,4vw,3rem); display:flex; justify-content:space-between; align-items:center; gap:1rem; font-weight:600 }
 .top label, .panel-head label { display:flex; align-items:center; gap:.6rem; font-size:.86rem }
@@ -81,6 +85,22 @@ button.primary:hover, .switcher [aria-pressed=true]:hover { background:#ffdf1f }
 .tag.confirmed { background:var(--pale); color:var(--green) }
 .tag.pending_approval { background:var(--warning-bg); color:var(--amber) }
 .tag.rejected,.tag.expired { background:var(--danger-bg); color:var(--danger-ink) }
+.tag.stage-tag { background:var(--stage-bg,var(--sky)); color:var(--stage-ink,var(--muted)) }
+.stage-tag.pending, .delivery-column[data-stage=pending] { --stage-bg:var(--warning-bg); --stage-ink:var(--amber) }
+.stage-tag.rejected { --stage-bg:var(--danger-bg); --stage-ink:var(--danger-ink) }
+.stage-tag.registered, .delivery-column[data-stage=registered] { --stage-bg:#e2f5e7; --stage-ink:#215c3c }
+.stage-tag.retrieving, .delivery-column[data-stage=retrieving] { --stage-bg:#e5eef9; --stage-ink:#285b84 }
+.stage-tag.on_delivery, .stage-tag.almost_there, .delivery-column[data-stage=on_delivery] {
+  --stage-bg:#08704e; --stage-ink:#fff;
+}
+.stage-tag.arrived { --stage-bg:var(--pale); --stage-ink:var(--green) }
+.stage-tag.expired { background:var(--sky); color:var(--muted) }
+:root[data-theme=dark] :is(.stage-tag.registered,.delivery-column[data-stage=registered]) {
+  --stage-bg:#234534; --stage-ink:#b8ebc5;
+}
+:root[data-theme=dark] :is(.stage-tag.retrieving,.delivery-column[data-stage=retrieving]) {
+  --stage-bg:#263e59; --stage-ink:#bedcff;
+}
 pre { min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; max-width:100%; overflow:auto; background:var(--sky); padding:.7rem; border-radius:.35rem; font-size:.76rem }
 .orders,.results,.ticket-lines,.analytics-grid { margin-top:1.25rem }
 .table-scroll { overflow:auto; width:100% }
@@ -98,9 +118,30 @@ td button { min-height:2rem; padding:.2rem .55rem }
 .filters { margin-bottom:1rem }
 .filters label:first-child { flex:1 1 13rem }
 .filters select { display:block }
+.queue-layout.is-queue { display:grid; grid-template-columns:minmax(12rem,15rem) minmax(0,1fr); gap:1.65rem; align-items:start }
+.queue-layout.is-queue .filters {
+  display:grid; align-items:start; gap:.68rem; margin:0; padding:0 1.25rem 0 0; border-inline-end:1px solid var(--line);
+}
+.queue-layout.is-queue .filters :is(input,select) { min-width:0; width:100%; margin-top:.2rem }
+.queue-layout.is-queue .filters fieldset { display:grid; gap:.5rem; min-width:0; margin:0; padding:.55rem 0 0; border:0; border-top:1px solid var(--line) }
+.queue-layout.is-queue .filters legend { font-size:.87rem; font-weight:700; padding:0 .45rem 0 0 }
+.filter-range { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem }
+.queue-layout.is-queue .filters > button { justify-self:start }
+.queue-results { min-width:0 }
+@media(max-width:820px) {
+  .queue-layout.is-queue { grid-template-columns:minmax(0,1fr) }
+  .queue-layout.is-queue .filters {
+    grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));
+    padding:0 0 1rem; border-inline-end:0; border-bottom:1px solid var(--line);
+  }
+  .queue-layout.is-queue .filters > button { align-self:end }
+}
 #more { margin-top:1rem }
 dialog { background:var(--white); max-width:min(48rem,calc(100% - 2rem)); width:100%; max-height:85dvh; border:1px solid var(--line); border-radius:.8rem; color:var(--ink); padding:1.5rem }
 dialog::backdrop { background:#10233ca8 }
+#details[open] { display:grid; grid-template-rows:auto minmax(0,1fr); padding:0; overflow:hidden }
+#details > .panel-head { margin:0; padding:1rem 1.5rem; border-bottom:1px solid var(--line) }
+#detail-body { min-width:0; overflow:auto; overscroll-behavior:contain; padding:1rem 1.5rem 1.5rem }
 .timeline { padding-left:1.2rem }
 .timeline li { margin:.6rem 0 }
 .audit-trail { margin-top:1.25rem; border-top:1px solid var(--line); padding-top:.85rem }
@@ -170,4 +211,6 @@ meter { width:100%; min-width:3rem; accent-color:var(--blue) }
 body:has(#client-login:not([hidden])) { grid-template-columns:1fr }
 .delivery-address { margin:.6rem 0; overflow-wrap:anywhere }
 .delivery-address strong { display:block; font-size:.76rem; color:var(--muted); font-weight:600 }
-.delivery-address-field { display:grid; gap:.3rem; margin:.9rem 0 .6rem }
+.delivery-address-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(6rem,8rem); gap:.65rem; margin:.9rem 0 .6rem }
+.delivery-address-field { display:grid; gap:.3rem; min-width:0 }
+@media(max-width:450px) { .delivery-address-fields { grid-template-columns:minmax(0,1fr) } }

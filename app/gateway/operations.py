@@ -61,12 +61,26 @@ def activity(kind: Literal["all", "inquiries", "decisions"] = "all", buyer: str 
 @router.get("/orders")
 def orders(status: Literal["pending_approval", "confirmed", "rejected", "expired"] | None = None,
            buyer: str = Query("", max_length=80), q: str = Query("", max_length=160),
-           offset: int = Query(0, ge=0)):
+           offset: int = Query(0, ge=0), delivery_from: date | None = None,
+           delivery_to: date | None = None, net_min: float | None = Query(None, ge=0, allow_inf_nan=False),
+           net_max: float | None = Query(None, ge=0, allow_inf_nan=False)):
+    if delivery_from is not None and delivery_to is not None and delivery_from > delivery_to:
+        raise HTTPException(422, "The first delivery date must be on or before the last delivery date.")
+    if net_min is not None and net_max is not None and net_min > net_max:
+        raise HTTPException(422, "The minimum net total must be at or below the maximum.")
     service.expire_pending(buyer_id=buyer or None)
+    where = ["status!='received'", "(? IS NULL OR status=?)", "(?='' OR buyer_id=?)",
+             "(?='' OR instr(lower(order_id || ' ' || lines_json || ' ' || coalesce(agent_rationale,'') || "
+             "' ' || delivery_address),lower(?))>0)"]
+    params = [status, status, buyer, buyer, q, q]
+    for clause, value in (("delivery_date>=?", delivery_from), ("delivery_date<=?", delivery_to),
+                          ("total_net>=?", net_min), ("total_net<=?", net_max)):
+        if value is not None:
+            where.append(clause)
+            params.append(value.isoformat() if isinstance(value, date) else value)
     rows = store.fetchall(
-        "SELECT * FROM orders WHERE status!='received' AND (? IS NULL OR status=?) AND (?='' OR buyer_id=?) "
-        "AND (?='' OR instr(lower(order_id || ' ' || lines_json || ' ' || coalesce(agent_rationale,'') || ' ' || delivery_address),lower(?))>0) "
-        "ORDER BY created_at DESC, order_id DESC LIMIT 31 OFFSET ?", (status, status, buyer, buyer, q, q, offset))
+        "SELECT * FROM orders WHERE " + " AND ".join(where) +
+        " ORDER BY created_at DESC, order_id DESC LIMIT 31 OFFSET ?", (*params, offset))
     return {"orders": [service._order_from_row(row) for row in rows[:30]],
             "next_offset": offset + 30 if len(rows) > 30 else None}
 

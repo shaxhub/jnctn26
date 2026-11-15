@@ -6,14 +6,14 @@ const labels = {
   fi: ["Odottaa", "Aimo rekisteröinyt", "Kerätään", "Toimituksessa", "Pian perillä", "Saapunut"]
 };
 export const stageName = (id, language = "en") => labels[language][stages.indexOf(id)] ??
-  ({rejected:"Rejected", expired:"Expired"}[id] ?? id);
+  ((language === "fi" ? {rejected:"Hylätty", expired:"Vanhentunut"} : {rejected:"Rejected", expired:"Expired"})[id] ?? id);
 
 export function orderThread(detail, {url, key, admin = false, language = "en"}) {
   const section = node("section", "", "request-thread");
   let state = detail;
   function paint() {
     section.replaceChildren(node("h3", "Delivery tracking", "results"));
-    section.append(node("p", "Current stage: " + stageName(state.stage, language), "tag"));
+    section.append(node("p", "Current stage: " + stageName(state.stage, language), "tag stage-tag " + state.stage));
     const progress = node("ol", "", "timeline");
     for (const step of state.stages) {
       progress.append(node("li", stageName(step.stage, language) + " · " + dateTime(step.at)));

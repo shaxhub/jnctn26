@@ -5,6 +5,7 @@ let key = sessionStorage.getItem("aimo-operations-key") || "";
 let view = "queue";
 let hosted = false;
 let page = null;
+let appliedFilters = new URLSearchParams();
 let version = 0;
 let ticketVersion = 0;
 const recordTarget = $("records");
@@ -139,11 +140,16 @@ async function load(append = false) {
     return;
   }
   const isQueue = selected === "queue";
-  const params = new URLSearchParams({q: $("query").value, buyer: $("buyer").value});
-  if (isQueue && $("status").value) params.set("status", $("status").value);
-  if (!isQueue) params.set("kind", $("kind").value);
+  if (!append) {
+    appliedFilters = new URLSearchParams({q: $("query").value, buyer: $("buyer").value});
+    const fields = isQueue ? ["status", "delivery_from", "delivery_to", "net_min", "net_max"] : ["kind"];
+    for (const field of fields) {
+      if ($(field).value) appliedFilters.set(field, $(field).value);
+    }
+  }
+  const params = new URLSearchParams(appliedFilters);
   if (append && page != null) params.set(isQueue ? "offset" : "before", page);
-  if (!append) recordTarget.replaceChildren(node("p", "Loading activity…", "empty"));
+  if (!append) recordTarget.replaceChildren(node("p", isQueue ? "Loading tickets…" : "Loading activity…", "empty"));
   $("more").hidden = true;
   try {
     const data = await request("/operations/" + (isQueue ? "orders" : "activity") + "?" + params, key);
@@ -228,6 +234,9 @@ function showView(next) {
   $("insights").hidden = next !== "insights";
   $("status-label").hidden = next !== "queue";
   $("kind-label").hidden = next !== "activity";
+  $("queue-layout").classList.toggle("is-queue", next === "queue");
+  $("delivery-filter").hidden = next !== "queue";
+  $("price-filter").hidden = next !== "queue";
   $("work-title").textContent = next === "queue" ? "Review queue" : "Activity log";
   for (const tab of ["queue", "activity", "insights"]) {
     $(tab + "-tab").setAttribute("aria-pressed", String(tab === next));

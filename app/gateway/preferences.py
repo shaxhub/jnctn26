@@ -10,6 +10,7 @@ class Preferences(BaseModel):
     language: Literal["en", "fi"] = "en"
     business: str = Field("", max_length=120)
     address: str = Field("", max_length=240)
+    postal_code: str = Field("", pattern=r"^(?:[0-9]{5})?$")
     billing_email: str = Field("", max_length=160)
     payment_method: Literal["invoice", "bank_transfer", "purchase_order"] = "invoice"
     invoice_reference: str = Field("", max_length=80)

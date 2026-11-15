@@ -65,12 +65,29 @@ def test_shared_portal_request_tracking_and_settings(gateway):
             await aimo.post(ops + "/messages", headers=admin, json={"text": "Picking your order"})
             note = await client.post(url + "/messages", headers=hotel, json={"text": "Use the side entrance"})
             assert [item["side"] for item in note.json()["messages"]] == ["aimo", "client"]
-            assert (await client.get("/client/dashboard", headers=hotel)).json()["stages"] == {"retrieving": 1}
+            overview = (await client.get("/client/dashboard", headers=hotel)).json()
+            assert overview["stages"] == {"retrieving": 1}
+            assert overview["active_orders"]["retrieving"] == [
+                {"order_id": order_id, "name": "Monday milk", "delivery_date": "2026-11-16"}]
+            assert set(overview["active_orders"]) == {"pending", "registered", "retrieving", "on_delivery"}
+            filters = {"buyer": "hotel", "status": "confirmed", "delivery_from": "2026-11-16",
+                       "delivery_to": "2026-11-16", "net_min": 16, "net_max": 16}
+            filtered = (await aimo.get("/operations/orders", headers=admin, params=filters)).json()
+            assert [order["order_id"] for order in filtered["orders"]] == [order_id]
+            excluded = await aimo.get("/operations/orders", headers=admin, params=filters | {"net_max": 15, "net_min": 0})
+            assert excluded.json()["orders"] == []
+            invalid = await aimo.get("/operations/orders", headers=admin, params=filters | {"delivery_from": "2026-11-17"})
+            assert invalid.status_code == 422
             result = await client.get("/client/analytics?year=2026", headers=hotel)
             assert result.json()["months"][10]["net"] == 16
             saved = await client.post("/client/settings", headers=hotel,
-                                      json={"agent_self_order": False, "theme": "dark", "recurring_prompt": "Milk tomorrow"})
+                                      json={"agent_self_order": False, "theme": "dark", "recurring_prompt": "Milk tomorrow",
+                                            "address": "Testikatu", "postal_code": "00580"})
             assert saved.status_code == 200 and saved.json()["theme"] == "dark"
+            preferences = (await client.get("/client/settings", headers=hotel)).json()
+            assert preferences["address"] == "Testikatu" and preferences["postal_code"] == "00580"
+            invalid_postcode = await client.post("/client/settings", headers=hotel, json={"postal_code": "580"})
+            assert invalid_postcode.status_code == 422
             assert not principal_for_key("demo-hotel-key").can_order
             assert principal_for_key("demo-hospital-key").can_order
             assert (await client.get("/client/reminders", headers=hotel)).json()["reminder"]["delivery_date"] == "2026-11-15"
@@ -79,6 +96,38 @@ def test_shared_portal_request_tracking_and_settings(gateway):
             assert recipe.status_code == 200, recipe.text
             assert recipe.json()["recipe"]["ingredients"][0]["quantity"] == .5
             assert recipe.headers["X-Gateway-Now"] == "2026-11-14T10:00:00+02:00"
+    asyncio.run(verify())
+
+
+def test_focused_request_selects_the_matching_page_without_crossing_buyers(gateway):
+    from gateway import store
+    from gateway.api import app
+
+    hotel = {"X-API-Key": "demo-hotel-client-key"}
+    hospital = {"X-API-Key": "demo-hospital-client-key"}
+    principal = principal_for_key(hotel["X-API-Key"])
+    quote = service.create_quote(principal, QuoteRequest(
+        delivery_date=date(2026, 11, 16), lines=[{"product_id": "milk", "quantity": 1}]))
+    order = service.place_order(principal, quote.quote_id)
+    for index in range(30):
+        store.execute(
+            "INSERT INTO orders (order_id,quote_id,buyer_id,status,total_net,currency,delivery_date,lines_json,"
+            "policy_json,created_at,updated_at) SELECT ?,?,buyer_id,status,total_net,currency,delivery_date,lines_json,"
+            "policy_json,'2026-11-15T10:00:00+02:00',updated_at FROM orders WHERE order_id=?",
+            (f"later-{index}", f"quote-{index}", order.order_id),
+        )
+
+    async def verify():
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://portal") as http:
+            params = {"focus": order.order_id}
+            first = (await http.get("/client/requests", headers=hotel)).json()
+            assert first["next_offset"] == 30
+            focused = (await http.get("/client/requests", headers=hotel, params=params)).json()
+            assert focused["offset"] == 30
+            assert [item["order"]["order_id"] for item in focused["requests"]] == [order.order_id]
+            other = (await http.get("/client/requests", headers=hospital, params=params)).json()
+            assert other["offset"] == 0 and other["requests"] == []
+
     asyncio.run(verify())
 
 

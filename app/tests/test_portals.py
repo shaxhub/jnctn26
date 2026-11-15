@@ -6,6 +6,8 @@ import pytest
 from gateway import service, store
 from gateway.auth import admin_for_key, principal_for_key
 from gateway.models import Offer, OffersRequest, OrderableReason, QuoteRequest
+from gateway.preferences import Preferences
+from gateway.workspace import save_settings
 
 
 @pytest.fixture
@@ -14,6 +16,9 @@ def gateway(monkeypatch, tmp_path):
     monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.setattr(store, "settings", replace(store.settings, db_path=tmp_path / "orders.db"))
     monkeypatch.setenv("AIMO_ADMIN_API_KEY", "test-admin-credential")
+    for buyer in ("hotel", "hospital"):
+        save_settings(Preferences(address="Testikatu 1, 00100 Helsinki"),
+                      principal_for_key(f"demo-{buyer}-client-key"))
     store.set_demo_now(datetime.fromisoformat("2026-11-14T10:00:00+02:00"))
     offer = Offer(product_id="milk", sales_unit="ST", unit_price=2, available_qty=2000,
                   category="10400", orderable=True, reason=OrderableReason.ok)
@@ -128,10 +133,16 @@ def test_portal_auth_chat_and_analytics(gateway, monkeypatch):
             assert "quantity and unit" in incomplete.json()["message"]
             unrelated = await http.post("/client/chat", headers=buyer, json={"text": "Unrelated milk lookup"})
             assert unrelated.status_code == 200
+            for address in ("Testikatu 1", "00100", "FI-00100"):
+                incomplete_address = await http.post("/client/tickets/submit", headers=buyer, json={
+                    "quote_id": draft["quote_id"], "delivery_address": address})
+                assert incomplete_address.status_code == 422, incomplete_address.text
+                assert "street address" in incomplete_address.json()["detail"]
+            assert (await http.get("/orders", headers=buyer)).json() == []
             result = await http.post("/client/tickets/submit", headers=buyer, json={
-                "quote_id": draft["quote_id"], "delivery_address": "Hotel kitchen, Testikatu 1, 00100 Helsinki"})
+                "quote_id": draft["quote_id"], "delivery_address": "Hotel kitchen, Testikatu, 00100 Helsinki"})
             assert result.status_code == 200 and result.json()["status"] == "confirmed", result.text
-            assert result.json()["delivery_address"] == "Hotel kitchen, Testikatu 1, 00100 Helsinki"
+            assert result.json()["delivery_address"] == "Hotel kitchen, Testikatu, 00100 Helsinki"
             listed = (await ops.get("/operations/orders?q=testikatu", headers=admin)).json()["orders"]
             assert [order["delivery_address"] for order in listed] == [result.json()["delivery_address"]]
             replay = await http.post("/client/tickets/submit", headers=buyer, json={"quote_id": draft["quote_id"]})
@@ -473,13 +484,14 @@ def test_live_mode_stock_reservation_prevents_double_spend(gateway, monkeypatch)
 
 def test_order_records_delivery_address_snapshot(gateway):
     import sqlite3
-    from gateway.preferences import Preferences
-    from gateway.workspace import save_settings
 
     client = principal_for_key("demo-hotel-client-key")
     place = lambda day, **options: service.place_order(client, service.create_quote(client, QuoteRequest(
         delivery_date=date(2026, 11, day), lines=[{"product_id": "milk", "quantity": 5}])).quote_id, **options)
-    assert place(16).delivery_address == ""
+    save_settings(Preferences(), client)
+    with pytest.raises(service.GatewayError, match="street address"):
+        place(16)
+    assert service.list_orders(client) == []
     save_settings(Preferences(address="Saved kitchen, Testikatu 1,  00100 Helsinki"), client)
     saved = place(17)
     assert saved.delivery_address == "Saved kitchen, Testikatu 1, 00100 Helsinki"
@@ -501,3 +513,36 @@ def test_order_records_delivery_address_snapshot(gateway):
         assert "delivery_address" not in {row[1] for row in db.execute("PRAGMA table_info(orders)")}
     with store.connect(old) as conn:
         assert "delivery_address" in {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}
+
+
+def test_draft_postcode_completes_the_delivery_address(gateway):
+    from gateway.preferences import Preferences
+    from gateway.workspace import DraftEdit, _save_basket, save_settings
+
+    client = principal_for_key("demo-hotel-client-key")
+    request = QuoteRequest(delivery_date=date(2026, 11, 16), lines=[{"product_id": "milk", "quantity": 5}])
+    quote = service.create_quote(client, request, postal_code="00100")
+    assert quote.postal_code == "00100"
+    # Editing the draft keeps the postcode it was requested with.
+    edited = _save_basket(DraftEdit(delivery_date=date(2026, 11, 17), quantities={"milk": 6}), client,
+                          quote_id=quote.quote_id)
+    assert edited.postal_code == "00100"
+    order = service.place_order(client, edited.quote_id, delivery_address="Testikatu 1,")
+    assert order.delivery_address == "Testikatu 1, 00100"
+    # A postcode already in the address wins, and the saved address is completed the same way.
+    other = service.create_quote(client, request, postal_code="00100")
+    assert service.place_order(client, other.quote_id,
+                               delivery_address="Testitie 2, 33100 Tampere").delivery_address == "Testitie 2, 33100 Tampere"
+    save_settings(Preferences(address="Saved kitchen, Testikatu 3"), client)
+    saved = service.create_quote(client, request, postal_code="00100")
+    assert service.place_order(client, saved.quote_id).delivery_address == "Saved kitchen, Testikatu 3, 00100"
+    save_settings(Preferences(address="Testikatu, 00200 Helsinki", postal_code="00200"), client)
+    searched = service.create_quote(client, request, postal_code="00580")
+    assert service.place_order(client, searched.quote_id).delivery_address == "Testikatu, Helsinki, 00580"
+    save_settings(Preferences(address="Testikatu", postal_code="00200"), client)
+    from_settings = service.create_quote(client, request)
+    assert service.place_order(client, from_settings.quote_id).delivery_address == "Testikatu, 00200"
+    # Without a draft postcode the address must still contain one.
+    bare = service.create_quote(client, request)
+    with pytest.raises(service.GatewayError):
+        service.place_order(client, bare.quote_id, delivery_address="Testikatu 1")

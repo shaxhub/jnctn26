@@ -41,6 +41,7 @@
         },
         "quantity": {
           "exclusiveMinimum": 0,
+          "maximum": 1000000,
           "title": "Quantity",
           "type": "number"
         },
@@ -365,6 +366,18 @@
       "title": "Quote Id",
       "type": "string"
     },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
     "buyer_id": {
       "title": "Buyer Id",
       "type": "string"
@@ -373,6 +386,19 @@
       "format": "date",
       "title": "Delivery Date",
       "type": "string"
+    },
+    "postal_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Delivery postcode given when the quote was requested, if any.",
+      "title": "Postal Code"
     },
     "lines": {
       "items": {

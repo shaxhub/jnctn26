@@ -293,6 +293,7 @@ class Quote(BaseModel):
     name: str | None = None
     buyer_id: str
     delivery_date: date
+    postal_code: str | None = Field(None, description="Delivery postcode given when the quote was requested, if any.")
     lines: list[QuoteLine]
     total_net: float
     total_gross: float
@@ -308,7 +309,11 @@ class Quote(BaseModel):
 class OrderRequest(BaseModel):
     quote_id: str
     agent_rationale: str = Field("", description="Why the agent chose this quote; stored in the audit log.")
-    delivery_address: str | None = Field(None, max_length=240, description="Where to deliver this order. Defaults to the delivery address saved in the buyer's workspace settings.")
+    delivery_address: str | None = Field(
+        None, max_length=240,
+        description="Street address and a five-digit Finnish postcode. "
+        "If omitted, the buyer's saved delivery address must contain both.",
+    )
 
 
 class OrderStatus(str, Enum):

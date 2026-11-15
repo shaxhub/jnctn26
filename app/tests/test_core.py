@@ -96,7 +96,11 @@ def test_policy_hotel_auto_and_limits():
     assert ok.decision.value == "auto"
     big = policy.evaluate(m, [_line(qty=1000)], {"464073": _offer()}, total_net=1640, today=date(2026, 11, 14))
     assert big.decision.value == "needs_approval" and big.fired_rules[0].rule_id == "per_order_limit"
-    week = policy.evaluate(m, [_line(qty=100)], {"464073": _offer()}, total_net=164, weekly_spent=4900, today=date(2026, 11, 14))
+    within_week = policy.evaluate(m, [_line(qty=100)], {"464073": _offer()},
+                                  total_net=164, weekly_spent=7836, today=date(2026, 11, 14))
+    assert within_week.decision.value == "auto"
+    week = policy.evaluate(m, [_line(qty=100)], {"464073": _offer()},
+                           total_net=164, weekly_spent=7837, today=date(2026, 11, 14))
     assert [r.rule_id for r in week.fired_rules] == ["weekly_limit"]
     cap = policy.evaluate(m, [_line(qty=5000)], {"464073": _offer()}, total_net=8200, today=date(2026, 11, 14))
     assert cap.decision.value == "reject" and "hard_cap" in {r.rule_id for r in cap.fired_rules}
@@ -258,6 +262,7 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
         hotel_approver = principal_for_key("demo-hotel-approver-key")
         hospital_agent = principal_for_key("demo-hospital-key")
         hospital_approver = principal_for_key("demo-hospital-approver-key")
+        address = "Testikatu 1, 00100 Helsinki"
 
         stock = {"464306": 2000.0}
         closing = datetime.fromisoformat("2026-11-15T17:00:00+02:00")
@@ -307,7 +312,7 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
         # Valid quote -> pending_approval -> human approval -> confirmed + audit chain ok
         q = service.create_quote(hotel_agent, qreq)
         assert q.policy_preview.decision.value == "needs_approval"
-        ord_pending = service.place_order(hotel_agent, q.quote_id, "over 1k limit")
+        ord_pending = service.place_order(hotel_agent, q.quote_id, "over 1k limit", delivery_address=address)
         assert ord_pending.status == OrderStatus.pending_approval
 
         # Quote replay blocked
@@ -334,7 +339,7 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
         q_drop = service.create_quote(hotel_agent, QuoteRequest(
             delivery_date=MONDAY, lines=[LineRequest(product_id="464306", quantity=500)]))
         stock["464306"] = 10.0
-        ord_drop = service.place_order(hotel_agent, q_drop.quote_id, "stock dropped")
+        ord_drop = service.place_order(hotel_agent, q_drop.quote_id, "stock dropped", delivery_address=address)
         assert ord_drop.status == OrderStatus.rejected
         assert "quote_invalid" in {r.rule_id for r in ord_drop.policy.fired_rules}
 
@@ -355,7 +360,7 @@ def test_service_lifecycle_guards_and_store_reset(tmp_path, monkeypatch):
         # Approval granted after quote expiry marks order expired & approval rejected (not approved)
         q_exp = service.create_quote(hotel_agent, QuoteRequest(
             delivery_date=MONDAY, lines=[LineRequest(product_id="464073", quantity=800)]))
-        ord_exp = service.place_order(hotel_agent, q_exp.quote_id, "awaiting approval")
+        ord_exp = service.place_order(hotel_agent, q_exp.quote_id, "awaiting approval", delivery_address=address)
         assert ord_exp.status == OrderStatus.pending_approval
         store.set_demo_now(closing + timedelta(minutes=5))
         ord_late = service.decide_approval(Admin(), ord_exp.approval_id, "approve", "too late")

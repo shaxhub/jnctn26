@@ -17,7 +17,7 @@ import httpx
 from . import audit, decisions, fulfillment, gemini, policy, quotes, recurring, store, substitutions
 from .auth import Admin, Principal
 from .config import TZ, demo_catalog_enabled
-from .delivery import estimate
+from .delivery import address_without_postcode, estimate, has_street_address_and_postcode, postal_code_from_address
 from .models import (Approval, Decision, FiredRule, Need, Offer, OffersRequest, Order, OrderableReason, OrderStatus, PlanResult,
                      PolicyResult, Quote, QuoteLine, QuoteRequest, SearchRequest, SearchResult, expand_allergens)
 from .offers import get_offers
@@ -214,7 +214,8 @@ def _dietary_conflicts(offers: list[Offer], allergens: list[str], claims: list[s
 
 
 def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = None,
-                 max_total_gross: float | None = None, name: str | None = None) -> Quote:
+                 max_total_gross: float | None = None, name: str | None = None,
+                 postal_code: str | None = None) -> Quote:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
     ids = [l.product_id for l in req.lines]
@@ -287,7 +288,7 @@ def create_quote(p: Principal, req: QuoteRequest, *, supersedes: str | None = No
                "currency": "EUR", "created_at": now.isoformat(), "expires_at": expires.isoformat(),
                "need": req.need.model_dump(mode="json") if req.need else None, "order_channel": p.role,
                "exclude_allergens": req.exclude_allergens, "required_claims": req.required_claims,
-               "max_total_gross": max_total_gross}
+               "max_total_gross": max_total_gross, "postal_code": postal_code}
     try:
         jws = quotes.sign(payload)
     except ValueError as exc:
@@ -366,7 +367,7 @@ def repeat_quote(p: Principal, order_id: str, delivery_date: date) -> Quote:
     return create_quote(p, QuoteRequest(delivery_date=delivery_date, need=need,
         exclude_allergens=payload.get("exclude_allergens", []), required_claims=payload.get("required_claims", []), lines=[
         {"product_id": line.product_id, "quantity": line.quantity} for line in original.lines
-    ]))
+    ]), postal_code=payload.get("postal_code"))
 
 
 
@@ -422,10 +423,6 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
                 delivery_address: str | None = None) -> Order:
     if p.role not in {"agent", "client"} or not p.can_order:
         raise GatewayError(403, "Use a purchasing agent or client workspace key")
-    # The address is a snapshot: later changes to the workspace setting do not move an existing order.
-    address = " ".join((delivery_address or "").split()) or " ".join(preferences(p.buyer_id).address.split())
-    if len(address) > 240:
-        raise GatewayError(422, "Delivery address must be at most 240 characters")
     row = store.fetchone("SELECT * FROM quotes WHERE quote_id=?", (quote_id,))
     if row is None or row["buyer_id"] != p.buyer_id:
         raise _quote_invalid(p, quote_id, 404, f"quote {quote_id} not found for this buyer")
@@ -445,6 +442,23 @@ def place_order(p: Principal, quote_id: str, agent_rationale: str = "", *, repla
         raise _quote_invalid(p, quote_id, 409, f"quote {quote_id} was already used")
     if store.now() >= _aware(datetime.fromisoformat(payload["expires_at"])):
         raise _quote_invalid(p, quote_id, 409, f"Quote {quote_id} expired; request a new quote")
+
+    # Snapshot the explicit address or the buyer's saved address when placing a new order.
+    postcode = payload.get("postal_code")
+    address = delivery_address
+    if address is None:
+        saved = preferences(p.buyer_id)
+        address = saved.address
+        postcode = postcode or saved.postal_code
+        if postcode and postal_code_from_address(address) != postcode:
+            address = address_without_postcode(address)
+    address = " ".join(address.split())
+    if address and postcode and postal_code_from_address(address) is None:
+        address = f"{address.rstrip(',').rstrip()}, {postcode}"
+    if len(address) > 240:
+        raise GatewayError(422, "Delivery address must be at most 240 characters")
+    if not has_street_address_and_postcode(address):
+        raise GatewayError(422, "Provide a street address and a five-digit Finnish postcode.")
 
     lines = [QuoteLine(**line) for line in payload["lines"]]
     need = Need(**payload["need"]) if payload.get("need") else None

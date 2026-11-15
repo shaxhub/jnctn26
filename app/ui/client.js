@@ -1,5 +1,6 @@
 import {orderThread, stageName} from "./order_thread.js";
-import {$, auditTrail, date, deliveryAddress, dateTime, feedback, gatewayNow, lineItems, money, node, number, pill, portalUrl, request, table, translate} from "./common.js";
+import {$, auditTrail, configurePostcodeInput, date, deliveryAddress, deliveryAddressParts,
+  dateTime, feedback, gatewayNow, lineItems, money, node, number, pill, portalUrl, request, table, translate} from "./common.js";
 
 const buyer = $("buyer");
 export const buyerKey = () => buyer.dataset.hosted === "true" ? "" : "demo-" + buyer.value + "-client-key";
@@ -8,12 +9,13 @@ let queryVersion = 0;
 let basket = null;
 
 export function editBasket(quote) {
-  basket = {id:quote.quote_id, delivery:quote.delivery_date, lines:new Map()};
+  basket = {id:quote.quote_id, delivery:quote.delivery_date, postalCode:quote.postal_code, lines:new Map()};
   for (const line of quote.lines) {
     const previous = basket.lines.get(line.product_id);
     basket.lines.set(line.product_id, {...line, quantity:line.quantity + (previous?.quantity || 0)});
   }
   $("chat-delivery-date").value = basket.delivery;
+  $("postcode").value = basket.postalCode || "";
   location.hash = "products";
   renderBasket();
 }
@@ -69,7 +71,7 @@ function renderBasket() {
     save.disabled = true;
     try {
       const quote = await request("/client/basket" + (state.id ? "?quote_id=" + encodeURIComponent(state.id) : ""),
-        buyerKey(), {delivery_date:delivery, quantities:Object.fromEntries(
+        buyerKey(), {delivery_date:delivery, postal_code:$("postcode").value || state.postalCode || null, quantities:Object.fromEntries(
           [...state.lines].map(([sku, item]) => [sku, item.quantity])),
           exclude_allergens:[...new Set([...state.lines.values()].flatMap(item => item.excludeAllergens || []))],
           required_claims:[...new Set([...state.lines.values()].flatMap(item => item.requiredClaims || []))]});
@@ -77,7 +79,6 @@ function renderBasket() {
       basket = null;
       renderBasket();
       showDraft(quote);
-      window.dispatchEvent(new Event("draft-changed"));
     } catch (error) {
       feedback(notice, error.message, true);
     } finally {
@@ -98,6 +99,7 @@ export function ticketNameForm(name, url, key) {
   input.maxLength = 100;
   const button = node("button", tr("Save name", "Tallenna nimi"));
   const notice = node("p", "", "feedback");
+  notice.hidden = true;
   notice.setAttribute("role", "status");
   label.append(input);
   form.append(label, button, notice);
@@ -175,29 +177,49 @@ export function showDraft(quote, outcome, target = $("draft")) {
   info.hidden = true;
   info.setAttribute("role", "status");
   actions.append(button);
-  // The address is stored on the order; it starts from the workspace setting and can differ per order.
+  const deliveryFields = node("div", "", "delivery-address-fields");
   const addressLabel = node("label", tr("Delivery address", "Toimitusosoite"), "delivery-address-field");
   const address = node("input");
   address.maxLength = 240;
   address.autocomplete = "street-address";
-  address.placeholder = tr("Street, postcode and city", "Katuosoite, postinumero ja kaupunki");
+  address.placeholder = tr("Street address and city", "Katuosoite ja kaupunki");
   addressLabel.append(address);
+  const postcodeLabel = node("label", tr("Postcode", "Postinumero"), "delivery-address-field");
+  const postcode = node("input");
+  configurePostcodeInput(postcode);
+  postcode.value = quote.postal_code || "";
+  postcodeLabel.append(postcode);
+  deliveryFields.append(addressLabel, postcodeLabel);
+  let addressEdited = false;
+  let postcodeEdited = false;
+  address.addEventListener("input", () => { addressEdited = true; });
+  postcode.addEventListener("input", () => { postcodeEdited = true; });
   request("/client/settings", buyerKey()).then(saved => {
-    if (!address.value && saved.address) address.value = saved.address;
+    if (!deliveryFields.isConnected) return;
+    const savedAddress = deliveryAddressParts(saved.address);
+    if (!addressEdited) address.value = savedAddress.address;
+    if (!postcodeEdited && !postcode.value) postcode.value = saved.postal_code || savedAddress.postalCode;
   }).catch(() => {});
-  target.append(addressLabel, actions, info);
+  target.append(deliveryFields, actions, info);
   button.addEventListener("click", async () => {
     const current = scope;
-    const deliverTo = address.value.trim();
+    const deliverTo = deliveryAddressParts(address.value).address;
     if (!deliverTo) {
       feedback(info, tr("Enter a delivery address before submitting.", "Lisää toimitusosoite ennen lähettämistä."), true);
       address.focus();
       return;
     }
+    if (!/^[0-9]{5}$/.test(postcode.value)) {
+      feedback(info, tr("Enter a five-digit postcode before submitting.", "Lisää viisinumeroinen postinumero ennen lähettämistä."), true);
+      postcode.focus();
+      return;
+    }
     button.disabled = true;
     feedback(info, "Submitting ticket…");
     try {
-      const order = await request("/client/tickets/submit", buyerKey(), {quote_id: quote.quote_id, delivery_address: deliverTo});
+      const order = await request("/client/tickets/submit", buyerKey(), {
+        quote_id: quote.quote_id, delivery_address: deliverTo + ", " + postcode.value,
+      });
       if (current === scope && target.isConnected) {
         showDraft(null, order, target);
         window.dispatchEvent(new Event("ticket-submitted"));
@@ -210,7 +232,7 @@ export function showDraft(quote, outcome, target = $("draft")) {
   });
 }
 
-function offerRows(offers, deliveryDate, need) {
+function offerRows(offers, deliveryDate, need, postalCode) {
   return offers.map(item => {
     const product = node("span", item.name || item.product_id);
     const provenance = item.substitution_source === "catalog_ingredient_match" ? " · Catalog suggestion" : "";
@@ -231,7 +253,8 @@ function offerRows(offers, deliveryDate, need) {
             "Hae tuotteita ostoskorin toimituspäivälle ennen lisäämistä."), true);
           return;
         }
-        basket ||= {id:null, delivery:deliveryDate, lines:new Map()};
+        basket ||= {id:null, delivery:deliveryDate, postalCode, lines:new Map()};
+        if (postalCode) basket.postalCode = postalCode;
         const existing = basket.lines.get(item.product_id);
         const lot = item.allowed_lot_size || 1;
         basket.lines.set(item.product_id, {...item, quantity:(existing?.quantity || 0) + lot,
@@ -275,7 +298,8 @@ function showResults(result, requestData) {
   const headings = ["Product", "Net price / unit", "Availability", "Earliest date", "kg CO₂e/kg", "Reliability"];
   const delivery = result.need?.delivery_date;
   const basketHeadings = delivery ? [...headings, tr("Basket", "Ostoskori")] : headings;
-  target.append(node("h3", tr("Live offers", "Ajantasaiset tarjoukset"), "results"), table(basketHeadings, offerRows(result.offers, delivery, result.need)));
+  target.append(node("h3", tr("Live offers", "Ajantasaiset tarjoukset"), "results"),
+    table(basketHeadings, offerRows(result.offers, delivery, result.need, eta?.postal_code)));
   if (result.next_delivery_options?.length) {
     target.append(node("h3", "Available on a later date", "results"),
       table(headings, offerRows(result.next_delivery_options.map(option => option.offer))));
@@ -283,7 +307,7 @@ function showResults(result, requestData) {
   for (const [productId, alternatives] of Object.entries(result.alternatives ?? {})) {
     if (alternatives.length) {
       target.append(node("h3", "Alternatives for " + productId, "results"),
-        table(basketHeadings, offerRows(alternatives, delivery, result.need)));
+        table(basketHeadings, offerRows(alternatives, delivery, result.need, eta?.postal_code)));
     }
   }
 }
@@ -333,7 +357,7 @@ export async function inspectTicket(id) {
     const order = detail.order;
     if (current !== scope || !dialog.open) return;
     const name = ticketNameForm(order.name, url, key);
-    target.replaceChildren(name, node("span", stageName(detail.stage, document.documentElement.lang), "tag"), node("p", order.order_id + tr(" · Delivery ", " · Toimitus ") + date(order.delivery_date),
+    target.replaceChildren(name, node("span", stageName(detail.stage, document.documentElement.lang), "tag stage-tag " + detail.stage), node("p", order.order_id + tr(" · Delivery ", " · Toimitus ") + date(order.delivery_date),
       "cell-note"), deliveryAddress(order), lineItems(order.lines), node("p", money.format(order.total_net) + " excl. VAT", "ticket-total"),
       node("h3", "Policy decision", "results"), node("p", order.policy.reasons.join(" ")));
     target.append(orderThread(detail, {url, key, language:document.documentElement.lang}));
@@ -460,6 +484,7 @@ $("seasonal-pick").addEventListener("click", async () => {
 buyer.addEventListener("change", () => {
   scope += 1;
   basket = null;
+  $("postcode").value = "";
   renderBasket();
   queryVersion += 1;
   $("seasonal-pick").disabled = false;

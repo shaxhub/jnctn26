@@ -11,7 +11,7 @@ flowchart LR
     G --> H["Recheck price, stock and dietary constraints"]
     H --> I{"Valid basket?"}
     I -->|No| J["Return error and keep existing draft"]
-    I -->|Yes| K["Sign a fresh quote and save it<br/>Supersede the prior draft when editing"]
+    I -->|Yes| K["Sign a fresh quote with the selected postcode when available<br/>Supersede the prior draft when editing"]
 ```
 
 Renaming updates the ticket label without changing the signed quote. Deleting marks the draft as deleted. A submitted request inherits the draft name.

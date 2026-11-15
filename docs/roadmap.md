@@ -13,7 +13,7 @@ For Valio Aimo business and IT. Timings are our estimates, not commitments; they
 
 | Step | What | Why |
 |------|------|-----|
-| Real identity | OAuth 2.1 for agents (client credentials per agent, short-lived tokens) and SSO for approvers. Keys hashed and revocable per agent. | Demo API keys are fine for a prototype, not for money. Lets a buyer run several agents with different mandates. |
+| Managed identity | Scoped, short-lived agent credentials and organization sign-in for approvers. | Supports buyers who run multiple purchasing agents and need managed access. |
 | Real data, read-only | Connect to real price, stock, cutoff and delivery-route data. Keep the order path mocked. | Prove offer accuracy on real data before anyone can place an order. |
 | Mandate editor | A simple page where a buyer's purchasing manager sets limits, forbidden allergens, preferred products and approvers. | Buyers won't write JSON. The mandate is the product. |
 | Production storage | Postgres for orders, mandates and audit (plus external audit-head anchoring); OpenSearch for catalogue search with Finnish and Swedish analysis. | SQLite was the right prototype choice (ADR 0004), not the right production one. |

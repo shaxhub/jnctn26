@@ -17,8 +17,8 @@ See also [README.md](README.md), [Architecture Decision Records](../docs/adr/), 
    means unknown: not offered by the planner; if an agent quotes it anyway the mandate's `unknown_availability`
    rule sends it to a human.
 5. **Later date.** If `availableDate` is after the requested date, the product is not orderable for that date
-   (`later_date`). We include `available_date` in the excluded metadata; automatic re-planning for a later date is
-   on the roadmap.
+   (`later_date`). `check_offers` can recheck a supplier-reported later date when `include_next_delivery` is enabled.
+   The result is presented separately from the requested delivery date.
 6. **Sales block.** `salesBlock` on the product or the schedule line means not orderable.
 7. **Customer id is ignored** by the mock (documented); we send `VALIO_CUSTOMER_ID` (default `123`) for every buyer,
    and include `customer` in the client cache key so multi-customer caches never mix in production.
@@ -67,15 +67,16 @@ See also [README.md](README.md), [Architecture Decision Records](../docs/adr/), 
 
 ## Mandates, approvals, audit and demo clock
 20. The **mandate is issued by the buyer organisation** (e.g. F&B manager, clinical dietitian) and stored with the gateway.
-    The agent's credential selects it; no tool or endpoint takes a buyer id or limit from the agent. Approver keys
-    cannot call MCP tools, quote, or order (`require_agent`), and agent keys cannot approve (`require_approver`).
+    The agent's credential selects the mandate. MCP order tools receive no buyer ID or mandate limit from the agent.
+    Aimo staff review exceptions in the admin panel. An external agent key cannot approve an order.
 21. Limits are on **net** (VAT-free) totals. The weekly limit counts the current ISO week (Mon–Sun, Helsinki time) of
     orders that are confirmed or pending approval, by creation time.
-22. `hard_cap` defaults to 5 × the per-order limit and to 5 × the requested quantity; above it (or outside
-    `allowed_categories`) the order is rejected outright (a human cannot approve it through this channel).
+22. The hard price ceiling defaults to 5 × the per-order limit. When a need is supplied, the mandate's
+    quantity multiple also applies. A breach of either ceiling or the allowed categories blocks approval.
 23. Policy runs at quote time (preview) and again at order time (binding), after re-checking live availability.
-24. Only approver keys can decide approvals, and only for their own buyer. Approving after the quote expired marks the
-    order `expired` and the approval `rejected` (prices/cutoff no longer guaranteed).
+24. Aimo admins decide pending approvals through the operations review queue. The local REST compatibility
+    route also supports buyer-scoped demo approvers for their own orders. Approving after quote expiry marks the
+    order `expired` and the approval `rejected`.
 25. Quote expiry = earliest of price `validTo` and line order cutoffs; when no line has a cutoff (e.g. `no_availability_data`),
     expiry is capped at `min(price validTo, now + 2 h)`.
 26. "Confirmed" means accepted by the gateway. The mock has no order endpoint, so nothing is sent to Valio.

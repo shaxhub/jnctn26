@@ -1,6 +1,10 @@
 # Connect your AI to Agent Dairy
 
-Start the [local server](../README.md#run-locally) before configuring your client. Agent Dairy uses **Streamable HTTP** MCP with Bearer authentication. The team has connected it from the ChatGPT Desktop App, Google Antigravity, and OpenCode.
+Agent Dairy uses **Streamable HTTP** MCP with Bearer authentication. The team has connected it from the ChatGPT Desktop App, Google Antigravity, and OpenCode.
+
+For the hackathon, we’ve set up a [live MCP server](https://agent-dairy.kienlebox.stream/mcp) for hackathon partners only. If you’re a partner, follow the [live MCP connection guide](live-mcp-connection.md) to create a Bearer key and connect your agent.
+
+For local development, start the [local server](../README.md#run-locally) before configuring your client.
 
 ## Get your URL and key
 
